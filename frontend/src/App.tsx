@@ -1,0 +1,277 @@
+import { useState, useEffect } from 'react';
+import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText } from 'lucide-react';
+import LiveStreamTab from './components/LiveStreamTab';
+import DatabaseTab from './components/DatabaseTab';
+import ImageGatheringTab from './components/ImageGatheringTab';
+import ImageAnalysisTab from './components/ImageAnalysisTab';
+import DocumentationTab from './components/DocumentationTab';
+import AuthPage from './components/AuthPage';
+import logoUndip from './assets/logo-undip.png';
+import logoBrin from './assets/logo-brin.png';
+
+
+type TabName = 'Live Stream' | 'Database' | 'Image Gathering' | 'Image Analysis' | 'Documentation';
+
+export interface KeypadConfig {
+  visible: boolean;
+  title: string;
+  value: string;
+  onUpdate: (val: string) => void;
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabName>('Live Stream');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  const [targetAnalysisImage, setTargetAnalysisImage] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // State Operator Session
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  
+  // === FITUR BARU: GLOBAL CONFIG HARDWARE VS VIRTUAL KEYBOARD ===
+  const [useVirtualKeyboard, setUseVirtualKeyboard] = useState<boolean>(true);
+
+  const [keypad, setKeypad] = useState<KeypadConfig>({
+    visible: false,
+    title: '',
+    value: '',
+    onUpdate: () => { },
+  });
+
+  const [keypadPos, setKeypadPos] = useState({ x: 300, y: 150 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragRel, setDragRel] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatDate = (date: Date) => date.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+  const formatTime = (date: Date) => date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    setDragRel({ x: e.clientX - keypadPos.x, y: e.clientY - keypadPos.y });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    setKeypadPos({ x: e.clientX - dragRel.x, y: e.clientY - dragRel.y });
+  };
+  
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(false);
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  const handleKeypadPress = (num: string) => setKeypad({ ...keypad, value: keypad.value + num });
+  const handleKeypadDel = () => setKeypad({ ...keypad, value: keypad.value.slice(0, -1) });
+  const handleKeypadClear = () => setKeypad({ ...keypad, value: '' });
+  const handleKeypadEnter = () => {
+    keypad.onUpdate(keypad.value || '0'); 
+    setKeypad({ ...keypad, visible: false });
+  };
+
+  // Interseptor khusus: memblokir pembukaan numpad jika user memilih keyboard fisik
+  const handleOpenKeypadGlobal = (config: KeypadConfig) => {
+    if (!useVirtualKeyboard) return; // Blokir total jika mode virtual mati
+    setKeypad(config);
+  };
+
+  if (!currentUser) {
+    return (
+      <AuthPage 
+        isDarkMode={isDarkMode} 
+        onLoginSuccess={(username) => setCurrentUser(username)}
+        globalVirtualKeyboard={useVirtualKeyboard}
+        setGlobalVirtualKeyboard={setUseVirtualKeyboard}
+      />
+    );
+  }
+
+  return (
+    <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans transition-colors duration-300 ${isDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+
+      {/* PERBAIKAN HEADER: RESPONSIVE & ADAPTIVE 7 INCH LAYOUT */}
+      <header className={`px-4 py-2 flex items-center justify-between border-b shrink-0 gap-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+        
+        {/* Sisi Kiri Header */}
+        <div className="flex items-center space-x-3 shrink-0">
+          {/* <div className="font-bold text-sm tracking-wide whitespace-nowrap">
+            <span className="text-blue-500">BRIN</span><span className="text-gray-400 mx-1.5">|</span><span className="text-blue-700">UNDIP</span>
+          </div> */}
+          <div className="flex items-center gap-2 shrink-0 bg-white/5 p-1 rounded-xl border border-gray-750/30">
+  {/* Logo BRIN */}
+  <img 
+    src={logoBrin} 
+    alt="BRIN Logo" 
+    className="h-6 w-auto object-contain bg-white rounded-md p-0.5" 
+  />
+  
+  {/* Garis Pembatas Vertikal */}
+  <div className="w-px h-5 bg-gray-700 mx-0.5"></div>
+  
+  {/* Logo UNDIP */}
+  <img 
+    src={logoUndip} 
+    alt="UNDIP Logo" 
+    className="h-6 w-auto object-contain" 
+  />
+</div>
+          <div className="flex items-center px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-500 text-[10px] font-bold">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse"></div>CONNECTED
+          </div>
+        </div>
+
+        {/* Sisi Tengah Header: DIJAMIN SENTRALISASI DAN TIDAK LENYAP */}
+        <div className="flex-1 text-center min-w-0">
+          <h1 className="text-sm sm:text-base font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 truncate tracking-wider uppercase">
+            Digital Microscopy
+          </h1>
+        </div>
+
+        {/* Sisi Kanan Header */}
+        <div className="flex items-center space-x-2 shrink-0">
+          {/* PERBAIKAN: INTERFACE TOGGLE GLOBAL KEYBOARD DI HEADER */}
+          <button 
+            onClick={() => setUseVirtualKeyboard(!useVirtualKeyboard)}
+            className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-colors ${isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'} ${useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'}`}
+          >
+            <Keyboard size={14} />
+            <span className="hidden sm:inline">Screen KB</span>
+            {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500"/> : <ToggleLeft size={16}/>}
+          </button>
+
+          {/* PERBAIKAN: PENAMBAHAN IKON ORANG DI USER PROFILE */}
+          <span className="text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border border-gray-700/60 flex items-center gap-1.5 shadow-inner">
+            <User size={13} className="text-blue-400" />
+            <span className="text-gray-400 hidden xs:inline">User:</span>
+            <span className="text-blue-400 max-w-[60px] truncate">{currentUser}</span>
+          </span>
+
+          <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
+            {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
+          </button>
+        </div>
+      </header>
+
+      {/* STATUS BAR MONITORS */}
+      <div className={`px-4 py-2 flex items-center justify-between text-[11px] font-bold border-b shrink-0 ${isDarkMode ? 'bg-gray-900/50 border-gray-800 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+        <div className="flex items-center space-x-6">
+          <span className="flex items-center"><Server size={12} className="mr-1.5 text-blue-500" /> Jetson Orin Nano</span>
+          <span className="flex items-center text-yellow-500"><Activity size={12} className="mr-1.5" /> Idle</span>
+          <span>RAM: 5/8 GB</span>
+          <span>ROM: 2/50 GB</span>
+        </div>
+        <div className="flex items-center space-x-6">
+          <span className="flex items-center"><Calendar size={12} className="mr-1.5" /> {formatDate(currentTime)}</span>
+          <span className="flex items-center"><Clock size={12} className="mr-1.5" /> {formatTime(currentTime)}</span>
+          <span className="flex items-center text-red-500"><MapPin size={12} className="mr-1.5" /> Semarang</span>
+        </div>
+      </div>
+
+      {/* NAVIGATION BAR */}
+      <nav className={`px-2 pt-2 flex space-x-1 border-b shrink-0 ${isDarkMode ? 'border-gray-800 bg-gray-900/80' : 'border-gray-200 bg-white'}`}>
+        {(['Live Stream', 'Database', 'Image Gathering', 'Image Analysis', 'Documentation'] as TabName[]).map((tab) => {
+          // Fungsi lokal untuk menentukan ikon berdasarkan nama tab
+          const getTabIcon = () => {
+            switch (tab) {
+              case 'Live Stream': return <Camera size={14} />;
+              case 'Database': return <Database size={14} />;
+              case 'Image Gathering': return <Grid3X3 size={14} />;
+              case 'Image Analysis': return <Scan size={14} />;
+              case 'Documentation': return <FileText size={14} />;
+            }
+          };
+
+          return (
+            <button 
+              key={tab} 
+              onClick={() => setActiveTab(tab)}
+              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 ${
+                activeTab === tab 
+                  ? (isDarkMode ? 'bg-gray-800 text-blue-400 border-blue-500' : 'bg-gray-100 text-blue-600 border-blue-600')
+                  : (isDarkMode ? 'text-gray-500 hover:bg-gray-800/50 border-transparent' : 'text-gray-500 hover:bg-gray-100 border-transparent')
+              }`}
+            >
+              {/* Render Ikon */}
+              <span className={activeTab === tab ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : 'text-gray-500'}>
+                {getTabIcon()}
+              </span>
+              {/* Teks Judul Tab */}
+              <span>{tab}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* APPLICATION CONTENT CONTAINER */}
+      <main className="flex-1 min-h-0 p-3 relative">
+        {activeTab === 'Live Stream' && <LiveStreamTab isDarkMode={isDarkMode} openKeypad={handleOpenKeypadGlobal} />}
+        {activeTab === 'Database' && <DatabaseTab isDarkMode={isDarkMode} />}
+        {activeTab === 'Image Gathering' && (
+          <ImageGatheringTab 
+            isDarkMode={isDarkMode} 
+            openKeypad={handleOpenKeypadGlobal}
+            onNavigateToAnalysis={(imageName) => {
+              setTargetAnalysisImage(imageName); 
+              setActiveTab('Image Analysis'); 
+            }}
+          />
+        )}
+        {activeTab === 'Image Analysis' && (
+          <ImageAnalysisTab 
+            isDarkMode={isDarkMode} 
+            targetImage={targetAnalysisImage} 
+            onClearTarget={() => setTargetAnalysisImage(null)} 
+          />
+        )}
+        {activeTab === 'Documentation' && <DocumentationTab isDarkMode={isDarkMode} />}
+      </main>
+
+      {/* GLOBAL VIRTUAL NUMPAD MELAYANG */}
+      {keypad.visible && useVirtualKeyboard && (
+        <div className={`absolute z-50 rounded-xl shadow-2xl border-2 flex flex-col touch-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`} style={{ left: keypadPos.x, top: keypadPos.y, width: '260px' }}>
+          <div
+            className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-black'}`}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
+            <span className="text-xs font-bold">{keypad.title}</span>
+            <button
+              onPointerDown={(e) => {
+                e.stopPropagation(); 
+                setKeypad({ ...keypad, visible: false });
+              }}
+              className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className={`p-3 text-right text-xl font-mono font-bold tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+            {keypad.value || '0'}
+          </div>
+
+          <div className="grid grid-cols-3 gap-1 p-2 bg-black/5 rounded-b-xl">
+            {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0'].map((btn) => (
+              <button key={btn} onClick={() => handleKeypadPress(btn)} className={`p-3 text-lg font-bold rounded-lg shadow-sm active:scale-95 transition-transform ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700 text-white' : 'bg-white hover:bg-gray-100 border'}`}>
+                {btn}
+              </button>
+            ))}
+            <button onClick={handleKeypadDel} className={`p-3 text-lg font-bold rounded-lg shadow-sm active:scale-95 flex items-center justify-center ${isDarkMode ? 'bg-gray-700 text-red-400' : 'bg-gray-200 text-red-600'}`}>
+              <Delete size={20} />
+            </button>
+            <button onClick={handleKeypadClear} className={`col-span-1 p-3 text-sm font-bold rounded-lg shadow-sm active:scale-95 text-yellow-500 ${isDarkMode ? 'bg-gray-800' : 'bg-white border'}`}>CLR</button>
+            <button onClick={handleKeypadEnter} className="col-span-2 p-3 text-sm font-bold rounded-lg shadow-sm active:scale-95 bg-blue-600 text-white">ENTER</button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

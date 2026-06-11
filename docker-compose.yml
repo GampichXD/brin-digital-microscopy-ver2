@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: ./frontend
+    container_name: mikroskop_frontend
+    ports:
+      - "5173:80"
+
+  backend:
+    build: ./backend
+    container_name: mikroskop_backend
+    ports:
+      - "8000:8000"
+    # Jika nanti di Linux/Raspberry Pi/Jetson untuk hardware fisik:
+    # devices:
+    #   - "/dev/ttyUSB0:/dev/ttyUSB0"
+    #   - "/dev/video0:/dev/video0"
+
+  nginx:
+    image: nginx:alpine
+    container_name: mikroskop_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - frontend
+      - backend
