@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture } from 'lucide-react';
+import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 
 interface LiveStreamTabProps {
   isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
+  globalVirtualKeyboard: boolean;
+  isSystemHardwareEnabled: boolean; // Diterima dan digunakan sebagai guard!
 }
 
-export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabProps) {
+export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKeyboard, isSystemHardwareEnabled }: LiveStreamTabProps) {
   const [cameraActive, setCameraActive] = useState(false);
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
   
@@ -20,8 +22,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
   const [acceleration, setAcceleration] = useState<string>("10");
   const [settleTime, setSettleTime] = useState<string>("500");
 
-  // === NEW: Parameter Kamera IMX477 ===
-  const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); // dalam micro-seconds
+  const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
   const motorPos = { x: 12.55, y: 8.20, z: 1200 };
@@ -34,7 +35,9 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
 
+  // === PERBAIKAN: GUARD INTERSEPTOR KEYPAD VIRTUAL VS FISIK ===
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
+    if (!globalVirtualKeyboard) return; // Jika mode virtual mati, jangan pop-up numpad
     openKeypad({
       visible: true,
       title: title,
@@ -88,9 +91,17 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
           </div>
         )}
 
-        <button onClick={() => setCameraActive(!cameraActive)} className={`absolute bottom-6 right-6 px-6 py-4 rounded-xl text-lg font-bold flex items-center shadow-2xl z-10 ${cameraActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}>
-          {cameraActive ? <><CameraOff size={24} className="mr-3" /> Matikan</> : <><Camera size={24} className="mr-3" /> Nyalakan</>}
-        </button>
+        <button 
+  disabled={!isSystemHardwareEnabled} // <--- KUNCI TOMBOL JIKA ADMIN LOCK MESIN
+  onClick={() => setCameraActive(!cameraActive)} 
+  className={`absolute bottom-6 right-6 px-6 py-4 rounded-xl text-lg font-bold flex items-center shadow-2xl z-10 ${
+    !isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
+    cameraActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
+  }`}
+>
+  {!isSystemHardwareEnabled ? <><AlertOctagon size={24} className="mr-3"/> Hardware Locked</> :
+   cameraActive ? <><CameraOff size={24} className="mr-3" /> Matikan</> : <><Camera size={24} className="mr-3" /> Nyalakan</>}
+</button>
       </div>
 
       {/* ==================== KANAN: PANEL KONTROL ==================== */}
@@ -117,7 +128,15 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-[10px] font-bold ${themeClasses.textMuted}`}>MEJA (X/Y)</span>
                 <div className="flex items-center">
-                  <div onClick={() => triggerKeypad('Step X/Y', xyStepValue, setXyStepValue)} className={`w-12 h-6 flex items-center justify-center rounded-l border text-xs font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{xyStepValue || '0'}</div>
+                  {/* PERBAIKAN: Input Mendukung Pengetikan Keyboard Fisik Saat Virtual Mati */}
+                  <input
+                    type="number"
+                    readOnly={globalVirtualKeyboard}
+                    value={xyStepValue}
+                    onChange={(e) => setXyStepValue(e.target.value)}
+                    onClick={() => triggerKeypad('Step X/Y', xyStepValue, setXyStepValue)}
+                    className={`w-12 h-6 px-1 text-center rounded-l border text-xs font-bold shadow-inner outline-none ${themeClasses.input}`}
+                  />
                   <select value={xyStepUnit} onChange={(e) => setXyStepUnit(e.target.value as 'mm' | 'inch')} className={`h-6 px-1 rounded-r border-y border-r text-[10px] font-bold cursor-pointer outline-none ${themeClasses.input}`}>
                     <option value="mm">mm</option><option value="inch">in</option>
                   </select>
@@ -143,7 +162,14 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
               <div className="flex flex-col mb-2">
                 <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>FOKUS (Z)</span>
                 <div className="flex items-center">
-                  <div onClick={() => triggerKeypad('Step Z (Pulse)', zStepValue, setZStepValue)} className={`flex-1 h-6 flex items-center justify-center rounded border text-xs font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{zStepValue || '0'}</div>
+                  <input
+                    type="number"
+                    readOnly={globalVirtualKeyboard}
+                    value={zStepValue}
+                    onChange={(e) => setZStepValue(e.target.value)}
+                    onClick={() => triggerKeypad('Step Z (Pulse)', zStepValue, setZStepValue)}
+                    className={`flex-1 h-6 px-1 text-center rounded border text-xs font-bold shadow-inner outline-none ${themeClasses.input}`}
+                  />
                   <span className={`text-[10px] ml-1 font-bold ${themeClasses.textMuted}`}>stp</span>
                 </div>
               </div>
@@ -170,11 +196,25 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Shutter Speed <span className="text-[9px]">(µs)</span></span>
-              <div onClick={() => triggerKeypad('Shutter (µs)', shutterSpeed, setShutterSpeed)} className={`w-20 h-8 px-2 flex items-center justify-end rounded-lg border font-mono font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{shutterSpeed || '0'}</div>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={shutterSpeed}
+                onChange={(e) => setShutterSpeed(e.target.value)}
+                onClick={() => triggerKeypad('Shutter (µs)', shutterSpeed, setShutterSpeed)}
+                className={`w-20 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
+              />
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Sensor Gain <span className="text-[9px]">(ISO)</span></span>
-              <div onClick={() => triggerKeypad('ISO', iso, setIso)} className={`w-20 h-8 px-2 flex items-center justify-end rounded-lg border font-mono font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{iso || '0'}</div>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={iso}
+                onChange={(e) => setIso(e.target.value)}
+                onClick={() => triggerKeypad('ISO', iso, setIso)}
+                className={`w-20 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
+              />
             </div>
           </div>
         </div>
@@ -192,19 +232,47 @@ export default function LiveStreamTab({ isDarkMode, openKeypad }: LiveStreamTabP
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Feed Rate <span className="text-[9px]">(mm/min)</span></span>
-              <div onClick={() => triggerKeypad('Feed Rate', feedRate, setFeedRate)} className={`w-16 h-8 px-2 flex items-center justify-end rounded-lg border font-mono font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{feedRate || '0'}</div>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={feedRate}
+                onChange={(e) => setFeedRate(e.target.value)}
+                onClick={() => triggerKeypad('Feed Rate', feedRate, setFeedRate)}
+                className={`w-16 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
+              />
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Backlash Y <span className="text-[9px]">(mm)</span></span>
-              <div onClick={() => triggerKeypad('Backlash Y', backlash, setBacklash)} className={`w-16 h-8 px-2 flex items-center justify-end rounded-lg border font-mono font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{backlash || '0'}</div>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={backlash}
+                onChange={(e) => setBacklash(e.target.value)}
+                onClick={() => triggerKeypad('Backlash Y', backlash, setBacklash)}
+                className={`w-16 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
+              />
             </div>
-             <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Acceleration <span className="text-[9px]">(mm/s²)</span></span>
-              <div onClick={() => triggerKeypad('Acceleration', acceleration, setAcceleration)} className={`w-16 h-8 px-2 flex items-center justify-end rounded-lg border font-mono font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{acceleration || '0'}</div>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={acceleration}
+                onChange={(e) => setAcceleration(e.target.value)}
+                onClick={() => triggerKeypad('Acceleration', acceleration, setAcceleration)}
+                className={`w-16 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
+              />
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Settle Time <span className="text-[9px]">(ms)</span></span>
-              <div onClick={() => triggerKeypad('Cam Delay (ms)', settleTime, setSettleTime)} className={`w-16 h-8 px-2 flex items-center justify-end rounded-lg border font-mono font-bold cursor-pointer shrink-0 ${themeClasses.input}`}>{settleTime || '0'}</div>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={settleTime}
+                onChange={(e) => setSettleTime(e.target.value)}
+                onClick={() => triggerKeypad('Cam Delay (ms)', settleTime, setSettleTime)}
+                className={`w-16 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
+              />
             </div>
           </div>
         </div>

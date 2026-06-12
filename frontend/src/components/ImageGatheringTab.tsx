@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle } from 'lucide-react';
+import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';
 
@@ -17,7 +17,8 @@ interface ImageGatheringTabProps {
   isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
   availableFolders?: DatasetFolder[]; 
-  onNavigateToAnalysis?: (imageName: string) => void; 
+  onNavigateToAnalysis?: (imageName: string) => void;
+  globalVirtualKeyboard: boolean; 
 }
 
 interface CapturedImage {
@@ -29,7 +30,7 @@ interface CapturedImage {
   gridY: number;
 }
 
-export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFolders = [], onNavigateToAnalysis }: ImageGatheringTabProps) {
+export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFolders = [], onNavigateToAnalysis, globalVirtualKeyboard }: ImageGatheringTabProps) {
   const [gatherMode, setGatherMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [cols, setCols] = useState("5");
   const [rows, setRows] = useState("4");
@@ -37,7 +38,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
   const [stepX, setStepX] = useState("1.5"); 
   const [stepY, setStepY] = useState("1.5"); 
   const [zStep, setZStep] = useState("100");
-  const [camDelay, setCamDelay] = useState("500"); // State baru untuk delay kamera
+  const [camDelay, setCamDelay] = useState("500");
   const [autoStitch, setAutoStitch] = useState(false);
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
 
@@ -46,19 +47,19 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
   const [progress, setProgress] = useState(0);
   const [timerTick, setTimerTick] = useState(0);
 
+  const [processTimes, setProcessTimes] = useState({ scan: 0, stitch: 0, total: 0 });
+  const [isRetaking, setIsRetaking] = useState(false); 
+
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showStitchModal, setShowStitchModal] = useState(false);
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
   
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [newFolderObjType, setNewFolderObjType] = useState('');
-  const [newFolderOperator, setNewFolderOperator] = useState('Abraham'); 
+  
+  const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: 'Abraham' });
+  const [vk, setVk] = useState<{ visible: boolean, title: string, field: 'folderName' | 'objectType' | 'operatorName' | null }>({ visible: false, title: '', field: null });
 
-  const [localKeyboard, setLocalKeyboard] = useState<{ visible: boolean, title: string, targetSetter: React.Dispatch<React.SetStateAction<string>> | null }>({ visible: false, title: '', targetSetter: null });
-
-  // === KALKULASI CERDAS (PREDIKSI WAKTU & SOFT LIMIT) ===
   const c = parseInt(cols) || 1;
   const r = parseInt(rows) || 1;
   const sx = parseFloat(stepX) || 0;
@@ -67,59 +68,55 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
   const totalImagesConfig = gatherMode === 'AUTO' ? c * r : capturedImages.length;
   const validImageCount = capturedImages.filter(img => img.filename !== null).length;
 
-  // Konversi unit ke milimeter untuk pengecekan limit CNC
   const unitMultiplier = stepUnit === 'inch' ? 25.4 : 1;
   const totalAreaX_mm = (c - 1) * sx * unitMultiplier;
   const totalAreaY_mm = (r - 1) * sy * unitMultiplier;
   
-  // Batas maksimal fisik meja mesin (Misal: 160mm x 100mm)
   const MAX_CNC_X = 160;
   const MAX_CNC_Y = 100;
   const isLimitExceeded = totalAreaX_mm > MAX_CNC_X || totalAreaY_mm > MAX_CNC_Y;
 
-  // Prediksi Waktu
   const delaySec = (parseInt(camDelay) || 500) / 1000;
-  const motorMoveTimeSec = 1.2; // Asumsi waktu gerak motor antar titik
+  const motorMoveTimeSec = 1.2; 
   const estimatedTotalSeconds = c * r * (delaySec + motorMoveTimeSec);
   const estMins = Math.floor(estimatedTotalSeconds / 60);
   const estSecs = Math.floor(estimatedTotalSeconds % 60);
 
+  // PERBAIKAN: Menambahkan kembali properti overlay
   const theme = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
     text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
     btnTouch: isDarkMode ? 'bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border-gray-600' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 border-gray-300',
-    overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4'
+    modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4',
+    overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4' 
   };
 
   const fallbackFolders = [
-    { id: '1', name: 'E_Coli_Sample_A' },
-    { id: '2', name: 'Yeast_Cells_01' },
-    { id: '3', name: 'Micro_Plastics_B' },
+    { id: '1', name: 'E_Coli_Sample_A', objectType: 'Bakteri E. Coli', operator: 'Abraham', date: '', imageCount: 0 },
+    { id: '2', name: 'Yeast_Cells_01', objectType: 'Sel Ragi', operator: 'Pak Nursidik', date: '', imageCount: 0 },
   ];
 
   const triggerGlobalKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
+    if(!globalVirtualKeyboard) return; 
     openKeypad({ visible: true, title, value: currentValue, onUpdate: setter });
   };
 
-  const handleLocalKeyboardInput = (key: string) => {
-    if (!localKeyboard.targetSetter) return;
-    localKeyboard.targetSetter((prev: string) => {
-      if (key === 'BACK') return prev.slice(0, -1);
-      return prev + key;
-    });
+  const handleVKInput = (key: string) => {
+    if (!vk.field) return;
+    const updateVal = (prev: string) => key === 'BACK' ? prev.slice(0, -1) : prev + key;
+    setSaveForm({ ...saveForm, [vk.field]: updateVal(saveForm[vk.field]) });
   };
 
-  const triggerLocalKeyboard = (title: string, setter: React.Dispatch<React.SetStateAction<string>>) => {
-    setLocalKeyboard({ visible: true, title, targetSetter: setter });
+  const triggerVK = (title: string, field: 'folderName' | 'objectType' | 'operatorName') => {
+    if (!globalVirtualKeyboard) return;
+    setVk({ visible: true, title, field });
   };
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
-    if (isProcessing) {
-      interval = setInterval(() => setTimerTick(prev => prev + 1), 1000);
-    }
+    if (isProcessing) interval = setInterval(() => setTimerTick(prev => prev + 1), 1000);
     return () => { if (interval) clearInterval(interval); };
   }, [isProcessing]);
 
@@ -132,24 +129,33 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
     setProcessTask('Mengambil Gambar (Auto)...');
     setTimerTick(0);
     setProgress(0);
+    setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
     let current = 0;
+    // PERBAIKAN: Menggunakan getTime() untuk menghindari error purity
+    const startTime = new Date().getTime();
+
     const interval = setInterval(() => {
       current += 1;
       setProgress(current);
       if (current >= totalImagesConfig) {
         clearInterval(interval);
         
+        const scanT = (new Date().getTime() - startTime) / 1000; 
         const generatedImages: CapturedImage[] = [];
         for (let i = 0; i < totalImagesConfig; i++) {
-          const gx = i % c;
-          const gy = Math.floor(i / c);
+          const gx = i % c; const gy = Math.floor(i / c);
           generatedImages.push({ index: i, filename: `IMG_AUTO_${String(i+1).padStart(4, '0')}.jpg`, coordX: gx * sx, coordY: gy * sy, gridX: gx, gridY: gy });
         }
         setCapturedImages(generatedImages);
         
-        if (autoStitch) executeStitching();
-        else { setIsProcessing(false); setShowReviewModal(true); }
+        if (autoStitch) {
+          executeStitching(scanT); 
+        } else { 
+          setProcessTimes({ scan: scanT, stitch: 0, total: scanT });
+          setIsProcessing(false); 
+          setShowReviewModal(true); 
+        }
       }
     }, (delaySec * 1000) + (motorMoveTimeSec * 1000));
   };
@@ -159,19 +165,24 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
     setCapturedImages(prev => [...prev, { index: newIndex, filename: `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`, coordX: 0, coordY: 0, gridX: 0, gridY: 0 }]);
   };
 
-  const executeStitching = () => {
+  const executeStitching = (scanTParam = processTimes.scan) => {
     setShowReviewModal(false);
     setIsProcessing(true);
     setProcessTask('AI Tile Stitching Berjalan...');
     setTimerTick(0);
     setProgress(0);
 
+    const stitchStart = new Date().getTime();
     let current = 0;
+
     const interval = setInterval(() => {
       current += 5;
       setProgress(current);
       if (current >= 100) {
         clearInterval(interval);
+        const stitchT = (new Date().getTime() - stitchStart) / 1000;
+        setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
+        
         setIsProcessing(false);
         setShowStitchModal(true);
       }
@@ -191,15 +202,18 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
     setTimeout(() => {
       setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: `IMG_RETAKE_${String(index+1).padStart(4, '0')}.jpg` } : img));
       setIsProcessing(false);
+      setIsRetaking(true);
+      setTimeout(() => setIsRetaking(false), 500); 
     }, 1500);
   };
 
   const handleSaveToFolder = () => {
-    if (!selectedFolderId && (!newFolderName || !newFolderObjType)) return alert("Isi nama folder dan jenis objek!");
-    alert(`Berhasil menyimpan ke folder ${newFolderName ? newFolderName : 'yang dipilih'}.`);
+    if (!selectedFolderId && (!saveForm.folderName || !saveForm.objectType)) return alert("Isi nama folder dan jenis objek!");
+    alert(`Berhasil menyimpan ke folder ${saveForm.folderName ? saveForm.folderName : 'yang dipilih'}.`);
     setShowSaveModal(false);
   };
 
+  // PERBAIKAN: Mengembalikan fungsi handleSendToAnalysis yang hilang
   const handleSendToAnalysis = (imageName: string | undefined) => {
     if (!imageName) return;
     if (onNavigateToAnalysis) onNavigateToAnalysis(imageName);
@@ -210,12 +224,16 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
       
       {/* ==================== KIRI: PREVIEW KAMERA ==================== */}
       <div className={`relative w-[55%] h-full flex flex-col shrink-0 overflow-hidden rounded-2xl border-2 ${isDarkMode ? 'border-gray-700 bg-black' : 'border-gray-300 bg-gray-100'}`}>
+        
+        {/* ANIMASI KILATAN RETAKE (FLASH) */}
+        {isRetaking && <div className="absolute inset-0 bg-white z-50 animate-flash pointer-events-none"></div>}
+
         <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40">
           <Camera size={80} className={theme.textMuted} />
           <p className={`font-mono mt-4 font-bold text-lg ${theme.textMuted}`}>LIVE STREAM (IMX477)</p>
           <p className={`text-xs ${theme.textMuted} mt-1`}>Micro View Full Resolusi</p>
         </div>
-        <div className="absolute top-4 left-4 p-2 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 flex items-center shadow-lg text-white">
+        <div className="absolute top-4 left-4 p-2 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 flex items-center shadow-lg text-white z-10">
           <Crosshair size={14} className="text-red-400 mr-2" />
           <span className="font-mono text-[10px] font-bold tracking-wider">POS: X:0.00 Y:0.00</span>
         </div>
@@ -230,7 +248,6 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none' }}>
-          
           <button className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
             <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
           </button>
@@ -241,24 +258,59 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                 <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center mb-3 ${theme.text}`}><Grid3X3 size={16} className="mr-2 text-blue-400" /> Parameter Grid</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between"><span className={`text-xs font-bold ${theme.textMuted}`}>Kolom</span><div onClick={() => triggerGlobalKeypad('Jumlah Kolom', cols, setCols)} className={`w-14 h-8 flex items-center justify-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}>{cols}</div></div>
-                    <div className="flex items-center justify-between"><span className={`text-xs font-bold ${theme.textMuted}`}>Baris</span><div onClick={() => triggerGlobalKeypad('Jumlah Baris', rows, setRows)} className={`w-14 h-8 flex items-center justify-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}>{rows}</div></div>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${theme.textMuted}`}>Kolom</span>
+                      <input 
+                        readOnly={globalVirtualKeyboard}
+                        value={cols}
+                        onChange={(e) => setCols(e.target.value)}
+                        onClick={() => triggerGlobalKeypad('Jumlah Kolom', cols, setCols)} 
+                        className={`w-14 h-8 flex items-center justify-center text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${theme.textMuted}`}>Baris</span>
+                      <input 
+                        readOnly={globalVirtualKeyboard}
+                        value={rows}
+                        onChange={(e) => setRows(e.target.value)}
+                        onClick={() => triggerGlobalKeypad('Jumlah Baris', rows, setRows)} 
+                        className={`w-14 h-8 flex items-center justify-center text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <select value={stepUnit} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStepUnit(e.target.value as 'mm' | 'inch')} className={`text-[10px] font-bold bg-transparent outline-none ${theme.textMuted}`}><option value="mm">Step X (mm)</option><option value="inch">Step X (in)</option></select>
-                      <div onClick={() => triggerGlobalKeypad('Step X', stepX, setStepX)} className={`w-14 h-8 flex items-center justify-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}>{stepX}</div>
+                      <input 
+                        readOnly={globalVirtualKeyboard}
+                        value={stepX}
+                        onChange={(e) => setStepX(e.target.value)}
+                        onClick={() => triggerGlobalKeypad('Step X', stepX, setStepX)} 
+                        className={`w-14 h-8 flex items-center justify-center text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}
+                      />
                     </div>
                     <div className="flex items-center justify-between">
                       <span className={`text-[10px] font-bold ${theme.textMuted}`}>Step Y ({stepUnit})</span>
-                      <div onClick={() => triggerGlobalKeypad('Step Y', stepY, setStepY)} className={`w-14 h-8 flex items-center justify-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}>{stepY}</div>
+                      <input 
+                        readOnly={globalVirtualKeyboard}
+                        value={stepY}
+                        onChange={(e) => setStepY(e.target.value)}
+                        onClick={() => triggerGlobalKeypad('Step Y', stepY, setStepY)} 
+                        className={`w-14 h-8 flex items-center justify-center text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}
+                      />
                     </div>
                   </div>
                 </div>
-                {/* NEW: Field Delay Kamera */}
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-700/50">
                   <span className={`text-[10px] font-bold ${theme.textMuted}`}>Camera Settle Delay (ms)</span>
-                  <div onClick={() => triggerGlobalKeypad('Camera Delay (ms)', camDelay, setCamDelay)} className={`w-14 h-8 flex items-center justify-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}>{camDelay}</div>
+                  <input 
+                    readOnly={globalVirtualKeyboard}
+                    value={camDelay}
+                    onChange={(e) => setCamDelay(e.target.value)}
+                    onClick={() => triggerGlobalKeypad('Camera Delay (ms)', camDelay, setCamDelay)} 
+                    className={`w-14 h-8 flex items-center justify-center text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`}
+                  />
                 </div>
               </div>
 
@@ -287,7 +339,6 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
               </div>
 
               <div className="mt-auto flex flex-col gap-2 pt-2">
-                {/* NEW: SOFT LIMIT WARNING & ESTIMASI WAKTU */}
                 {isLimitExceeded ? (
                   <div className="bg-red-500/10 border border-red-500/50 p-2 rounded-xl flex items-center">
                     <AlertTriangle size={24} className="text-red-500 mr-3 shrink-0" />
@@ -325,7 +376,13 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-2">
                       <select value={stepUnit} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStepUnit(e.target.value as 'mm' | 'inch')} className={`text-[10px] font-bold bg-transparent outline-none ${theme.textMuted}`}><option value="mm">Meja (mm)</option><option value="inch">Meja (in)</option></select>
-                      <div onClick={() => triggerGlobalKeypad('Step X/Y', stepX, setStepX)} className={`w-12 h-6 flex items-center justify-center rounded border text-xs font-bold cursor-pointer ${theme.input}`}>{stepX}</div>
+                      <input 
+                        readOnly={globalVirtualKeyboard}
+                        value={stepX}
+                        onChange={(e) => setStepX(e.target.value)}
+                        onClick={() => triggerGlobalKeypad('Step X/Y', stepX, setStepX)} 
+                        className={`w-12 h-6 flex items-center justify-center text-center rounded border text-xs font-bold cursor-pointer ${theme.input}`}
+                      />
                     </div>
                     {controlMode === 'dpad' ? (
                       <div className="grid grid-cols-3 gap-1 aspect-square">
@@ -344,7 +401,13 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                   <div className="w-16 flex flex-col">
                     <div className="flex flex-col mb-2">
                       <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Z (stp)</span>
-                      <div onClick={() => triggerGlobalKeypad('Step Z', zStep, setZStep)} className={`w-full h-6 flex items-center justify-center rounded border text-xs font-bold cursor-pointer ${theme.input}`}>{zStep}</div>
+                      <input 
+                        readOnly={globalVirtualKeyboard}
+                        value={zStep}
+                        onChange={(e) => setZStep(e.target.value)}
+                        onClick={() => triggerGlobalKeypad('Step Z', zStep, setZStep)} 
+                        className={`w-full h-6 flex items-center justify-center text-center rounded border text-xs font-bold cursor-pointer ${theme.input}`}
+                      />
                     </div>
                     <button className={`flex-1 mb-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={20} className="text-blue-500"/></button>
                     <button className={`flex-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={20} className="text-blue-500"/></button>
@@ -403,7 +466,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
             <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-black/20 shrink-0">
               <div>
                 <h2 className={`text-2xl font-bold ${theme.text}`}>Hasil Tangkapan Gambar</h2>
-                <p className={`text-sm ${theme.textMuted}`}>{validImageCount} dari {totalImagesConfig} gambar terisi. Waktu: {elapsedTimeText}.</p>
+                <p className={`text-sm ${theme.textMuted}`}>{validImageCount} dari {totalImagesConfig} gambar terisi. Waktu Scan: {processTimes.scan.toFixed(1)}s.</p>
               </div>
               <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
             </div>
@@ -445,7 +508,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                   <Scan size={20} className="mr-2"/> LANJUTKAN KE IMAGE ANALYSIS (1 Gambar)
                 </button>
               ) : (
-                <button onClick={executeStitching} disabled={validImageCount === 0} className="flex-1 py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20">
+                <button onClick={() => executeStitching()} disabled={validImageCount === 0} className="flex-1 py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20">
                   <Grid3X3 size={20} className="mr-2"/> LANJUTKAN KE TILE STITCHING ({validImageCount} Gambar)
                 </button>
               )}
@@ -455,24 +518,39 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
       )}
 
       {showStitchModal && (
-        <div className={theme.overlay}>
+        <div className={theme.modalBg}>
            <div className={`w-[80%] max-w-3xl rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
             <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-black/20">
               <div><h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">Tile Stitching Selesai</h2></div>
               <button onClick={() => {setShowStitchModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
             </div>
-            <div className="p-8 flex justify-center items-center bg-black/40 border-y border-gray-800">
-              <div className="w-full aspect-video border-2 border-purple-500/50 rounded-xl bg-purple-500/10 flex flex-col items-center justify-center relative overflow-hidden">
+            
+            <div className="p-8 flex flex-col justify-center items-center bg-black/40 border-y border-gray-800">
+              <div className="w-full aspect-video border-2 border-purple-500/50 rounded-xl bg-purple-500/10 flex flex-col items-center justify-center relative overflow-hidden mb-4">
                  <ImageIcon size={64} className="text-purple-400 mb-4 opacity-80" />
                  <span className="font-mono font-bold text-purple-300">STITCHED_RESULT.jpg</span>
               </div>
+              
+              {/* DISPLAY WAKTU PROSES LENGKAP */}
+              <div className="flex gap-4">
+                <div className="px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-xs font-mono text-gray-300">
+                  <Camera size={14} className="text-blue-400 mr-2" /> Scan: {processTimes.scan.toFixed(1)}s
+                </div>
+                <div className="px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-xs font-mono text-gray-300">
+                  <Layers size={14} className="text-purple-400 mr-2" /> Stitch: {processTimes.stitch.toFixed(1)}s
+                </div>
+                <div className="px-4 py-2 bg-black/40 border border-green-700/50 rounded-lg flex items-center text-xs font-mono font-bold text-green-400">
+                  <Clock size={14} className="mr-2" /> Total Waktu: {processTimes.total.toFixed(1)}s
+                </div>
+              </div>
             </div>
+
             <div className="p-6 flex items-center gap-4 bg-black/20">
               <button onClick={() => {setShowStitchModal(false); setCapturedImages([]);}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
                 <Trash2 size={20} className="mr-2"/> BUANG HASIL
               </button>
               <button onClick={() => setShowSaveModal(true)} className={`px-6 py-4 rounded-xl font-bold flex items-center border ${theme.btnTouch} ${theme.text}`}><Save size={20} className="mr-2"/> SIMPAN</button>
-              <button onClick={() => handleSendToAnalysis("STITCHED_RESULT.jpg")} className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20">
+              <button onClick={() => { setShowStitchModal(false); handleSendToAnalysis("STITCHED_RESULT.jpg"); }} className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20">
                 <Scan size={20} className="mr-2"/> LANJUTKAN KE IMAGE ANALYSIS
               </button>
             </div>
@@ -481,7 +559,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
       )}
 
       {showSaveModal && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[80] flex items-center justify-center p-4">
+        <div className={theme.modalBg}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
             <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>Simpan Hasil Tangkapan</h2>
             <div className="space-y-6 mb-8">
@@ -489,7 +567,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                 <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>Pilih Folder yang Ada:</label>
                 <div className="grid gap-2 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
                   {(availableFolders.length > 0 ? availableFolders : fallbackFolders).map((folder: {id: string, name: string}) => (
-                    <div key={folder.id} onClick={() => { setSelectedFolderId(folder.id); setNewFolderName(''); setNewFolderObjType(''); }} className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}>
+                    <div key={folder.id} onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}>
                       <FolderPlus size={18} className="mr-3" />
                       <span className="font-bold text-sm">{folder.name}</span>
                     </div>
@@ -498,17 +576,40 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
               </div>
               <div className="flex items-center text-xs font-bold text-gray-500"><div className="flex-1 border-t border-gray-600"></div><span className="px-3">ATAU BUAT BARU</span><div className="flex-1 border-t border-gray-600"></div></div>
               <div className="space-y-3">
-                <div onClick={() => { setSelectedFolderId(null); triggerLocalKeyboard('Nama Folder Baru', setNewFolderName); }}>
+                <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Folder</label>
-                  <input type="text" readOnly value={newFolderName} placeholder="Ketuk untuk mengisi..." className={`w-full px-4 py-3 rounded-xl border text-sm font-bold shadow-inner cursor-pointer ${theme.input}`} />
+                  <input 
+                    type="text" 
+                    readOnly={globalVirtualKeyboard}
+                    value={saveForm.folderName} 
+                    onChange={(e) => setSaveForm({...saveForm, folderName: e.target.value})}
+                    onClick={() => { setSelectedFolderId(null); triggerVK('Nama Folder Baru', 'folderName'); }} 
+                    placeholder="Ketuk untuk mengisi..." 
+                    className={`w-full px-4 py-3 rounded-xl border text-sm font-bold shadow-inner cursor-pointer ${theme.input} ${vk.field === 'folderName' ? 'ring-2 ring-blue-500' : ''}`} 
+                  />
                 </div>
-                <div onClick={() => { setSelectedFolderId(null); triggerLocalKeyboard('Jenis Objek (Label AI)', setNewFolderObjType); }}>
+                <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Jenis Objek (Label AI)</label>
-                  <input type="text" readOnly value={newFolderObjType} placeholder="Contoh: Bakteri, Sel..." className={`w-full px-4 py-3 rounded-xl border text-sm font-bold shadow-inner cursor-pointer ${theme.input}`} />
+                  <input 
+                    type="text" 
+                    readOnly={globalVirtualKeyboard}
+                    value={saveForm.objectType} 
+                    onChange={(e) => setSaveForm({...saveForm, objectType: e.target.value})}
+                    onClick={() => { setSelectedFolderId(null); triggerVK('Jenis Objek', 'objectType'); }} 
+                    placeholder="Contoh: Bakteri, Sel..." 
+                    className={`w-full px-4 py-3 rounded-xl border text-sm font-bold shadow-inner cursor-pointer ${theme.input} ${vk.field === 'objectType' ? 'ring-2 ring-blue-500' : ''}`} 
+                  />
                 </div>
-                <div onClick={() => { setSelectedFolderId(null); triggerLocalKeyboard('Nama Operator', setNewFolderOperator); }}>
+                <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Operator</label>
-                  <input type="text" readOnly value={newFolderOperator} className={`w-full px-4 py-3 rounded-xl border text-sm font-bold shadow-inner cursor-pointer opacity-70 ${theme.input}`} />
+                  <input 
+                    type="text" 
+                    readOnly={globalVirtualKeyboard}
+                    value={saveForm.operatorName} 
+                    onChange={(e) => setSaveForm({...saveForm, operatorName: e.target.value})}
+                    onClick={() => { setSelectedFolderId(null); triggerVK('Nama Operator', 'operatorName'); }} 
+                    className={`w-full px-4 py-3 rounded-xl border text-sm font-bold shadow-inner cursor-pointer opacity-70 ${theme.input} ${vk.field === 'operatorName' ? 'ring-2 ring-blue-500' : ''}`} 
+                  />
                 </div>
               </div>
             </div>
@@ -522,14 +623,19 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
         </div>
       )}
 
-      {localKeyboard.visible && (
-        <div className="fixed inset-0 z-[90] pointer-events-none flex items-end justify-center pb-6">
+      {/* VIRTUAL KEYBOARD (Z-INDEX 110) */}
+      {vk.visible && globalVirtualKeyboard && (
+        <div className="fixed inset-0 z-[110] pointer-events-none flex items-end justify-center pb-4">
           <div className="pointer-events-auto">
-            <VirtualKeyboard title={localKeyboard.title} onInput={handleLocalKeyboardInput} onClose={() => setLocalKeyboard({ visible: false, title: '', targetSetter: null })} />
+            <VirtualKeyboard title={vk.title} onInput={handleVKInput} onClose={() => setVk({ visible: false, title: '', field: null })} />
           </div>
         </div>
       )}
 
+      <style>{`
+        @keyframes flash { 0% { opacity: 0.8; background: white; } 100% { opacity: 0; background: transparent; } }
+        .animate-flash { animation: flash 0.5s ease-out forwards; }
+      `}</style>
     </div>
   );
 }

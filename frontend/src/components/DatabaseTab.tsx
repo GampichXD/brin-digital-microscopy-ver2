@@ -3,8 +3,10 @@ import type { ElementType } from 'react';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, Image as ImageIcon, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 
+// === PERUBAHAN TAHAP 2: MENERIMA PROPS globalVirtualKeyboard ===
 interface DatabaseTabProps {
   isDarkMode: boolean;
+  globalVirtualKeyboard: boolean;
 }
 
 interface DatasetFolder {
@@ -56,11 +58,12 @@ function TouchDropdown({ options, value, onChange, isDarkMode, icon: Icon }: Tou
   );
 }
 
-export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
+// === KOMPONEN UTAMA DENGAN PROPS BARU ===
+export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard }: DatabaseTabProps) {
   const [folders, setFolders] = useState<DatasetFolder[]>([
     { id: '1', name: 'E_Coli_Sample_A', objectType: 'Bakteri E. Coli', date: new Date().toISOString().split('T')[0], operator: 'Abraham', imageCount: 12 },
-    { id: '2', name: 'Yeast_Cells_01', objectType: 'Sel Ragi', date: '2026-06-05', operator: 'Pak Yosua Alvin', imageCount: 89 },
-    { id: '3', name: 'Micro_Plastics_B', objectType: 'Mikroplastik', date: '2026-06-01', operator: 'Andhika', imageCount: 320 },
+    { id: '2', name: 'Yeast_Cells_01', objectType: 'Sel Ragi', date: '2026-06-05', operator: 'Pak Nursidik', imageCount: 89 },
+    { id: '3', name: 'Micro_Plastics_B', objectType: 'Mikroplastik', date: '2026-06-01', operator: 'Kemal', imageCount: 320 },
   ]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,7 +77,9 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [formData, setFormData] = useState({ id: '', name: '', objectType: '', operator: '' });
-  const [keyboardState, setKeyboardState] = useState<{visible: boolean, targetField: 'name' | 'objectType' | 'operator' | '', title: string}>({ visible: false, targetField: '', title: '' });
+  
+  // State Keyboard Asli
+  const [keyboardState, setKeyboardState] = useState<{visible: boolean, targetField: 'search' | 'name' | 'objectType' | 'operator' | '', title: string}>({ visible: false, targetField: '', title: '' });
   
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [targetDelete, setTargetDelete] = useState<string | null>(null);
@@ -88,10 +93,8 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
   const [isConfirmImageOpen, setIsConfirmImageOpen] = useState(false);
   const [targetImageDelete, setTargetImageDelete] = useState<string[]>([]);
   
-  // State untuk Pratinjau Gambar Layar Penuh
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  // Simulasi penggunaan Storage Jetson Nano (contoh: 85% penuh)
   const storageUsedPercentage = 85;
 
   const currentImages = Array.from({ length: activeFolder?.imageCount || 0 }, (_, i) => `IMG_${String(i+1).padStart(4, '0')}.jpg`).slice(0, 20);
@@ -102,7 +105,8 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900',
     btnHover: isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100',
-    modalOverlay: 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4',
+    // PERBAIKAN Z-INDEX: Mengatur overlay utama pop-up agar berada di z-[100]
+    modalOverlay: 'fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4',
   };
 
   const uniqueObjects = ['Semua Objek', ...Array.from(new Set(folders.map(f => f.objectType)))];
@@ -136,6 +140,7 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
 
   const openEditForm = (folder: DatasetFolder) => { setFormData(folder); setFormMode('edit'); setIsFormOpen(true); };
   const openCreateForm = () => { setFormData({ id: '', name: '', objectType: '', operator: '' }); setFormMode('create'); setIsFormOpen(true); };
+  
   const saveForm = () => {
     if(!formData.name || !formData.objectType || !formData.operator) return alert("Semua kolom harus diisi!");
     if (formMode === 'create') {
@@ -146,6 +151,7 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
     }
     setIsFormOpen(false);
   };
+
   const confirmDelete = (id: string) => { setTargetDelete(id); setIsConfirmOpen(true); };
   const executeDelete = () => { setFolders(folders.filter(f => f.id !== targetDelete)); setIsConfirmOpen(false); setTargetDelete(null); };
 
@@ -176,7 +182,7 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
     setTargetImageDelete([]);
     setSelectedImages([]);
     setIsSelectMode(false);
-    setPreviewIndex(null); // Tutup preview jika dihapus dari dalam preview
+    setPreviewIndex(null); 
   };
 
   const handleBatchDownload = () => {
@@ -186,14 +192,26 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
     setIsSelectMode(false);
   };
 
+  // === PERBAIKAN: Handler Keyboard Virtual (Termasuk Search) ===
   const handleKeyboardInput = (key: string) => {
     const field = keyboardState.targetField;
     if (!field) return;
-    setFormData(prev => {
-      const currentValue = prev[field] as string;
-      if (key === 'BACK') return { ...prev, [field]: currentValue.slice(0, -1) };
-      return { ...prev, [field]: currentValue + key };
-    });
+
+    if (field === 'search') {
+      setSearchQuery(prev => key === 'BACK' ? prev.slice(0, -1) : prev + key);
+    } else {
+      setFormData(prev => {
+        const currentValue = prev[field] as string;
+        if (key === 'BACK') return { ...prev, [field]: currentValue.slice(0, -1) };
+        return { ...prev, [field]: currentValue + key };
+      });
+    }
+  };
+
+  // === PERBAIKAN: Trigger Keyboard Cerdas ===
+  const triggerKeyboard = (title: string, targetField: 'search' | 'name' | 'objectType' | 'operator') => {
+    if (!globalVirtualKeyboard) return; // Jangan munculkan virtual keyboard jika toggle hardware aktif
+    setKeyboardState({ visible: true, title, targetField });
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -201,6 +219,7 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
     if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
     else if (e.type === "dragleave") setDragActive(false);
   };
+  
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
@@ -208,6 +227,7 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
       setIsUploadOpen(false);
     }
   };
+  
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       alert(`Berhasil menangkap file: ${e.target.files[0].name}`);
@@ -225,10 +245,18 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
             <div className="flex gap-2 w-full">
               <div className="flex-1 relative min-w-[200px]">
                 <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme.textMuted}`} size={18} />
-                <input type="text" placeholder="Cari nama folder..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm font-bold shadow-inner ${theme.input}`}/>
+                <input 
+                  type="text" 
+                  // PERBAIKAN: readOnly dinamis & onChange aktif untuk keyboard fisik
+                  readOnly={globalVirtualKeyboard}
+                  value={searchQuery} 
+                  onChange={(e) => setSearchQuery(e.target.value)} 
+                  onClick={() => triggerKeyboard('Pencarian Database', 'search')}
+                  placeholder="Cari nama folder..." 
+                  className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm font-bold shadow-inner ${theme.input} ${keyboardState.targetField === 'search' ? 'ring-2 ring-blue-500' : ''}`}
+                />
               </div>
               
-              {/* NEW: STORAGE BAR INDICATOR */}
               <div className={`hidden md:flex items-center px-4 py-2 rounded-xl border ${theme.input} shadow-inner`}>
                 <HardDrive size={18} className={`mr-3 ${storageUsedPercentage > 80 ? 'text-red-500' : 'text-green-500'}`} />
                 <div className="flex flex-col w-28">
@@ -270,7 +298,6 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
                   <ListChecks size={16} className="mr-2" /> PILIH
                 </button>
                 <div className="w-px bg-gray-600/50 mx-1"></div>
-                {/* NEW: YOLO EXPORT BUTTON */}
                 <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_YOLO_Format.zip`)} className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
                   <Box size={16} className="mr-2" /> YOLO
                 </button>
@@ -344,7 +371,6 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
               return (
                 <div 
                   key={i} 
-                  // NEW: Buka preview jika tidak dalam mode select
                   onClick={() => isSelectMode ? toggleSelectImage(fileName) : setPreviewIndex(i)}
                   className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center relative group overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-blue-500 bg-blue-500/10' : `border-dashed ${theme.panel}`}`}
                 >
@@ -371,7 +397,6 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
 
       {/* ================= MODALS ================= */}
 
-      {/* NEW: FULL-SCREEN IMAGE PREVIEW */}
       {previewIndex !== null && (
         <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-4 backdrop-blur-md">
            <div className="absolute top-4 left-6 right-6 flex justify-between items-center text-white">
@@ -449,15 +474,40 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
             <div className="space-y-4 mb-6">
               <div>
                 <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Folder</label>
-                <input type="text" readOnly value={formData.name} onClick={() => setKeyboardState({ visible: true, targetField: 'name', title: 'Input Nama Folder' })} className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'name' ? 'ring-2 ring-blue-500' : ''}`} placeholder="Ketuk di sini..." />
+                <input 
+                  type="text" 
+                  // PERBAIKAN: readOnly dinamis & onChange aktif untuk keyboard fisik
+                  readOnly={globalVirtualKeyboard}
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  onClick={() => triggerKeyboard('Input Nama Folder', 'name')} 
+                  className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'name' ? 'ring-2 ring-blue-500' : ''}`} 
+                  placeholder="Ketuk di sini..." 
+                />
               </div>
               <div>
                 <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Jenis Objek (Label AI)</label>
-                <input type="text" readOnly value={formData.objectType} onClick={() => setKeyboardState({ visible: true, targetField: 'objectType', title: 'Input Jenis Objek' })} className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'objectType' ? 'ring-2 ring-blue-500' : ''}`} placeholder="Ketuk di sini..." />
+                <input 
+                  type="text" 
+                  readOnly={globalVirtualKeyboard}
+                  value={formData.objectType}
+                  onChange={(e) => setFormData({...formData, objectType: e.target.value})}
+                  onClick={() => triggerKeyboard('Input Jenis Objek', 'objectType')} 
+                  className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'objectType' ? 'ring-2 ring-blue-500' : ''}`} 
+                  placeholder="Ketuk di sini..." 
+                />
               </div>
               <div>
                 <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Operator</label>
-                <input type="text" readOnly value={formData.operator} onClick={() => setKeyboardState({ visible: true, targetField: 'operator', title: 'Input Nama Operator' })} className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'operator' ? 'ring-2 ring-blue-500' : ''}`} placeholder="Ketuk di sini..." />
+                <input 
+                  type="text" 
+                  readOnly={globalVirtualKeyboard}
+                  value={formData.operator}
+                  onChange={(e) => setFormData({...formData, operator: e.target.value})}
+                  onClick={() => triggerKeyboard('Input Nama Operator', 'operator')} 
+                  className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'operator' ? 'ring-2 ring-blue-500' : ''}`} 
+                  placeholder="Ketuk di sini..." 
+                />
               </div>
             </div>
             <div className="flex gap-3">
@@ -491,8 +541,13 @@ export default function DatabaseTab({ isDarkMode }: DatabaseTabProps) {
         </div>
       )}
 
-      {keyboardState.visible && (
-        <VirtualKeyboard title={keyboardState.title} onInput={handleKeyboardInput} onClose={() => setKeyboardState({ visible: false, targetField: '', title: '' })} />
+      {/* PERBAIKAN Z-INDEX: Virtual Keyboard dikunci di z-[110] agar berada di atas Modal z-[100] */}
+      {keyboardState.visible && globalVirtualKeyboard && (
+        <div className="fixed inset-0 z-[110] pointer-events-none flex items-end justify-center pb-4">
+          <div className="pointer-events-auto">
+            <VirtualKeyboard title={keyboardState.title} onInput={handleKeyboardInput} onClose={() => setKeyboardState({ visible: false, targetField: '', title: '' })} />
+          </div>
+        </div>
       )}
 
     </div>

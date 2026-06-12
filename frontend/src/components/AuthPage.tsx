@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { ShieldCheck, User, Lock, Eye, EyeOff, UserPlus, LogIn, Check, Keyboard, ToggleLeft, ToggleRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
+import type { UserRole } from '../App';
 
 interface AuthPageProps {
   isDarkMode: boolean;
-  onLoginSuccess: (username: string) => void;
+  onLoginSuccess: (username: string, role: UserRole) => void;
   globalVirtualKeyboard: boolean;
   setGlobalVirtualKeyboard: (val: boolean) => void;
 }
@@ -53,7 +54,9 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
       return;
     }
 
-    onLoginSuccess(username);
+    const role: UserRole = username.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'OPERATOR';
+    onLoginSuccess(username, role);
+    
   };
 
   return (
