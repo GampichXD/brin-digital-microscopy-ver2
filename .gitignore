@@ -1,0 +1,24 @@
+# Abaikan folder virtual environment di dalam sub-folder backend
+backend/venv/
+backend/env/
+backend/ENV/
+backend/.venv/
+
+# Abaikan semua cache Python di seluruh sub-folder
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+backend/**/*.pyc
+
+# Abaikan file database lokal jika ada
+backend/*.db
+backend/*.sqlite3
+
+# Abaikan environment variables rahasia
+.env
+backend/.env
+
+# OS sampah
+.DS_Store
+Thumbs.db

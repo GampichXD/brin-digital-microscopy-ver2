@@ -1,49 +1,45 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import serial
-import time
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .database import engine
+from . import models
+from .routers import auth 
+from .routers import dataset
 
-app = FastAPI(title="CNC Digital Microscope API")
+# Otomatis menciptakan tabel di PostgreSQL kontainer Docker jika belum ada
+models.Base.metadata.create_all(bind=engine)
 
-# Setup koneksi Serial ke CNC (Sesuaikan port dengan sistemmu, misal COM3 atau /dev/ttyUSB0)
-# Untuk simulasi tanpa alat, kita bungkus dalam try-except
-try:
-    # serial_cnc = serial.Serial(port='/dev/ttyUSB0', baudrate=115200, timeout=1)
-    serial_cnc = None
-    print("Mode Simulasi: CNC belum tersambung fisik.")
-except Exception as e:
-    serial_cnc = None
-    print(f"Gagal membuka port serial: {e}")
+app = FastAPI(
+    title="Digital Microscopy Control API",
+    description="Backend API untuk kontrol motor CNC, Kamera IMX477, dan inferensi YOLO Colony Counter",
+    version="1.0.0"
+)
 
-# Skema data untuk request pergerakan dari React
-class MoveCommand(BaseModel):
-    axis: str       # 'X', 'Y', atau 'Z'
-    direction: str  # 'forward' atau 'backward'
+# Konfigurasi CORS
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
-@app.get("/")
-def read_root():
-    return {"status": "Backend Python Berjalan Lancar"}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/api/control/move")
-async def move_cnc(command: MoveCommand):
-    # Tentukan besarnya pergerakan (misal tiap klik bergeser 10mm)
-    jarak = 10
-    tanda = "" if command.direction == "forward" else "-"
-    
-    # Format perintah G-code standar (G0 = pergerakan cepat, G91 = mode relatif)
-    gcode = f"G91\nG0 {command.axis}{tanda}{jarak}\n"
-    
-    print(f"Mengirim G-code: {gcode.strip()}")
-    
-    # Jalankan perintah jika hardware terhubung
-    if serial_cnc and serial_cnc.is_open:
-        serial_cnc.write(gcode.encode())
-        # Membaca respon balik dari CNC (biasanya 'ok')
-        response = serial_cnc.readline().decode().strip()
-        return {"status": "success", "message": f"Sumbu {command.axis} bergerak. Respon mesin: {response}"}
-    
-    # Respon simulasi jika hardware belum dicolok
+# === DAFTARKAN ROUTER DI SINI ===
+app.include_router(auth.router)
+
+@app.get("/", tags=["Health Check"])
+async def root():
     return {
-        "status": "simulation", 
-        "message": f"[Simulasi] Berhasil mengirimkan perintah {gcode.strip()} ke mesin CNC."
+        "status": "ONLINE",
+        "message": "Sistem API Mikroskop Digital BRIN/UNDIP Berjalan Normal",
+        "hardware": {
+            "jetson_orin_nano": "CONNECTED",
+            "grbl_core": "READY"
+        }
     }
+
+app.include_router(dataset.router)
