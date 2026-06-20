@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut } from 'lucide-react';
 import LiveStreamTab from './components/LiveStreamTab';
 import DatabaseTab from './components/DatabaseTab';
@@ -31,43 +31,38 @@ interface DatasetFolder {
 }
 
 export default function App() {
-  // === AMAN & EFISIEN: Inisialisasi State Langsung Membaca Session LocalStorage (Cegah Bug F5) ===
   const [folders, setFolders] = useState<DatasetFolder[]>([]);
-
-const fetchFolders = async () => {
-  try {
-    const response = await axios.get<DatasetFolder[]>('http://localhost:8000/api/dataset/folders');
-    setFolders(response.data);
-  } catch (error) {
-    console.error("Gagal memuat database folder di App.tsx:", error);
-  }
-};
-
-// Ambil data pertama kali saat operator berhasil masuk ke sistem
-useEffect(() => {
-  const token = localStorage.getItem('token');
-  let delayFetch: number;
-
-  if (token) {
-    delayFetch = setTimeout(() => {
-      fetchFolders();
-    }, 0);
-  }
-
-  return () => {
-    if (delayFetch) clearTimeout(delayFetch);
-  };
-}, []);
   
-  const [currentUser, setCurrentUser] = useState<string | null>(() => {
-    return localStorage.getItem('username');
-  });
+  // === GLOBAL HARDWARE STREAM PIPELINE (OPSI A) ===
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [grblStatus, setGrblStatus] = useState<string>("IDLE");
+  const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
+  const wsRef = useRef<WebSocket | null>(null);
 
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
-    const savedRole = localStorage.getItem('role') as UserRole | null;
-    return savedRole || 'OPERATOR';
-  });
+  const fetchFolders = async () => {
+    try {
+      const response = await axios.get<DatasetFolder[]>('http://localhost:8000/api/dataset/folders');
+      setFolders(response.data);
+    } catch (error) {
+      console.error("Gagal memuat database folder di App.tsx:", error);
+    }
+  };
 
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    let delayFetch: number;
+
+    if (token) {
+      delayFetch = setTimeout(() => {
+        fetchFolders();
+      }, 0);
+    }
+    return () => { if (delayFetch) clearTimeout(delayFetch); };
+  }, []);
+  
+  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('username'));
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => (localStorage.getItem('role') as UserRole) || 'OPERATOR');
   const [activeTab, setActiveTab] = useState<TabName>(() => {
     const savedRole = localStorage.getItem('role') as UserRole | null;
     return savedRole === 'ADMIN' ? 'Admin Control' : 'Live Stream';
@@ -78,10 +73,9 @@ useEffect(() => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState<boolean>(true); 
   const [useVirtualKeyboard, setUseVirtualKeyboard] = useState<boolean>(() => {
-  const savedKB = localStorage.getItem('useVirtualKeyboard');
-  // Jika belum pernah disetel, default-nya tetap aktif (true)
-  return savedKB !== null ? savedKB === 'true' : true;
-});
+    const savedKB = localStorage.getItem('useVirtualKeyboard');
+    return savedKB !== null ? savedKB === 'true' : true;
+  });
 
   const [keypad, setKeypad] = useState<KeypadConfig>({
     visible: false,
@@ -98,6 +92,69 @@ useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // === PIPELINE WEBSOCKET GLOBAL LEVEL APP ===
+  useEffect(() => {
+    if (!cameraActive || !isSystemHardwareEnabled) {
+      return;
+    }
+
+    console.log('[GLOBAL WEBSOCKET] Menginisialisasi sirkuit pusat...');
+    const ws = new WebSocket('ws://127.0.0.1:8000/api/hardware/ws');
+    wsRef.current = ws;
+    ws.binaryType = 'blob';
+
+    ws.onopen = () => {
+      setGrblStatus('READY');
+      console.log('[GLOBAL WEBSOCKET] Pipa data hardware tersambung penuh.');
+    };
+
+    ws.onmessage = async (event) => {
+      if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+        const imageBlob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: 'image/jpeg' });
+        const objectURL = URL.createObjectURL(imageBlob);
+        setVideoSrc(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return objectURL;
+        });
+      } else {
+        try {
+          const res = JSON.parse(event.data);
+          if (res.event === 'MOTOR_STATUS') {
+            setGrblStatus(res.status);
+            if (res.echo_gcode) setLastEchoGCode(res.echo_gcode);
+          }
+        } catch (err) {
+          console.error('Gagal membaca paket data teks mesin:', err);
+        }
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log(`[GLOBAL WEBSOCKET] Putus sirkuit (Code: ${event.code}).`);
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+        setVideoSrc(null);
+        setGrblStatus('OFFLINE');
+      }
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      setTimeout(() => {
+        if (wsRef.current === ws || !cameraActive) {
+          wsRef.current = null;
+          setVideoSrc(prev => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+          });
+          setGrblStatus('OFFLINE');
+        }
+      }, 0);
+    };
+  }, [cameraActive, isSystemHardwareEnabled]);
 
   const formatDate = (date: Date) => date.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
   const formatTime = (date: Date) => date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -136,17 +193,15 @@ useEffect(() => {
     : ['Live Stream', 'Database', 'Image Gathering', 'Image Analysis', 'Documentation'];
   
   const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'SUCCESS' | 'ERROR' | 'INFO' }>({
-  visible: false,
-  message: '',
-  type: 'SUCCESS'
-});
+    visible: false,
+    message: '',
+    type: 'SUCCESS'
+  });
 
   const showNotification = (message: string, type: 'SUCCESS' | 'ERROR' | 'INFO' = 'SUCCESS') => {
-  setToast({ visible: true, message, type });
-  setTimeout(() => {
-    setToast(prev => ({ ...prev, visible: false }));
-  }, 3000); // Otomatis hilang setelah 3 detik
-};
+    setToast({ visible: true, message, type });
+    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 3000);
+  };
 
   if (!currentUser) {
     return (
@@ -168,8 +223,6 @@ useEffect(() => {
 
       {/* HEADER UTAMA */}
       <header className={`px-4 py-2 flex items-center justify-between border-b shrink-0 gap-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-        
-        {/* Sisi Kiri Header */}
         <div className="flex items-center space-x-3 shrink-0">
           <div className="flex items-center gap-2 shrink-0 bg-white/5 p-1 rounded-xl border border-gray-700/30">
             <img src={logoBrin} alt="BRIN Logo" className="h-6 w-auto object-contain bg-white rounded-md p-0.5" />
@@ -182,38 +235,27 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Sisi Tengah Header */}
         <div className="flex-1 text-center min-w-0">
           <h1 className="text-sm sm:text-base font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 truncate tracking-wider uppercase">
             Digital Microscopy {currentUserRole === 'ADMIN' && <span className="text-red-500 text-xs font-black ml-1">[ADMIN]</span>}
           </h1>
         </div>
 
-        {/* Sisi Kanan Header */}
         <div className="flex items-center space-x-2 shrink-0">
           <button 
-  onClick={() => {
-    const nextState = !useVirtualKeyboard;
-    setUseVirtualKeyboard(nextState);
-    localStorage.setItem('useVirtualKeyboard', String(nextState));
-  }}
-  className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all ${
-    isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'
-  } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
->
-  {/* Logo ikut menyala biru */}
-  <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
-  
-  {/* Teks "Screen KB" ikut menyala biru */}
-  <span className={`hidden sm:inline ${useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'}`}>Screen KB</span>
-  
-  {/* Icon Toggle Slider */}
-  {useVirtualKeyboard ? (
-    <ToggleRight size={16} className="text-blue-500 animate-fadeIn" />
-  ) : (
-    <ToggleLeft size={16} className="text-gray-500" />
-  )}
-</button>
+            onClick={() => {
+              const nextState = !useVirtualKeyboard;
+              setUseVirtualKeyboard(nextState);
+              localStorage.setItem('useVirtualKeyboard', String(nextState));
+            }}
+            className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all ${
+              isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'
+            } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
+          >
+            <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+            <span className={`hidden sm:inline ${useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'}`}>Screen KB</span>
+            {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
+          </button>
 
           <span className={`text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border flex items-center gap-1.5 shadow-inner ${currentUserRole === 'ADMIN' ? 'border-red-500/30 text-red-400' : 'border-gray-700/60 text-blue-400'}`}>
             <User size={13} />
@@ -225,7 +267,6 @@ useEffect(() => {
             {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
           </button>
 
-          {/* === AMAN: Aksi Pembersihan Token JWT Saat LogOut Ditindang === */}
           <button 
             onClick={() => {
               localStorage.removeItem('token');
@@ -233,6 +274,7 @@ useEffect(() => {
               localStorage.removeItem('username');
               setCurrentUser(null); 
               setActiveTab('Live Stream'); 
+              setCameraActive(false); // Amankan penutupan kamera saat log out
             }} 
             className="p-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all active:scale-95 shadow-md"
             title="Keluar dari Instrumen"
@@ -290,18 +332,32 @@ useEffect(() => {
         })}
       </nav>
 
-      {/* APPLICATION CONTENT CONTAINER */}
+      {/* APPLICATION CONTENT CONTAINER (PASSING DATA PROPS PASUKAN ALIRAN KAMERA) */}
       <main className="flex-1 min-h-0 p-3 relative">
         {activeTab === 'Live Stream' && (
-          <LiveStreamTab isDarkMode={isDarkMode} openKeypad={handleOpenKeypadGlobal} globalVirtualKeyboard={useVirtualKeyboard} isSystemHardwareEnabled={isSystemHardwareEnabled} />
+          <LiveStreamTab 
+            isDarkMode={isDarkMode} 
+            openKeypad={handleOpenKeypadGlobal} 
+            globalVirtualKeyboard={useVirtualKeyboard} 
+            isSystemHardwareEnabled={isSystemHardwareEnabled}
+            cameraActive={cameraActive}
+            setCameraActive={setCameraActive}
+            videoSrc={videoSrc}
+            grblStatus={grblStatus}
+            setGrblStatus={setGrblStatus}
+            lastEchoGCode={lastEchoGCode}
+            setLastEchoGCode={setLastEchoGCode}
+            wsRef={wsRef}
+            triggerToast={showNotification}
+          />
         )}
         {activeTab === 'Database' && (
           <DatabaseTab 
-          isDarkMode={isDarkMode} 
-          globalVirtualKeyboard={useVirtualKeyboard} 
-          triggerToast={showNotification}
-          availableFolders={folders}
-          onRefreshFolders={fetchFolders}
+            isDarkMode={isDarkMode} 
+            globalVirtualKeyboard={useVirtualKeyboard} 
+            triggerToast={showNotification}
+            availableFolders={folders}
+            onRefreshFolders={fetchFolders}
           />
         )}
         {activeTab === 'Image Gathering' && (
@@ -309,6 +365,8 @@ useEffect(() => {
             isDarkMode={isDarkMode} 
             openKeypad={handleOpenKeypadGlobal}
             globalVirtualKeyboard={useVirtualKeyboard}
+            videoSrc={videoSrc} // <--- Kirim alirannya ke sini juga!
+            cameraActive={cameraActive}
             onNavigateToAnalysis={(imageName) => {
               setTargetAnalysisImage(imageName); 
               setActiveTab('Image Analysis'); 
@@ -334,17 +392,17 @@ useEffect(() => {
       {/* GLOBAL VIRTUAL NUMPAD MELAYANG */}
       {keypad.visible && useVirtualKeyboard && (
         <div className={`absolute z-50 rounded-xl shadow-2xl border-2 flex flex-col touch-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`} style={{ left: keypadPos.x, top: keypadPos.y, width: '260px' }}>
-          <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+          <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
             <span className="text-xs font-bold">{keypad.title}</span>
             <button 
-  onPointerDown={(e) => {
-    e.stopPropagation(); // Menahan agar fungsi drag header tidak ikut memicu
-    setKeypad(prev => ({ ...prev, visible: false })); // Sembunyikan Numpad
-  }} 
-  className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors text-gray-400"
->
-  <X size={16} />
-</button>
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                setKeypad(prev => ({ ...prev, visible: false }));
+              }} 
+              className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors text-gray-400"
+            >
+              <X size={16} />
+            </button>
           </div>
 
           <div className={`p-3 text-right text-xl font-mono font-bold tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{keypad.value || '0'}</div>
@@ -360,21 +418,21 @@ useEffect(() => {
         </div>
       )}
 
-      {/* ==================== GLOBAL TOAST NOTIFICATION FLOATING ANIMATION ==================== */}
-{toast.visible && (
-  <div className="fixed bottom-6 right-6 z-[200] animate-slideIn flex items-center gap-3 px-5 py-4 rounded-2xl border shadow-2xl backdrop-blur-md bg-gray-900/90 border-green-500/30 text-white min-w-[300px]">
-    <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500 flex items-center justify-center shrink-0">
-      <div className="w-2 h-2 rounded-full bg-green-500 animate-ping"></div>
-    </div>
-    <div className="flex flex-col flex-1">
-      <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Sistem Otoritas Berhasil</span>
-      <span className="text-xs font-bold text-gray-200 mt-0.5">{toast.message}</span>
-    </div>
-    <button onClick={() => setToast(prev => ({ ...prev, visible: false }))} className="p-1 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
-      <X size={14} />
-    </button>
-  </div>
-)}
+      {/* GLOBAL TOAST NOTIFICATION */}
+      {toast.visible && (
+        <div className="fixed bottom-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-2xl border shadow-2xl backdrop-blur-md bg-gray-900/90 border-green-500/30 text-white min-w-[300px]">
+          <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500 flex items-center justify-center shrink-0">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-ping"></div>
+          </div>
+          <div className="flex flex-col flex-1">
+            <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Sistem Otoritas Berhasil</span>
+            <span className="text-xs font-bold text-gray-200 mt-0.5">{toast.message}</span>
+          </div>
+          <button onClick={() => setToast(prev => ({ ...prev, visible: false }))} className="p-1 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
     </div>
   );

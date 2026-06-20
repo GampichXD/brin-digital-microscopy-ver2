@@ -1,17 +1,41 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 
+// === 1. ANTARMUKA PROPS TERINTEGRASI LEVEL GLOBAL ===
 interface LiveStreamTabProps {
   isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
   globalVirtualKeyboard: boolean;
-  isSystemHardwareEnabled: boolean; 
+  isSystemHardwareEnabled: boolean;
+  cameraActive: boolean;
+  setCameraActive: (val: boolean) => void;
+  videoSrc: string | null;
+  grblStatus: string;
+  setGrblStatus: (val: string) => void;
+  lastEchoGCode: string;
+  setLastEchoGCode: (val: string) => void;
+  wsRef: React.MutableRefObject<WebSocket | null>;
+  triggerToast: (message: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
 }
 
-export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKeyboard, isSystemHardwareEnabled }: LiveStreamTabProps) {
-  const [cameraActive, setCameraActive] = useState(false);
+export default function LiveStreamTab({ 
+  isDarkMode, 
+  openKeypad, 
+  globalVirtualKeyboard, 
+  isSystemHardwareEnabled,
+  cameraActive,
+  setCameraActive,
+  videoSrc,
+  grblStatus,
+  setGrblStatus,
+  lastEchoGCode,
+  setLastEchoGCode,
+  wsRef,
+  triggerToast
+}: LiveStreamTabProps) {
+  
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
   
   const [xyStepUnit, setXyStepUnit] = useState<'mm' | 'inch'>('mm');
@@ -26,13 +50,8 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
-  const [grblStatus, setGrblStatus] = useState<string>("IDLE");
-  const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
-
-  // === MUTASI 1: Ubah koordinat motor statis menjadi state dinamis untuk simulasi ===
+  // State simulasi pergerakan koordinat HUD di laptop
   const [motorPos, setMotorPos] = useState({ x: 12.55, y: 8.20, z: 1200 });
-  const wsRef = useRef<WebSocket | null>(null);
 
   const themeClasses = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -41,94 +60,6 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
     btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
-
-  // const cleanUpWebSocket = () => {
-  //   if (wsRef.current) {
-  //     wsRef.current.close();
-  //     wsRef.current = null;
-  //   }
-  //   setVideoSrc(prev => {
-  //     if (prev) URL.revokeObjectURL(prev);
-  //     return null;
-  //   });
-  //   setGrblStatus('OFFLINE');
-  // };
-
-  useEffect(() => {
-    // JIKA HARDWARE TERKUNCI ATAU KAMERA MATI:
-    // Jangan buka koneksi baru. Urusan pembersihan state diserahkan sepenuhnya ke return cleanup di bawah
-    if (!cameraActive || !isSystemHardwareEnabled) {
-      return;
-    }
-
-    console.log('[WEBSOCKET] Mencoba membuka koneksi ke backend...');
-    const ws = new WebSocket('ws://127.0.0.1:8000/api/hardware/ws');
-    wsRef.current = ws;
-    ws.binaryType = 'blob';
-
-    ws.onopen = () => {
-      setGrblStatus('READY');
-      console.log('[WEBSOCKET] Berhasil tersambung ke sirkuit hardware.');
-    };
-
-    ws.onmessage = async (event) => {
-      if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
-        const imageBlob = event.data instanceof Blob 
-          ? event.data 
-          : new Blob([event.data], { type: 'image/jpeg' });
-
-        const objectURL = URL.createObjectURL(imageBlob);
-        setVideoSrc(prev => {
-          if (prev) URL.revokeObjectURL(prev);
-          return objectURL;
-        });
-      } else {
-        try {
-          const res = JSON.parse(event.data);
-          if (res.event === 'MOTOR_STATUS') {
-            setGrblStatus(res.status);
-            if (res.echo_gcode) setLastEchoGCode(res.echo_gcode);
-          }
-        } catch (err) {
-          console.error('Gagal membaca paket data teks mesin:', err);
-        }
-      }
-    };
-
-    ws.onclose = (event) => {
-      console.log(`[WEBSOCKET] Koneksi terputus (Code: ${event.code}).`);
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-        setVideoSrc(null);
-        setGrblStatus('OFFLINE');
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('[WEBSOCKET ERROR] Terjadi kegagalan sirkuit:', error);
-    };
-
-    // === GERBANG PEMBERSIH UTAMA (CLEANUP RETURN) ===
-    // Jalur resmi React untuk mengubah state secara aman saat dependency berubah
-    return () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        console.log('[WEBSOCKET CLEANUP] Menutup sirkuit lama.');
-        ws.close();
-      }
-      
-      // Amankan pembersihan state lokal menggunakan makrotask micro-delay
-      setTimeout(() => {
-        if (wsRef.current === ws || !cameraActive) {
-          wsRef.current = null;
-          setVideoSrc(prev => {
-            if (prev) URL.revokeObjectURL(prev);
-            return null;
-          });
-          setGrblStatus('OFFLINE');
-        }
-      }, 0);
-    };
-  }, [cameraActive, isSystemHardwareEnabled]);
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if (!globalVirtualKeyboard) return; 
@@ -140,7 +71,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
     });
   };
 
-  // === MUTASI 2: Kalkulasi perubahan jarak koordinat lokal saat tombol D-Pad ditekan ===
+  // === 2. MANIPULASI GERAKAN SUMBU VIA GERBANG PIPELINE UTAMA ===
   const sendMotorCommand = (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
     
@@ -151,7 +82,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
       ? `G1 Z${value} F200` 
       : `G1 ${axis}${value} F${feedRate}`;
 
-    // Jalankan kalkulasi simulasi angka HUD agar langsung bergeser di laptop
+    // Mutasi visual angka koordinat di layar HUD agar interaktif saat pengujian laptop
     setMotorPos(prev => ({
       ...prev,
       [axis.toLowerCase()]: parseFloat((prev[axis.toLowerCase() as keyof typeof prev] + value).toFixed(2))
@@ -165,6 +96,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
         gcode: gcodeStr
       }));
     } else {
+      // Fallback Rest-API pendukung sirkuit pengujian luring di laptop
       axios.post('http://localhost:8000/api/hardware/motor/move', {
         axis,
         value,
@@ -177,13 +109,12 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   const handleApplyCameraSettings = async () => {
     try {
       await axios.post('http://localhost:8000/api/hardware/camera/settings', {
-        shutter_speed: parseInt(shutterSpeed),
-        iso: parseInt(iso)
+        shutter_speed: parseInt(shutterSpeed), iso: parseInt(iso)
       });
-      alert('Konfigurasi Sensor IMX477 Berhasil Diterapkan!');
+      triggerToast('Konfigurasi Pengaturan Sensor IMX477 Berhasil Diterapkan!', 'SUCCESS');
     } catch (error) {
       console.error("Gagal menerapkan konfigurasi kamera:", error);
-      alert('Gagal menerapkan konfigurasi kamera ke Jetson Orin Nano');
+      triggerToast('Gagal menerapkan konfigurasi kamera ke Jetson Orin', 'ERROR');
     }
   };
 
@@ -202,14 +133,21 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   return (
     <div className="flex gap-3 h-full w-full select-none">
       
-      {/* KIRI: VIDEO & HUD */}
+      {/* KIRI: VIDEO & HUD LAYER */}
       <div className={`relative w-[60%] h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
-        {cameraActive && videoSrc ? (
-          <img 
-            src={videoSrc} 
-            alt="Microscope Live Feed" 
-            className="w-full h-full object-cover rounded-2xl"
-          />
+        {cameraActive ? (
+          videoSrc ? (
+            <img 
+              src={videoSrc} 
+              alt="Microscope Live Feed" 
+              className="w-full h-full object-cover rounded-2xl"
+            />
+          ) : (
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+              <p className={`text-sm font-bold ${themeClasses.textMuted}`}>Menghubungkan Aliran Citra Global...</p>
+            </div>
+          )
         ) : (
           <div className="flex flex-col items-center">
             <CameraOff size={64} className={`mb-4 ${themeClasses.textMuted}`} />
@@ -238,7 +176,15 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
 
         <button 
           disabled={!isSystemHardwareEnabled} 
-          onClick={() => setCameraActive(!cameraActive)} 
+          onClick={() => {
+            const nextState = !cameraActive;
+            setCameraActive(nextState);
+            // Pemicu animasi sukses melayang
+            triggerToast(
+              nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Aliran Kamera Dinonaktifkan.',
+              nextState ? 'SUCCESS' : 'INFO'
+            );
+          }} 
           className={`absolute bottom-6 right-6 px-6 py-4 rounded-xl text-lg font-bold flex items-center shadow-2xl z-10 ${
             !isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
             cameraActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
@@ -260,7 +206,9 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
               <button 
                 disabled={!isSystemHardwareEnabled}
                 onClick={() => {
-                  setMotorPos({ x: 0, y: 0, z: 0 }); // Reset tampilan visual ke nol
+                  setMotorPos({ x: 0, y: 0, z: 0 }); 
+                  triggerToast('Perintah Homing Dikirim! Mengembalikan CNC ke (0,0,0)', 'INFO');
+                  
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ action: "HOMING" }));
                   } else {
@@ -383,7 +331,12 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>Parameter CNC</h3>
             <div className="flex space-x-2">
               <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">DEFAULT</button>
-              <button className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> TERAPAN</button>
+              <button 
+                onClick={() => triggerToast('Parameter Kecepatan & Backlash CNC Berhasil Disimpan!', 'SUCCESS')} // <--- SUNTIKKAN INI
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
+              >
+                <Save size={14} className="mr-1" /> TERAPAN
+              </button>
             </div>
           </div>
           
@@ -435,7 +388,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
           </div>
         </div>
 
-        {/* 4. STATUS HARDWARE */}
+        {/* 4. STATUS HARDWARE BAR */}
         <div className={`p-4 rounded-2xl border shrink-0 mb-4 ${themeClasses.panel}`}>
            <h3 className={`text-sm font-bold uppercase tracking-wider mb-3 ${themeClasses.text}`}>Status Sistem</h3>
            <div className="grid grid-cols-2 gap-3">
