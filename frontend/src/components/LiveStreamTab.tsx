@@ -26,12 +26,12 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
-  // State untuk menangkap respons telemetri dinamis dari WebSocket
   const [grblStatus, setGrblStatus] = useState<string>("IDLE");
   const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
 
-  const motorPos = { x: 12.55, y: 8.20, z: 1200 };
+  // === MUTASI 1: Ubah koordinat motor statis menjadi state dinamis untuk simulasi ===
+  const [motorPos, setMotorPos] = useState({ x: 12.55, y: 8.20, z: 1200 });
   const wsRef = useRef<WebSocket | null>(null);
 
   const themeClasses = {
@@ -42,77 +42,93 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
 
-  // === INTEGRASI WEBSOCKET PIPELINE (KONTROL KAMERA & MOTOR REAL-TIME) ===
-
-  const cleanUpWebSocket = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setVideoSrc(prev => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-    setGrblStatus('OFFLINE');
-  };
+  // const cleanUpWebSocket = () => {
+  //   if (wsRef.current) {
+  //     wsRef.current.close();
+  //     wsRef.current = null;
+  //   }
+  //   setVideoSrc(prev => {
+  //     if (prev) URL.revokeObjectURL(prev);
+  //     return null;
+  //   });
+  //   setGrblStatus('OFFLINE');
+  // };
 
   useEffect(() => {
-    let delayClean: number;
-
-    if (cameraActive && isSystemHardwareEnabled) {
-      const ws = new WebSocket('ws://localhost:8000/api/hardware/ws');
-      wsRef.current = ws;
-      ws.binaryType = 'blob';
-
-      ws.onopen = () => {
-        setGrblStatus('READY');
-        console.log('[WEBSOCKET] Berhasil tersambung ke sirkuit hardware Jetson.');
-      };
-
-      ws.onmessage = (event) => {
-        if (event.data instanceof Blob) {
-          const objectURL = URL.createObjectURL(event.data);
-          setVideoSrc(prev => {
-            if (prev) URL.revokeObjectURL(prev);
-            return objectURL;
-          });
-        } else {
-          try {
-            const res = JSON.parse(event.data);
-            if (res.event === 'MOTOR_STATUS') {
-              setGrblStatus(res.status);
-              if (res.echo_gcode) setLastEchoGCode(res.echo_gcode);
-            }
-          } catch (err) {
-            console.error('Gagal membaca paket data teks mesin:', err);
-          }
-        }
-      };
-
-      ws.onclose = () => {
-        cleanUpWebSocket();
-      };
-
-      ws.onerror = () => {
-        cleanUpWebSocket();
-      };
-    } else {
-      // Bungkus dengan setTimeout 0ms agar dieksekusi setelah siklus render utama selesai
-      delayClean = setTimeout(() => {
-        cleanUpWebSocket();
-      }, 0);
+    // JIKA HARDWARE TERKUNCI ATAU KAMERA MATI:
+    // Jangan buka koneksi baru. Urusan pembersihan state diserahkan sepenuhnya ke return cleanup di bawah
+    if (!cameraActive || !isSystemHardwareEnabled) {
+      return;
     }
 
+    console.log('[WEBSOCKET] Mencoba membuka koneksi ke backend...');
+    const ws = new WebSocket('ws://127.0.0.1:8000/api/hardware/ws');
+    wsRef.current = ws;
+    ws.binaryType = 'blob';
+
+    ws.onopen = () => {
+      setGrblStatus('READY');
+      console.log('[WEBSOCKET] Berhasil tersambung ke sirkuit hardware.');
+    };
+
+    ws.onmessage = async (event) => {
+      if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+        const imageBlob = event.data instanceof Blob 
+          ? event.data 
+          : new Blob([event.data], { type: 'image/jpeg' });
+
+        const objectURL = URL.createObjectURL(imageBlob);
+        setVideoSrc(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return objectURL;
+        });
+      } else {
+        try {
+          const res = JSON.parse(event.data);
+          if (res.event === 'MOTOR_STATUS') {
+            setGrblStatus(res.status);
+            if (res.echo_gcode) setLastEchoGCode(res.echo_gcode);
+          }
+        } catch (err) {
+          console.error('Gagal membaca paket data teks mesin:', err);
+        }
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log(`[WEBSOCKET] Koneksi terputus (Code: ${event.code}).`);
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+        setVideoSrc(null);
+        setGrblStatus('OFFLINE');
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('[WEBSOCKET ERROR] Terjadi kegagalan sirkuit:', error);
+    };
+
+    // === GERBANG PEMBERSIH UTAMA (CLEANUP RETURN) ===
+    // Jalur resmi React untuk mengubah state secara aman saat dependency berubah
     return () => {
-      if (delayClean) clearTimeout(delayClean);
-      // Pembersihan saat operator berpindah tab juga diamankan dari cascading render
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        console.log('[WEBSOCKET CLEANUP] Menutup sirkuit lama.');
+        ws.close();
+      }
+      
+      // Amankan pembersihan state lokal menggunakan makrotask micro-delay
       setTimeout(() => {
-        cleanUpWebSocket();
+        if (wsRef.current === ws || !cameraActive) {
+          wsRef.current = null;
+          setVideoSrc(prev => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+          });
+          setGrblStatus('OFFLINE');
+        }
       }, 0);
     };
   }, [cameraActive, isSystemHardwareEnabled]);
-
-  
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if (!globalVirtualKeyboard) return; 
@@ -124,17 +140,22 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
     });
   };
 
-  // === MODIFIKASI FUNGSI: SEKARANG MENGIRIM PERINTAH VIA WEBSOCKET AKTIF ===
+  // === MUTASI 2: Kalkulasi perubahan jarak koordinat lokal saat tombol D-Pad ditekan ===
   const sendMotorCommand = (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
     
     const step = axis === 'Z' ? parseFloat(zStepValue) : parseFloat(xyStepValue);
     const value = direction === '+' ? step : -step;
     
-    // Formula kompilasi instruksi string G-Code tingkat tinggi
     const gcodeStr = axis === 'Z' 
       ? `G1 Z${value} F200` 
       : `G1 ${axis}${value} F${feedRate}`;
+
+    // Jalankan kalkulasi simulasi angka HUD agar langsung bergeser di laptop
+    setMotorPos(prev => ({
+      ...prev,
+      [axis.toLowerCase()]: parseFloat((prev[axis.toLowerCase() as keyof typeof prev] + value).toFixed(2))
+    }));
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setGrblStatus('MOVING...');
@@ -144,7 +165,6 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
         gcode: gcodeStr
       }));
     } else {
-      // Fallback HTTP Post jika dipicu saat koneksi live stream belum dinyalakan
       axios.post('http://localhost:8000/api/hardware/motor/move', {
         axis,
         value,
@@ -240,6 +260,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
               <button 
                 disabled={!isSystemHardwareEnabled}
                 onClick={() => {
+                  setMotorPos({ x: 0, y: 0, z: 0 }); // Reset tampilan visual ke nol
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ action: "HOMING" }));
                   } else {
