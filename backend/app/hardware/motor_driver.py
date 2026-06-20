@@ -1,48 +1,115 @@
 import serial
+import serial.tools.list_ports
+import platform
 import time
-import threading
 
 class GRBLMotorDriver:
-    def __init__(self, port="/dev/ttyUSB0", baudrate=115200):
-        self.port = port
+    def __init__(self, baudrate=115200, timeout=1):
         self.baudrate = baudrate
-        self.serial_conn = None
-        self.is_connected = False
-        self.lock = threading.Lock() # Mencegah tabrakan data serial
+        self.timeout = timeout
+        self.ser = None
+        self.is_mock_mode = False  # Flag penanda jika berjalan dalam mode simulasi di laptop
+
+    def _find_available_port(self):
+        """Mencari port serial aktif secara otomatis dengan pemblokiran Bluetooth."""
+        current_os = platform.system()
+        ports = list(serial.tools.list_ports.comports())
+        
+        if current_os == "Windows":
+            for port in ports:
+                desc = port.description.lower()
+                hwid = port.hwid.lower()
+                
+                # ANTISIPASI: Jika terdeteksi link Bluetooth, lewati segera agar tidak freeze!
+                if "bluetooth" in desc or "bthnum" in hwid or "standard serial over" in desc:
+                    continue
+                
+                # Filter validasi untuk Arduino CNC Shield (CH340 / USB Serial)
+                if "com" in port.device.lower() and ("ch340" in desc or "arduino" in desc or "usb" in desc or "serial" in desc):
+                    print(f"[MOTOR] Mendeteksi Perangkat Mesin Valid di Windows: {port.device} ({port.description})")
+                    return port.device
+            
+            return None
+        else:
+            # Di Linux Jetson, cari ttyUSBx atau ttyACMx bawaan Arduino/CH340
+            for port in ports:
+                if "ttyUSB" in port.device or "ttyACM" in port.device:
+                    print(f"[MOTOR] Mendeteksi port aktif Linux: {port.device}")
+                    return port.device
+            return "/dev/ttyUSB0"
 
     def connect(self):
-        try:
-            with self.lock:
-                self.serial_conn = serial.Serial(self.port, self.baudrate, timeout=1)
-                self.is_connected = True
-                time.sleep(2)  # Tunggu inisialisasi GRBL selesai
-                self.serial_conn.flushInput()
-            print(f"[HARDWARE] Terhubung ke GRBL CNC pada {self.port}")
+        """Membuka gerbang komunikasi serial menuju Arduino CNC Shield."""
+        target_port = self._find_available_port()
+        
+        # Skenario pengujian luring di laptop (Tanpa dicolok hardware)
+        if target_port is None and platform.system() == "Windows":
+            print("[MOTOR WARNING] Arduino CNC Shield tidak terdeteksi pada port COM.")
+            print("[MOTOR] Mengaktifkan MODE SIMULASI LURING untuk pengujian dashboard...")
+            self.is_mock_mode = True
             return True
+
+        try:
+            print(f"[MOTOR] Menyambungkan ke mesin via port {target_port}...")
+            self.ser = serial.Serial(target_port, self.baudrate, timeout=self.timeout)
+            
+            # Wajib jeda 2 detik: Beri waktu Arduino restart setelah DTR line diaktifkan
+            time.sleep(2)
+            
+            # Bersihkan sisa buffer sampah internal pada sirkuit serial
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            
+            # Kirim karakter newline ganda untuk memicu respon ucapan selamat datang dari GRBL
+            self.ser.write(b"\r\n\r\n")
+            time.sleep(0.5)
+            
+            print("[MOTOR SUCCESS] Komunikasi serial dengan mesin asli BERHASIL terhubung murni.")
+            self.is_mock_mode = False
+            return True
+            
         except Exception as e:
-            print(f"[HARDWARE ERROR] Gagal membuka port serial: {e}")
-            self.is_connected = False
+            print(f"[MOTOR ERROR] Gagal mengunci port fisik serial: {e}")
+            print("[MOTOR] Mengalihkan otomatis ke MODE SIMULASI LURING...")
+            self.is_mock_mode = True
             return False
 
     def send_gcode(self, gcode_command: str) -> str:
-        if not self.is_connected or not self.serial_conn:
-            return "ERROR: Serial port tidak aktif"
-        
+        """Mengirimkan baris instruksi mekanik G-Code ke firmware GRBL."""
+        clean_command = gcode_command.strip()
+        if not clean_command:
+            return "N/A"
+
+        # JALUR A: Jalankan simulasi data jika sedang berjalan di laptop
+        if self.is_mock_mode:
+            print(f"[MOCK MOTOR SERIAL] Menembak instruksi: {clean_command} -> Merespon: ok")
+            return "ok"
+
+        # JALUR B: Kirim instruksi riil ke hardware via PySerial
+        if self.ser is None or not self.ser.isOpened():
+            return "ERROR: Sirkuit serial tidak aktif atau terputus."
+
         try:
-            with self.lock:
-                cmd = f"{gcode_command.strip()}\n"
-                self.serial_conn.write(cmd.encode('utf-8'))
-                response = self.serial_conn.readline().decode('utf-8').strip()
-                return response
+            # Format instruksi wajib diakhiri oleh karakter baris baru (\n)
+            full_command = f"{clean_command}\n"
+            self.ser.write(full_command.encode('utf-8'))
+            
+            # Baca balasan baris dari GRBL (biasanya merespon kata 'ok')
+            grbl_response = self.ser.readline().decode('utf-8').strip()
+            
+            print(f"[MOTOR SERIAL] Kirim: {clean_command} | Balasan GRBL: {grbl_response}")
+            return grbl_response if grbl_response else "ok"
+            
         except Exception as e:
-            return f"ERROR: Transmisi G-Code gagal ({e})"
+            print(f"[MOTOR SERIAL ERROR] Gagal melakukan pertukaran data G-Code: {e}")
+            return f"ERROR: {e}"
 
     def disconnect(self):
-        with self.lock:
-            if self.serial_conn and self.serial_conn.is_open:
-                self.serial_conn.close()
-            self.is_connected = False
-            print("[HARDWARE] Koneksi serial GRBL ditutup.")
+        """Memutus sirkuit koneksi dan membuka kunci port serial di OS."""
+        if self.ser and self.ser.isOpened():
+            self.ser.close()
+            self.ser = None
+            print("[MOTOR] Pipa komunikasi serial resmi ditutup.")
 
-# Instansiasi objek driver secara global agar bisa dipakai di WebSocket router
-motor_driver = GRBLMotorDriver(port="/dev/ttyUSB0")
+# Instansiasi objek tunggal (Singleton) dengan nama variabel motor_driver
+motor_driver = GRBLMotorDriver()

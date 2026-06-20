@@ -1,7 +1,7 @@
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from ..hardware.motor_driver import motor_driver
-from ..hardware.camera_driver import camera_driver
+from ..hardware.camera_driver import cam_driver as camera_driver
 import json
 from pydantic import BaseModel
 
