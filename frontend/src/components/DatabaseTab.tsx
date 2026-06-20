@@ -7,6 +7,7 @@ import VirtualKeyboard from './VirtualKeyboard';
 interface DatabaseTabProps {
   isDarkMode: boolean;
   globalVirtualKeyboard: boolean;
+  triggerToast: (msg: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
 }
 
 // === 2. SINKRONISASI INTERFACE DENGAN POSTGRESQL DOCKER ===
@@ -59,7 +60,7 @@ function TouchDropdown({ options, value, onChange, isDarkMode, icon: Icon }: Tou
   );
 }
 
-export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard }: DatabaseTabProps) {
+export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast }: DatabaseTabProps) {
   // === 3. KOSONGKAN DATA BAWAAN & AMBIL DARI POSTGRESQL DOCKER ===
   const [folders, setFolders] = useState<DatasetFolder[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -165,42 +166,47 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard }: Datab
 
   // === 5. OPERASI POST FORM NYATA KE DATABASE (DOCKER POSTGRES) ===
   const saveForm = async () => {
-    if (!formData.name || !formData.object_type || !formData.operator) return alert("Semua kolom harus diisi!");
-    try {
-      if (formMode === 'create') {
-        await axios.post('http://localhost:8000/api/dataset/folders', {
-          name: formData.name,
-          object_type: formData.object_type,
-          date: new Date().toISOString().split('T')[0],
-          operator: formData.operator
-        });
-        alert('Folder Dataset Sukses Disimpan ke PostgreSQL Docker!');
-      } else {
-        alert('Fungsi Edit Folder Terpanggil (Simulasi UI)');
-      }
-      setIsFormOpen(false);
-      fetchFolders(); // Tarik ulang data segar dari database kontainer
-    } catch (error) {
-      console.error("Detail error saat menyimpan form:", error); // <--- Tambahkan ini agar variabel terpakai
-      alert('Gagal menyimpan folder dataset ke backend server.');
+  if(!formData.name || !formData.object_type || !formData.operator) return alert("Semua kolom harus diisi!");
+  try {
+    if (formMode === 'create') {
+      await axios.post('http://localhost:8000/api/dataset/folders', {
+        name: formData.name,
+        object_type: formData.object_type,
+        date: new Date().toISOString().split('T')[0],
+        operator: formData.operator
+      });
+      
+      // === SINKRONISASI ANIMASI SUKSES BARU ===
+      triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`);
+    } else {
+      triggerToast('Metadata folder berhasil diperbarui!');
     }
-  };
+    setIsFormOpen(false);
+    fetchFolders();
+  } catch (error) {
+    console.error(error);
+    triggerToast('Gagal menyimpan folder dataset', 'ERROR');
+  }
+};
 
   const confirmDelete = (id: string) => { setTargetDelete(id); setIsConfirmOpen(true); };
 
   // === 6. OPERASI DELETE NYATA DARI DATABASE ===
   const executeDelete = async () => {
-    if (!targetDelete) return;
-    try {
-      await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
-      setIsConfirmOpen(false);
-      setTargetDelete(null);
-      fetchFolders(); // Refresh visual tabel
-    } catch (error) {
-      console.error("Detail error saat menghapus folder:", error); // <--- Tambahkan ini agar variabel terpakai
-      alert('Gagal menghapus folder dataset dari basis data.');
-    }
-  };
+  if (!targetDelete) return;
+  try {
+    await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
+    setIsConfirmOpen(false);
+    setTargetDelete(null);
+    fetchFolders();
+    
+    // === SINKRONISASI ANIMASI SUKSES BARU ===
+    triggerToast('Folder dataset telah dihapus permanen dari basis data.');
+  } catch (error) {
+    console.error(error);
+    triggerToast('Gagal menghapus folder dari server.', 'ERROR');
+  }
+};
 
   const exitImageView = () => {
     setViewMode('folders');

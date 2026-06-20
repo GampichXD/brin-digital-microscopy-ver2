@@ -37,6 +37,7 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400 focus:border-blue-500' : 'bg-gray-50 border-gray-300 text-blue-600 focus:border-blue-600',
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     btnTouch: isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300',
+    text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
   };
 
   const handleKeyboardInput = (key: string) => {
@@ -119,22 +120,38 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
         )}
 
         {/* SLIDER INTERFACE */}
-        <div className={`p-2.5 rounded-xl border mb-4 flex items-center justify-between bg-black/10 ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-          <div className="flex items-center gap-2">
-            <Keyboard size={16} className={globalVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
-            <div className="flex flex-col">
-              <span className="text-[11px] font-bold">Gunakan Virtual Keyboard</span>
-              <span className="text-[8px] text-gray-500">Matikan jika ada USB Keyboard fisik tersambung</span>
-            </div>
-          </div>
-          <button 
-            type="button" 
-            onClick={() => { setGlobalVirtualKeyboard(!globalVirtualKeyboard); setKeyboardState({ visible: false, title: '', targetSetter: null }); }}
-            className={`transition-colors p-0.5 rounded-lg ${globalVirtualKeyboard ? 'text-blue-500' : 'text-gray-400'}`}
-          >
-            {globalVirtualKeyboard ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
-          </button>
-        </div>
+        <div 
+  className={`p-2.5 rounded-xl border mb-4 flex items-center justify-between transition-all ${
+    globalVirtualKeyboard 
+      ? 'border-blue-500/40 bg-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.05)]' 
+      : (isDarkMode ? 'border-gray-800 bg-black/10' : 'border-gray-200 bg-black/5')
+  }`}
+>
+  <div className="flex items-center gap-2">
+    {/* Logo Keyboard ikut menyala biru */}
+    <Keyboard size={16} className={globalVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+    <div className="flex flex-col">
+      {/* Judul Teks "Gunakan Virtual Keyboard" ikut menyala biru */}
+      <span className={`text-[11px] font-bold transition-colors ${globalVirtualKeyboard ? 'text-blue-400' : theme.text}`}> 
+        Gunakan Virtual Keyboard
+      </span>
+      <span className="text-[8px] text-gray-500">Matikan jika ada USB Keyboard fisik tersambung</span>
+    </div>
+  </div>
+  
+  <button 
+    type="button" 
+    onClick={() => { 
+      const nextState = !globalVirtualKeyboard;
+      setGlobalVirtualKeyboard(nextState); 
+      localStorage.setItem('useVirtualKeyboard', String(nextState));
+      setKeyboardState({ visible: false, title: '', targetSetter: null }); 
+    }}
+    className={`transition-colors p-0.5 rounded-lg active:scale-95 ${globalVirtualKeyboard ? 'text-blue-500' : 'text-gray-400'}`}
+  >
+    {globalVirtualKeyboard ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+  </button>
+</div>
 
         <div className={`flex rounded-xl border p-1 mb-4 bg-black/5 ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
           <button type="button" onClick={() => { setAuthMode('LOGIN'); setPassword(''); setErrorMsg(''); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${authMode === 'LOGIN' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><LogIn size={14}/> LOGIN</button>

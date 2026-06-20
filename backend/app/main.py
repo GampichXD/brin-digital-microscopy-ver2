@@ -2,8 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine
 from . import models
-from .routers import auth 
-from .routers import dataset
+from .routers import auth, dataset # Pengelompokan import router
 
 # Otomatis menciptakan tabel di PostgreSQL kontainer Docker jika belum ada
 models.Base.metadata.create_all(bind=engine)
@@ -30,6 +29,7 @@ app.add_middleware(
 
 # === DAFTARKAN ROUTER DI SINI ===
 app.include_router(auth.router)
+app.include_router(dataset.router) # Dikelompokkan bersama di sini
 
 @app.get("/", tags=["Health Check"])
 async def root():
@@ -41,5 +41,3 @@ async def root():
             "grbl_core": "READY"
         }
     }
-
-app.include_router(dataset.router)

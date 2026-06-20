@@ -9,6 +9,11 @@ from typing import Optional
 import bcrypt
 from ..database import get_db
 from .. import models
+from datetime import datetime, timezone, timedelta
+
+# Skema Pydantic baru untuk update role
+class RoleUpdate(BaseModel):
+    role: str
 
 router = APIRouter(
     prefix="/api/auth",
@@ -97,3 +102,41 @@ def login_user(credentials: UserLogin, db: Session = Depends(get_db)):
         "username": user.username,
         "role": user.role
     }
+
+# --- ENDPOINT 3: AMBIL SEMUA OPERATOR LAB (KHUSUS CONTROL PANEL ADMIN) ---
+@router.get("/operators")
+def get_all_operators(db: Session = Depends(get_db)):
+    users = db.query(models.User).all()
+    # Petakan response agar struktur data cocok dengan interface LabOperator frontend
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "role": u.role,
+            "status": "ACTIVE", # Status default instrumen
+            "last_login": "Hari ini" if u.role == "ADMIN" else "N/A"
+        }
+        for u in users
+    ]
+
+# --- ENDPOINT 4: UBAH TINGKAT HAK AKSES OPERATOR (RBAC MUTASI) ---
+@router.put("/operators/{user_id}/role")
+def update_operator_role(user_id: int, role_data: RoleUpdate, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Operator tidak ditemukan!")
+    
+    user.role = role_data.role.upper()
+    db.commit()
+    return {"message": f"Otoritas {user.username} berhasil diubah menjadi {user.role}"}
+
+# --- ENDPOINT 5: HAPUS OPERATOR LAB ---
+@router.delete("/operators/{user_id}")
+def delete_operator(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Operator tidak ditemukan!")
+    
+    db.delete(user)
+    db.commit()
+    return {"message": "Akun operator berhasil dihapus dari sistem"}

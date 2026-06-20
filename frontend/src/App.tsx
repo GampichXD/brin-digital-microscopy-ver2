@@ -40,7 +40,11 @@ export default function App() {
   const [targetAnalysisImage, setTargetAnalysisImage] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState<boolean>(true); 
-  const [useVirtualKeyboard, setUseVirtualKeyboard] = useState<boolean>(true);
+  const [useVirtualKeyboard, setUseVirtualKeyboard] = useState<boolean>(() => {
+  const savedKB = localStorage.getItem('useVirtualKeyboard');
+  // Jika belum pernah disetel, default-nya tetap aktif (true)
+  return savedKB !== null ? savedKB === 'true' : true;
+});
 
   const [keypad, setKeypad] = useState<KeypadConfig>({
     visible: false,
@@ -93,6 +97,19 @@ export default function App() {
   const availableTabs: TabName[] = currentUserRole === 'ADMIN' 
     ? ['Live Stream', 'Database', 'Image Gathering', 'Image Analysis', 'Documentation', 'Admin Control']
     : ['Live Stream', 'Database', 'Image Gathering', 'Image Analysis', 'Documentation'];
+  
+  const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'SUCCESS' | 'ERROR' | 'INFO' }>({
+  visible: false,
+  message: '',
+  type: 'SUCCESS'
+});
+
+  const showNotification = (message: string, type: 'SUCCESS' | 'ERROR' | 'INFO' = 'SUCCESS') => {
+  setToast({ visible: true, message, type });
+  setTimeout(() => {
+    setToast(prev => ({ ...prev, visible: false }));
+  }, 3000); // Otomatis hilang setelah 3 detik
+};
 
   if (!currentUser) {
     return (
@@ -138,13 +155,28 @@ export default function App() {
         {/* Sisi Kanan Header */}
         <div className="flex items-center space-x-2 shrink-0">
           <button 
-            onClick={() => setUseVirtualKeyboard(!useVirtualKeyboard)}
-            className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-colors ${isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'} ${useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'}`}
-          >
-            <Keyboard size={14} />
-            <span className="hidden sm:inline">Screen KB</span>
-            {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500"/> : <ToggleLeft size={16}/>}
-          </button>
+  onClick={() => {
+    const nextState = !useVirtualKeyboard;
+    setUseVirtualKeyboard(nextState);
+    localStorage.setItem('useVirtualKeyboard', String(nextState));
+  }}
+  className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all ${
+    isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'
+  } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
+>
+  {/* Logo ikut menyala biru */}
+  <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+  
+  {/* Teks "Screen KB" ikut menyala biru */}
+  <span className={`hidden sm:inline ${useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'}`}>Screen KB</span>
+  
+  {/* Icon Toggle Slider */}
+  {useVirtualKeyboard ? (
+    <ToggleRight size={16} className="text-blue-500 animate-fadeIn" />
+  ) : (
+    <ToggleLeft size={16} className="text-gray-500" />
+  )}
+</button>
 
           <span className={`text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border flex items-center gap-1.5 shadow-inner ${currentUserRole === 'ADMIN' ? 'border-red-500/30 text-red-400' : 'border-gray-700/60 text-blue-400'}`}>
             <User size={13} />
@@ -227,7 +259,7 @@ export default function App() {
           <LiveStreamTab isDarkMode={isDarkMode} openKeypad={handleOpenKeypadGlobal} globalVirtualKeyboard={useVirtualKeyboard} isSystemHardwareEnabled={isSystemHardwareEnabled} />
         )}
         {activeTab === 'Database' && (
-          <DatabaseTab isDarkMode={isDarkMode} globalVirtualKeyboard={useVirtualKeyboard} />
+          <DatabaseTab isDarkMode={isDarkMode} globalVirtualKeyboard={useVirtualKeyboard} triggerToast={showNotification}/>
         )}
         {activeTab === 'Image Gathering' && (
           <ImageGatheringTab 
@@ -260,7 +292,15 @@ export default function App() {
         <div className={`absolute z-50 rounded-xl shadow-2xl border-2 flex flex-col touch-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`} style={{ left: keypadPos.x, top: keypadPos.y, width: '260px' }}>
           <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
             <span className="text-xs font-bold">{keypad.title}</span>
-            <button onClick={() => setKeypad({ ...keypad, visible: false })} className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors"><X size={16} /></button>
+            <button 
+  onPointerDown={(e) => {
+    e.stopPropagation(); // Menahan agar fungsi drag header tidak ikut memicu
+    setKeypad(prev => ({ ...prev, visible: false })); // Sembunyikan Numpad
+  }} 
+  className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors text-gray-400"
+>
+  <X size={16} />
+</button>
           </div>
 
           <div className={`p-3 text-right text-xl font-mono font-bold tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{keypad.value || '0'}</div>
@@ -275,6 +315,22 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ==================== GLOBAL TOAST NOTIFICATION FLOATING ANIMATION ==================== */}
+{toast.visible && (
+  <div className="fixed bottom-6 right-6 z-[200] animate-slideIn flex items-center gap-3 px-5 py-4 rounded-2xl border shadow-2xl backdrop-blur-md bg-gray-900/90 border-green-500/30 text-white min-w-[300px]">
+    <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500 flex items-center justify-center shrink-0">
+      <div className="w-2 h-2 rounded-full bg-green-500 animate-ping"></div>
+    </div>
+    <div className="flex flex-col flex-1">
+      <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Sistem Otoritas Berhasil</span>
+      <span className="text-xs font-bold text-gray-200 mt-0.5">{toast.message}</span>
+    </div>
+    <button onClick={() => setToast(prev => ({ ...prev, visible: false }))} className="p-1 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
+      <X size={14} />
+    </button>
+  </div>
+)}
 
     </div>
   );

@@ -6,6 +6,10 @@ from typing import List
 from ..database import get_db
 from .. import models
 
+# Skema Pydantic baru untuk payload penambahan gambar
+class ImageCountIncrement(BaseModel):
+    count: int
+
 router = APIRouter(
     prefix="/api/dataset",
     tags=["Dataset Management"]
@@ -59,3 +63,26 @@ def create_folder(folder_data: FolderCreate, db: Session = Depends(get_db)):
 def get_all_folders(db: Session = Depends(get_db)):
     folders = db.query(models.DatasetFolder).all()
     return folders
+
+# --- ENDPOINT 3: HAPUS FOLDER DATASET PERMANEN ---
+@router.delete("/folders/{folder_id}")
+def delete_dataset_folder(folder_id: str, db: Session = Depends(get_db)):
+    folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
+    
+    db.delete(folder)
+    db.commit()
+    return {"message": "Folder dataset beserta metadata di dalamnya berhasil dihapus"}
+
+# --- ENDPOINT 4: TAMBAH JUMLAH GAMBAR SECARA DINAMIS PASCA GRID SCAN ---
+@router.put("/folders/{folder_id}/add-images")
+def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Session = Depends(get_db)):
+    folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
+    
+    folder.image_count += payload.count
+    db.commit()
+    db.refresh(folder)
+    return {"message": "Jumlah gambar berhasil dimutasi", "current_image_count": folder.image_count}
