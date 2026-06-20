@@ -1,13 +1,21 @@
 import { useState } from 'react';
-import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
-import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut } from 'lucide-react';
+import axios from 'axios';
+import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
+
+// SINKRONISASI PROPS: Tambahkan availableFolders dari App.tsx
+interface DatasetFolder {
+  id: string;
+  name: string;
+  object_type: string;
+}
 
 interface ImageAnalysisTabProps {
   isDarkMode: boolean;
   targetImage: string | null; 
   onClearTarget: () => void;  
   globalVirtualKeyboard: boolean;
+  availableFolders?: DatasetFolder[]; // <--- Tambahkan props ini
 }
 
 interface ColonyPosition {
@@ -20,14 +28,13 @@ interface AnalysisState {
   processName: string;
   cssFilter: string;
   colonies: ColonyPosition[] | null;
-  imageSrc: string | null; // <--- Menyimpan path/URL citra hasil pemrosesan OpenCV
+  imageSrc: string | null;
 }
 
-export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard }: ImageAnalysisTabProps) {
+export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard, availableFolders = [] }: ImageAnalysisTabProps) {
   const [prevTargetImage, setPrevTargetImage] = useState<string | null>(targetImage);
   const [currentImage, setCurrentImage] = useState<string | null>(targetImage);
   
-  // Base URL server backend FastAPI untuk memuat aset statis gambar
   const API_BASE_URL = 'http://localhost:8000';
 
   const [history, setHistory] = useState<AnalysisState[]>(
@@ -80,9 +87,21 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4'
   };
 
-  const dummyFolders = [
-    { id: '1', name: 'Riset_Coli_Tembalang_01' },
-  ];
+  // Fungsi saat operator memilih gambar tiruan/statis dari database folder yang diklik
+  const handleSelectFromDatabaseFolder = (folderName: string) => {
+  // Mengarah ke berkas citra utama dari sampel database yang dipilih
+  const targetSampleFile = `${folderName}_sample.jpg`;
+  setCurrentImage(targetSampleFile);
+  setHistory([{ 
+    id: 1, 
+    processName: 'Loaded from Database Library', 
+    cssFilter: 'brightness(1) contrast(1) blur(0px)', 
+    colonies: null,
+    imageSrc: `${API_BASE_URL}/static/uploads/samples/${folderName}.jpg` // Path direktori penyimpanan sampel database
+  }]);
+  setHistoryIndex(0);
+  setZoomLevel(1);
+};
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 3)); 
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5)); 
@@ -98,36 +117,39 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     setVk({ visible: true, title, field });
   };
 
-  const handleManualUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processImageUpload = async (file: File) => {
+    const formDataUpload = new FormData();
+    formDataUpload.append('file', file);
+
+    setIsProcessing(true);
+    setProcessTask('Mengunggah citra mikroskop...');
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/analysis/upload`, formDataUpload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      setCurrentImage(response.data.filename);
+      setHistory([{ 
+        id: 1, 
+        processName: 'Original Image', 
+        cssFilter: 'brightness(1) contrast(1) blur(0px)', 
+        colonies: null,
+        imageSrc: `${API_BASE_URL}${response.data.url}`
+      }]);
+      setHistoryIndex(0);
+      setZoomLevel(1);
+    } catch (error) {
+      console.error("Gagal mengunggah berkas gambar:", error);
+      alert('Gagal mengunggah berkas gambar ke Jetson Orin.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleManualUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const formDataUpload = new FormData();
-      formDataUpload.append('file', file);
-
-      setIsProcessing(true);
-      setProcessTask('Mengunggah citra mikroskop...');
-
-      try {
-        const response = await axios.post(`${API_BASE_URL}/api/analysis/upload`, formDataUpload, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-
-        setCurrentImage(response.data.filename);
-        setHistory([{ 
-          id: 1, 
-          processName: 'Original Image', 
-          cssFilter: 'brightness(1) contrast(1) blur(0px)', 
-          colonies: null,
-          imageSrc: `${API_BASE_URL}${response.data.url}`
-        }]);
-        setHistoryIndex(0);
-        setZoomLevel(1);
-      } catch (error) {
-        console.error("Gagal mengunggah berkas gambar:", error);
-        alert('Gagal mengunggah berkas gambar ke Jetson Orin.');
-      } finally {
-        setIsProcessing(false);
-      }
+      processImageUpload(e.target.files[0]);
     }
   };
 
@@ -150,7 +172,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const undo = () => { if (canUndo) setHistoryIndex(prev => prev - 1); };
   const redo = () => { if (canRedo) setHistoryIndex(prev => prev + 1); };
 
-  // === 2. INTERKONEKSI UTAMA: PROSES CITRA MENGGUNAKAN AI & OPENCV BACKEND ===
   const executeTool = async (toolName: string, endpointPath: string, params: object = {}, isAI: boolean = false) => {
     if (!currentImage) return;
     setIsProcessing(true);
@@ -158,7 +179,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
     try {
       const currentState = history[historyIndex];
-      // Tembak API komputasi gambar OpenCV/YOLO di Jetson
       const response = await axios.post(`${API_BASE_URL}/api/analysis/${endpointPath}`, {
         filename: currentImage,
         current_src: currentState.imageSrc,
@@ -170,7 +190,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         processName: toolName,
         cssFilter: isAI ? 'brightness(1)' : response.data.css_filter || 'brightness(1)',
         colonies: response.data.colonies || null,
-        imageSrc: `${API_BASE_URL}${response.data.url}` // URL gambar baru hasil olahan filter OpenCV
+        imageSrc: `${API_BASE_URL}${response.data.url}`
       };
 
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
@@ -192,28 +212,76 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const activeState = history[historyIndex];
 
   return (
-    <div className="flex h-full relative">
+    <div className="flex h-full relative w-full">
       
       {!currentImage && (
-        <div className={`w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center transition-colors ${isDarkMode ? 'border-gray-700 bg-gray-900/50' : 'border-gray-300 bg-gray-50'}`}>
-          <div className="w-24 h-24 bg-blue-500/10 text-blue-500 rounded-full flex items-center justify-center mb-6">
-            <UploadCloud size={48} />
-          </div>
-          <h2 className={`text-2xl font-bold mb-2 ${theme.text}`}>Pilih Gambar untuk Dianalisis</h2>
-          <p className={`text-sm mb-8 max-w-md text-center ${theme.textMuted}`}>Kamu bisa menekan tombol di bawah untuk mengunggah gambar dari penyimpanan lokal, atau lempar gambar secara otomatis dari Tab Image Gathering.</p>
+        <div className="w-full h-full p-2 flex flex-col md:flex-row gap-3">
           
-          <label className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold flex items-center justify-center cursor-pointer shadow-lg active:scale-95 transition-all">
-            <UploadCloud size={20} className="mr-2" /> UNGGAH DARI PERANGKAT
-            <input type="file" className="hidden" accept="image/*" onChange={handleManualUpload} />
-          </label>
+          {/* JALUR UTAMA KIRI: DRAG-DROP & TOUCH FILE STORAGE EXPLORER */}
+          <div 
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              if (e.dataTransfer.files && e.dataTransfer.files[0]) processImageUpload(e.dataTransfer.files[0]);
+            }}
+            className={`flex-1 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all p-6 ${
+              isDarkMode ? 'border-gray-700 bg-gray-900/40 hover:border-blue-500/50 hover:bg-blue-500/5' : 'border-gray-300 bg-gray-50 hover:border-blue-500/50 hover:bg-blue-500/5'
+            }`}
+          >
+            <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer select-none group">
+              <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
+                <UploadCloud size={32} />
+              </div>
+              <h2 className={`text-lg font-black mb-1 tracking-wide ${theme.text}`}>Seret Gambar / Ketuk</h2>
+              <p className={`text-[11px] mb-4 max-w-xs text-center leading-relaxed ${theme.textMuted}`}>
+                Tarik file dari Device, atau sentuh untuk mengakses penyimpanan lokal perangkat Anda, atau terima transmisi otomatis dari Tab Image Gathering.
+              </p>
+              <div className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md">
+                CARI BERKAS CITRA
+              </div>
+              <input type="file" className="hidden" accept="image/*" onChange={handleManualUpload} />
+            </label>
+          </div>
+
+          {/* === JALUR KANAN BARU: PILIH DARI DATA FOLDER DATABASE POSTGRESQL === */}
+          <div className={`w-full md:w-[40%] rounded-3xl border p-4 flex flex-col shadow-sm ${theme.panel}`}>
+  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-800">
+    <Database size={16} className="text-blue-400" />
+    <h3 className={`text-xs font-black uppercase tracking-wider ${theme.text}`}>Pilih dari Pustaka Database</h3>
+  </div>
+  
+  <p className={`text-[10px] mb-3 leading-normal ${theme.textMuted}`}>
+    Pilih folder sampel mikroba/bakteri yang telah terdaftar di database laboratorium untuk memuat citra mentahnya ke dalam kanvas analisis.
+  </p>
+
+  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'none' }}>
+    {availableFolders.length === 0 ? (
+      <div className="text-center py-8 text-[11px] font-medium text-gray-500">
+        Belum ada repositori data sampel di PostgreSQL
+      </div>
+    ) : (
+      availableFolders.map(folder => (
+        <div 
+          key={folder.id}
+          onClick={() => handleSelectFromDatabaseFolder(folder.name)}
+          className={`p-2.5 rounded-xl border border-gray-800/60 cursor-pointer flex flex-col gap-1 transition-all ${
+            isDarkMode ? 'bg-gray-950/40 hover:bg-blue-500/10 hover:border-blue-500/40' : 'bg-gray-50 hover:bg-blue-50/50 hover:border-blue-400'
+          }`}
+        >
+          <span className={`text-xs font-bold truncate ${theme.text}`}>{folder.name}</span>
+          <span className="text-[9px] font-mono font-bold text-blue-400 uppercase">{folder.object_type}</span>
+        </div>
+      ))
+    )}
+  </div>
+</div>
+
         </div>
       )}
 
       {currentImage && (
         <div className="flex w-full gap-3">
-          
           <div className="relative w-[70%] h-full flex flex-col gap-3 shrink-0">
-            
             <div className={`p-3 rounded-2xl border flex items-center justify-between shrink-0 shadow-sm gap-2 overflow-hidden ${theme.panel}`}>
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <button onClick={closeImage} className="p-2.5 rounded-xl border border-red-500/50 text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white active:scale-95 transition-colors shrink-0">
@@ -242,15 +310,12 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </div>
 
             <div className={`flex-1 rounded-2xl border-2 flex items-center justify-center relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-300 bg-gray-200'}`}>
-              
-              {/* TOMBOL ZOOM MELAYANG */}
               <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 bg-black/50 p-1.5 rounded-xl border border-gray-600 backdrop-blur-md">
                 <button onClick={handleZoomIn} disabled={zoomLevel >= 3} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomIn size={18}/></button>
                 <div className="w-full h-px bg-gray-600 my-0.5"></div>
                 <button onClick={handleZoomOut} disabled={zoomLevel <= 0.5} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomOut size={18}/></button>
               </div>
 
-              {/* === 3. PREVIEW DENGAN URL GAMBAR NYATA DARI SERVER JETSON ORIN === */}
               <div 
                 className="w-3/4 aspect-video bg-blue-900/20 border-2 border-blue-500/30 rounded-xl relative transition-transform duration-300 ease-out origin-center overflow-hidden shadow-2xl"
                 style={{ transform: `scale(${zoomLevel})` }} 
@@ -268,7 +333,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                   </div>
                 )}
 
-                {/* Plotting Titik Bounding Box Hasil Deteksi Model YOLO */}
                 {activeState?.colonies && activeState.colonies.map((colony, i) => (
                   <div 
                     key={i} 
@@ -300,7 +364,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </div>
 
             <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none' }}>
-              
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
                 <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>1. Pemrosesan Kecerdasan Buatan</h3>
                 <button onClick={runColonyCounter} className="w-full p-3 rounded-xl border border-purple-500/50 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 active:scale-95 flex items-center transition-colors text-sm font-bold text-left">
@@ -336,7 +399,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                   <Droplet size={18} className="mr-3 text-pink-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Color Channel Split</span><span className="text-[9px] font-normal text-gray-500">Pisahkan Warna Staining</span></div>
                 </button>
               </div>
-
             </div>
           </div>
         </div>
@@ -356,18 +418,21 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         <div className={theme.modalBg}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
             <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>Simpan Hasil Analisis</h2>
-            
             <div className="space-y-6 mb-8">
               <div>
                 <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>Pilih Folder Destinasi:</label>
                 <div className="grid gap-2 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
-                  {dummyFolders.map(folder => (
-                    <div key={folder.id} onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}>
-                      <FolderPlus size={18} className="mr-3" />
-                      <span className="font-bold text-sm">{folder.name}</span>
-                    </div>
-                  ))}
-                </div>
+  {availableFolders.map(folder => (
+    <div 
+      key={folder.id} 
+      onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} 
+      className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}
+    >
+      <FolderPlus size={18} className="mr-3" />
+      <span className="font-bold text-sm">{folder.name}</span>
+    </div>
+  ))}
+</div>
               </div>
 
               <div className="flex items-center text-xs font-bold text-gray-500">

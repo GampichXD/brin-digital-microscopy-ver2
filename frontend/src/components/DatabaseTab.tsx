@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState} from 'react';
 import type { ElementType } from 'react';
-import axios from 'axios'; // <--- 1. IMPORT AXIOS UNTUK HTTP REQUEST
+import axios from 'axios';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, Image as ImageIcon, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 
@@ -8,16 +8,17 @@ interface DatabaseTabProps {
   isDarkMode: boolean;
   globalVirtualKeyboard: boolean;
   triggerToast: (msg: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
+  availableFolders: DatasetFolder[]; // Menangkap state global dari App.tsx
+  onRefreshFolders: () => void;      // Menangkap fungsi pemicu dari App.tsx
 }
 
-// === 2. SINKRONISASI INTERFACE DENGAN POSTGRESQL DOCKER ===
 interface DatasetFolder {
   id: string;
   name: string;
-  object_type: string; // Menggunakan snake_case
+  object_type: string; 
   date: string;
   operator: string;
-  image_count: number; // Menggunakan snake_case
+  image_count: number; 
 }
 
 interface TouchDropdownProps {
@@ -60,9 +61,8 @@ function TouchDropdown({ options, value, onChange, isDarkMode, icon: Icon }: Tou
   );
 }
 
-export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast }: DatabaseTabProps) {
-  // === 3. KOSONGKAN DATA BAWAAN & AMBIL DARI POSTGRESQL DOCKER ===
-  const [folders, setFolders] = useState<DatasetFolder[]>([]);
+export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast, availableFolders, onRefreshFolders }: DatabaseTabProps) {
+  // === FIX REFACTOR: Hapus state lokal folders bawaan lama demi mematuhi ESLint ===
   const [searchQuery, setSearchQuery] = useState('');
   const [filterObject, setFilterObject] = useState('Semua Objek');
   const [filterOperator, setFilterOperator] = useState('Semua Operator');
@@ -73,10 +73,8 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
-  // Sinkronisasi variabel penampung form internal
   const [formData, setFormData] = useState({ id: '', name: '', object_type: '', operator: '' });
 
-  // Perbaikan Tipe Literal untuk Virtual Keyboard targetField
   const [keyboardState, setKeyboardState] = useState<{ visible: boolean, targetField: 'search' | 'name' | 'object_type' | 'operator' | '', title: string }>({ visible: false, targetField: '', title: '' });
 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -93,24 +91,6 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   const storageUsedPercentage = 85;
 
-  // === 4. FUNGSI FETCH DATA NYATA DARI BACKEND FASTAPI ===
-  const fetchFolders = async () => {
-    try {
-      const response = await axios.get<DatasetFolder[]>('http://localhost:8000/api/dataset/folders');
-      setFolders(response.data);
-    } catch (error) {
-      console.error("Gagal sinkronisasi data folder riset:", error);
-    }
-  };
-
-  // Trigger amankan lifecycle agar bebas bug cascading render ESLint
-  useEffect(() => {
-    const delayFetch = setTimeout(() => {
-      fetchFolders();
-    }, 0);
-    return () => clearTimeout(delayFetch);
-  }, []);
-
   const currentImages = Array.from({ length: activeFolder?.image_count || 0 }, (_, i) => `IMG_${String(i + 1).padStart(4, '0')}.jpg`).slice(0, 20);
 
   const theme = {
@@ -122,12 +102,12 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     modalOverlay: 'fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4',
   };
 
-  // Sinkronisasi variabel peta dropdown filter
-  const uniqueObjects = ['Semua Objek', ...Array.from(new Set(folders.map(f => f.object_type)))];
-  const uniqueOperators = ['Semua Operator', ...Array.from(new Set(folders.map(f => f.operator)))];
+  // === FIX SINKRONISASI: Gunakan availableFolders hasil operan global App.tsx ===
+  const uniqueObjects = ['Semua Objek', ...Array.from(new Set(availableFolders.map(f => f.object_type)))];
+  const uniqueOperators = ['Semua Operator', ...Array.from(new Set(availableFolders.map(f => f.operator)))];
   const dateOptions = ['Semua Waktu', 'Hari Ini', 'Bulan Ini'];
 
-  const filteredFolders = folders.filter(f => {
+  const filteredFolders = availableFolders.filter(f => {
     const matchSearch = f.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchObj = filterObject === 'Semua Objek' || f.object_type === filterObject;
     const matchOp = filterOperator === 'Semua Operator' || f.operator === filterOperator;
@@ -164,49 +144,45 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     setIsFormOpen(true);
   };
 
-  // === 5. OPERASI POST FORM NYATA KE DATABASE (DOCKER POSTGRES) ===
   const saveForm = async () => {
-  if(!formData.name || !formData.object_type || !formData.operator) return alert("Semua kolom harus diisi!");
-  try {
-    if (formMode === 'create') {
-      await axios.post('http://localhost:8000/api/dataset/folders', {
-        name: formData.name,
-        object_type: formData.object_type,
-        date: new Date().toISOString().split('T')[0],
-        operator: formData.operator
-      });
-      
-      // === SINKRONISASI ANIMASI SUKSES BARU ===
-      triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`);
-    } else {
-      triggerToast('Metadata folder berhasil diperbarui!');
+    if(!formData.name || !formData.object_type || !formData.operator) return alert("Semua kolom harus diisi!");
+    try {
+      if (formMode === 'create') {
+        await axios.post('http://localhost:8000/api/dataset/folders', {
+          name: formData.name,
+          object_type: formData.object_type,
+          date: new Date().toISOString().split('T')[0],
+          operator: formData.operator
+        });
+        
+        triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`);
+      } else {
+        triggerToast('Metadata folder berhasil diperbarui!');
+      }
+      setIsFormOpen(false);
+      onRefreshFolders(); // Menggunakan prop refresh global dari App.tsx
+    } catch (error) {
+      console.error(error);
+      triggerToast('Gagal menyimpan folder dataset', 'ERROR');
     }
-    setIsFormOpen(false);
-    fetchFolders();
-  } catch (error) {
-    console.error(error);
-    triggerToast('Gagal menyimpan folder dataset', 'ERROR');
-  }
-};
+  };
 
   const confirmDelete = (id: string) => { setTargetDelete(id); setIsConfirmOpen(true); };
 
-  // === 6. OPERASI DELETE NYATA DARI DATABASE ===
   const executeDelete = async () => {
-  if (!targetDelete) return;
-  try {
-    await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
-    setIsConfirmOpen(false);
-    setTargetDelete(null);
-    fetchFolders();
-    
-    // === SINKRONISASI ANIMASI SUKSES BARU ===
-    triggerToast('Folder dataset telah dihapus permanen dari basis data.');
-  } catch (error) {
-    console.error(error);
-    triggerToast('Gagal menghapus folder dari server.', 'ERROR');
-  }
-};
+    if (!targetDelete) return;
+    try {
+      await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
+      setIsConfirmOpen(false);
+      setTargetDelete(null);
+      onRefreshFolders(); // Menggunakan prop refresh global dari App.tsx
+      
+      triggerToast('Folder dataset telah dihapus permanen dari basis data.');
+    } catch (error) {
+      console.error(error);
+      triggerToast('Gagal menghapus folder dari server.', 'ERROR');
+    }
+  };
 
   const exitImageView = () => {
     setViewMode('folders');

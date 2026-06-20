@@ -9,6 +9,7 @@ import AdminControlTab from './components/AdminControlTab';
 import AuthPage from './components/AuthPage';
 import logoUndip from './assets/logo-undip.png';
 import logoBrin from './assets/logo-brin.png';
+import axios from 'axios';
 
 type TabName = 'Live Stream' | 'Database' | 'Image Gathering' | 'Image Analysis' | 'Documentation' | 'Admin Control';
 export type UserRole = 'ADMIN' | 'OPERATOR';
@@ -20,8 +21,44 @@ export interface KeypadConfig {
   onUpdate: (val: string) => void;
 }
 
+interface DatasetFolder {
+  id: string;
+  name: string;
+  object_type: string;
+  date: string;
+  operator: string;
+  image_count: number;
+}
+
 export default function App() {
   // === AMAN & EFISIEN: Inisialisasi State Langsung Membaca Session LocalStorage (Cegah Bug F5) ===
+  const [folders, setFolders] = useState<DatasetFolder[]>([]);
+
+const fetchFolders = async () => {
+  try {
+    const response = await axios.get<DatasetFolder[]>('http://localhost:8000/api/dataset/folders');
+    setFolders(response.data);
+  } catch (error) {
+    console.error("Gagal memuat database folder di App.tsx:", error);
+  }
+};
+
+// Ambil data pertama kali saat operator berhasil masuk ke sistem
+useEffect(() => {
+  const token = localStorage.getItem('token');
+  let delayFetch: number;
+
+  if (token) {
+    delayFetch = setTimeout(() => {
+      fetchFolders();
+    }, 0);
+  }
+
+  return () => {
+    if (delayFetch) clearTimeout(delayFetch);
+  };
+}, []);
+  
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
     return localStorage.getItem('username');
   });
@@ -259,7 +296,13 @@ export default function App() {
           <LiveStreamTab isDarkMode={isDarkMode} openKeypad={handleOpenKeypadGlobal} globalVirtualKeyboard={useVirtualKeyboard} isSystemHardwareEnabled={isSystemHardwareEnabled} />
         )}
         {activeTab === 'Database' && (
-          <DatabaseTab isDarkMode={isDarkMode} globalVirtualKeyboard={useVirtualKeyboard} triggerToast={showNotification}/>
+          <DatabaseTab 
+          isDarkMode={isDarkMode} 
+          globalVirtualKeyboard={useVirtualKeyboard} 
+          triggerToast={showNotification}
+          availableFolders={folders}
+          onRefreshFolders={fetchFolders}
+          />
         )}
         {activeTab === 'Image Gathering' && (
           <ImageGatheringTab 
@@ -277,7 +320,8 @@ export default function App() {
             isDarkMode={isDarkMode} 
             targetImage={targetAnalysisImage} 
             globalVirtualKeyboard={useVirtualKeyboard}
-            onClearTarget={() => setTargetAnalysisImage(null)} 
+            onClearTarget={() => setTargetAnalysisImage(null)}
+            availableFolders={folders}
           />
         )}
         {activeTab === 'Documentation' && <DocumentationTab isDarkMode={isDarkMode} />}
