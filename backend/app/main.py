@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine
 from . import models
-from .routers import auth, dataset # Pengelompokan import router
+from .routers import auth, dataset, hardware # Pengelompokan import router
 
 # Otomatis menciptakan tabel di PostgreSQL kontainer Docker jika belum ada
 models.Base.metadata.create_all(bind=engine)
@@ -12,6 +12,8 @@ app = FastAPI(
     description="Backend API untuk kontrol motor CNC, Kamera IMX477, dan inferensi YOLO Colony Counter",
     version="1.0.0"
 )
+
+app.include_router(hardware.router) # Daftarkan router hardware agar bisa diakses dari frontend
 
 # Konfigurasi CORS
 origins = [

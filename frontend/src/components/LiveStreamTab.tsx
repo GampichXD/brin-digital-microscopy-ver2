@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
+import { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 
@@ -26,8 +26,13 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
-  // Simulasi koordinat motor posisi nyata (Nanti dibaca via API SSE/WebSocket)
+  // State untuk menangkap respons telemetri dinamis dari WebSocket
+  const [grblStatus, setGrblStatus] = useState<string>("IDLE");
+  const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+
   const motorPos = { x: 12.55, y: 8.20, z: 1200 };
+  const wsRef = useRef<WebSocket | null>(null);
 
   const themeClasses = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -36,6 +41,78 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
     btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
+
+  // === INTEGRASI WEBSOCKET PIPELINE (KONTROL KAMERA & MOTOR REAL-TIME) ===
+
+  const cleanUpWebSocket = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setVideoSrc(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setGrblStatus('OFFLINE');
+  };
+
+  useEffect(() => {
+    let delayClean: number;
+
+    if (cameraActive && isSystemHardwareEnabled) {
+      const ws = new WebSocket('ws://localhost:8000/api/hardware/ws');
+      wsRef.current = ws;
+      ws.binaryType = 'blob';
+
+      ws.onopen = () => {
+        setGrblStatus('READY');
+        console.log('[WEBSOCKET] Berhasil tersambung ke sirkuit hardware Jetson.');
+      };
+
+      ws.onmessage = (event) => {
+        if (event.data instanceof Blob) {
+          const objectURL = URL.createObjectURL(event.data);
+          setVideoSrc(prev => {
+            if (prev) URL.revokeObjectURL(prev);
+            return objectURL;
+          });
+        } else {
+          try {
+            const res = JSON.parse(event.data);
+            if (res.event === 'MOTOR_STATUS') {
+              setGrblStatus(res.status);
+              if (res.echo_gcode) setLastEchoGCode(res.echo_gcode);
+            }
+          } catch (err) {
+            console.error('Gagal membaca paket data teks mesin:', err);
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        cleanUpWebSocket();
+      };
+
+      ws.onerror = () => {
+        cleanUpWebSocket();
+      };
+    } else {
+      // Bungkus dengan setTimeout 0ms agar dieksekusi setelah siklus render utama selesai
+      delayClean = setTimeout(() => {
+        cleanUpWebSocket();
+      }, 0);
+    }
+
+    return () => {
+      if (delayClean) clearTimeout(delayClean);
+      // Pembersihan saat operator berpindah tab juga diamankan dari cascading render
+      setTimeout(() => {
+        cleanUpWebSocket();
+      }, 0);
+    };
+  }, [cameraActive, isSystemHardwareEnabled]);
+
+  
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if (!globalVirtualKeyboard) return; 
@@ -47,27 +124,36 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
     });
   };
 
-  // === 2. FUNGSI BARU: SEND G-CODE PERGERAKAN MEJA & FOKUS KE FASTAPI ===
-  const sendMotorCommand = async (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
+  // === MODIFIKASI FUNGSI: SEKARANG MENGIRIM PERINTAH VIA WEBSOCKET AKTIF ===
+  const sendMotorCommand = (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
     
-    // Hitung langkah pergeseran berdasarkan input teks
     const step = axis === 'Z' ? parseFloat(zStepValue) : parseFloat(xyStepValue);
     const value = direction === '+' ? step : -step;
+    
+    // Formula kompilasi instruksi string G-Code tingkat tinggi
+    const gcodeStr = axis === 'Z' 
+      ? `G1 Z${value} F200` 
+      : `G1 ${axis}${value} F${feedRate}`;
 
-    try {
-      await axios.post('http://localhost:8000/api/hardware/motor/move', {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setGrblStatus('MOVING...');
+      setLastEchoGCode(gcodeStr);
+      wsRef.current.send(JSON.stringify({
+        action: 'MOVE_MOTOR',
+        gcode: gcodeStr
+      }));
+    } else {
+      // Fallback HTTP Post jika dipicu saat koneksi live stream belum dinyalakan
+      axios.post('http://localhost:8000/api/hardware/motor/move', {
         axis,
         value,
         feed_rate: parseFloat(feedRate),
         unit: axis === 'Z' ? 'step' : xyStepUnit
-      });
-    } catch (error) {
-      console.error("Gagal mengirim instruksi ke motor GRBL:", error);
+      }).catch(err => console.error(err));
     }
   };
 
-  // === 3. FUNGSI BARU: KIRIM PARAMETER KAMERA NYATA ===
   const handleApplyCameraSettings = async () => {
     try {
       await axios.post('http://localhost:8000/api/hardware/camera/settings', {
@@ -94,20 +180,15 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   };
 
   return (
-    <div className="flex gap-3 h-full">
+    <div className="flex gap-3 h-full w-full select-none">
       
       {/* KIRI: VIDEO & HUD */}
       <div className={`relative w-[60%] h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
-        {cameraActive ? (
-          // === 4. PERBAIKAN SINKRONISASI: MENEMBAK STREAMING ENDPOINT FASTAPI ===
+        {cameraActive && videoSrc ? (
           <img 
-            src="http://localhost:8000/api/hardware/camera/stream" 
+            src={videoSrc} 
             alt="Microscope Live Feed" 
             className="w-full h-full object-cover rounded-2xl"
-            onError={() => {
-              console.error("Video stream putus");
-              setCameraActive(false);
-            }}
           />
         ) : (
           <div className="flex flex-col items-center">
@@ -148,7 +229,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
         </button>
       </div>
 
-      {/* KANAN: PANEL KONTROL */}
+      {/* KANAN: PANEL KONTROL ASLI MILIKMU */}
       <div className="w-[40%] h-full overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         
         {/* 1. KENDALI MOTOR */}
@@ -158,7 +239,13 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
             <div className="flex items-center space-x-2">
               <button 
                 disabled={!isSystemHardwareEnabled}
-                onClick={() => axios.post('http://localhost:8000/api/hardware/motor/home')}
+                onClick={() => {
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ action: "HOMING" }));
+                  } else {
+                    axios.post('http://localhost:8000/api/hardware/motor/home');
+                  }
+                }}
                 className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/30 rounded-lg flex items-center text-xs font-bold hover:bg-red-500 hover:text-white transition-all disabled:opacity-30 active:scale-95"
               >
                 <RotateCcw size={14} className="mr-1" /> TO ZERO
@@ -192,7 +279,6 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
               {controlMode === 'dpad' ? (
                 <div className="grid grid-cols-3 gap-2 aspect-square">
                   <div />
-                  {/* === 5. SINKRONISASI AKSI KETUK TOMBOL DPAD MOTOR X/Y === */}
                   <button onClick={() => sendMotorCommand('Y', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowUp size={32}/></button>
                   <div />
                   <button onClick={() => sendMotorCommand('X', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowLeft size={32}/></button>
@@ -225,7 +311,6 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
                 </div>
               </div>
               <div className="flex flex-col gap-2 flex-1">
-                {/* === 6. SINKRONISASI AKSI KETUK TOMBOL DPAD FOKUS Z === */}
                 <button onClick={() => sendMotorCommand('Z', '+')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">NAIK</span></button>
                 <button onClick={() => sendMotorCommand('Z', '-')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
               </div>
@@ -344,9 +429,9 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
              <div className={`col-span-2 p-3 rounded-xl border flex justify-between items-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
                 <div className="flex items-center">
                   <Activity size={14} className="text-blue-400 mr-2"/>
-                  <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Status GRBL</span>
+                  <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Status GRBL ({lastEchoGCode})</span>
                 </div>
-                <div className="px-3 py-1 bg-blue-500/20 text-blue-500 rounded-lg text-[10px] font-bold">IDLE</div>
+                <div className="px-3 py-1 bg-blue-500/20 text-blue-500 rounded-lg text-[10px] font-bold uppercase">{grblStatus}</div>
              </div>
            </div>
         </div>
