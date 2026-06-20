@@ -5,12 +5,11 @@ import DatabaseTab from './components/DatabaseTab';
 import ImageGatheringTab from './components/ImageGatheringTab';
 import ImageAnalysisTab from './components/ImageAnalysisTab';
 import DocumentationTab from './components/DocumentationTab';
-import AdminControlTab from './components/AdminControlTab'; // <--- AMAN: Menambahkan file tab kontrol admin
+import AdminControlTab from './components/AdminControlTab'; 
 import AuthPage from './components/AuthPage';
 import logoUndip from './assets/logo-undip.png';
 import logoBrin from './assets/logo-brin.png';
 
-// === AMAN: Update Tipe Data untuk Akomodasi Admin Tab & RBAC ===
 type TabName = 'Live Stream' | 'Database' | 'Image Gathering' | 'Image Analysis' | 'Documentation' | 'Admin Control';
 export type UserRole = 'ADMIN' | 'OPERATOR';
 
@@ -22,16 +21,25 @@ export interface KeypadConfig {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabName>('Live Stream');
+  // === AMAN & EFISIEN: Inisialisasi State Langsung Membaca Session LocalStorage (Cegah Bug F5) ===
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    return localStorage.getItem('username');
+  });
+
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
+    const savedRole = localStorage.getItem('role') as UserRole | null;
+    return savedRole || 'OPERATOR';
+  });
+
+  const [activeTab, setActiveTab] = useState<TabName>(() => {
+    const savedRole = localStorage.getItem('role') as UserRole | null;
+    return savedRole === 'ADMIN' ? 'Admin Control' : 'Live Stream';
+  });
+
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [targetAnalysisImage, setTargetAnalysisImage] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
-
-  // === FITUR BARU: STATE MANAGEMENT ROLE AKSES ===
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('OPERATOR');
-  const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState<boolean>(true); // Saklar Global
-
+  const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState<boolean>(true); 
   const [useVirtualKeyboard, setUseVirtualKeyboard] = useState<boolean>(true);
 
   const [keypad, setKeypad] = useState<KeypadConfig>({
@@ -82,7 +90,6 @@ export default function App() {
     setKeypad(config);
   };
 
-  // === FITUR BARU: FILTER TAB BERDASARKAN LEVEL AKSES USER ===
   const availableTabs: TabName[] = currentUserRole === 'ADMIN' 
     ? ['Live Stream', 'Database', 'Image Gathering', 'Image Analysis', 'Documentation', 'Admin Control']
     : ['Live Stream', 'Database', 'Image Gathering', 'Image Analysis', 'Documentation'];
@@ -91,7 +98,6 @@ export default function App() {
     return (
       <AuthPage 
         isDarkMode={isDarkMode} 
-        // Membaca callback login baru yang mengirimkan data Hak Akses (Role)
         onLoginSuccess={(username, role) => {
           setCurrentUser(username);
           setCurrentUserRole(role);
@@ -106,7 +112,7 @@ export default function App() {
   return (
     <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans transition-colors duration-300 ${isDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
 
-      {/* HEADER UTAMA (100% STRUKTUR KUSTOM LOGO KAMU) */}
+      {/* HEADER UTAMA */}
       <header className={`px-4 py-2 flex items-center justify-between border-b shrink-0 gap-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
         
         {/* Sisi Kiri Header */}
@@ -150,10 +156,14 @@ export default function App() {
             {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
           </button>
 
+          {/* === AMAN: Aksi Pembersihan Token JWT Saat LogOut Ditindang === */}
           <button 
             onClick={() => {
-              setCurrentUser(null); // Menghapus session operator
-              setActiveTab('Live Stream'); // Reset default tab ke Live Stream
+              localStorage.removeItem('token');
+              localStorage.removeItem('role');
+              localStorage.removeItem('username');
+              setCurrentUser(null); 
+              setActiveTab('Live Stream'); 
             }} 
             className="p-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all active:scale-95 shadow-md"
             title="Keluar dari Instrumen"
@@ -178,7 +188,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* NAVIGATION BAR DENGAN MAP DINAMIS AKSES AKSES ADAPTOR */}
+      {/* NAVIGATION BAR */}
       <nav className={`px-2 pt-2 flex space-x-1 border-b shrink-0 ${isDarkMode ? 'border-gray-800 bg-gray-900/80' : 'border-gray-200 bg-white'}`}>
         {availableTabs.map((tab) => {
           const getTabIcon = () => {
@@ -240,7 +250,6 @@ export default function App() {
         )}
         {activeTab === 'Documentation' && <DocumentationTab isDarkMode={isDarkMode} />}
         
-        {/* COMPONENT TAB ADMIN */}
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
           <AdminControlTab isDarkMode={isDarkMode} isSystemHardwareEnabled={isSystemHardwareEnabled} setIsSystemHardwareEnabled={setIsSystemHardwareEnabled} />
         )}
@@ -251,7 +260,7 @@ export default function App() {
         <div className={`absolute z-50 rounded-xl shadow-2xl border-2 flex flex-col touch-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`} style={{ left: keypadPos.x, top: keypadPos.y, width: '260px' }}>
           <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
             <span className="text-xs font-bold">{keypad.title}</span>
-            <button onPointerDown={(e) => { e.stopPropagation(); setKeypad({ ...keypad, visible: false }); }} className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors"><X size={16} /></button>
+            <button onClick={() => setKeypad({ ...keypad, visible: false })} className="p-1 hover:bg-red-500 hover:text-white rounded transition-colors"><X size={16} /></button>
           </div>
 
           <div className={`p-3 text-right text-xl font-mono font-bold tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{keypad.value || '0'}</div>

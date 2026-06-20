@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
+import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';
@@ -7,10 +8,10 @@ import VirtualKeyboard from './VirtualKeyboard';
 interface DatasetFolder {
   id: string;
   name: string;
-  objectType: string;
+  object_type: string; // Ganti ke snake_case sesuai PostgreSQL backend
   date: string;
   operator: string;
-  imageCount: number;
+  image_count: number; // Ganti ke snake_case sesuai PostgreSQL backend
 }
 
 interface ImageGatheringTabProps {
@@ -82,20 +83,18 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
   const estMins = Math.floor(estimatedTotalSeconds / 60);
   const estSecs = Math.floor(estimatedTotalSeconds % 60);
 
-  // PERBAIKAN: Menambahkan kembali properti overlay
   const theme = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
     text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
-    btnTouch: isDarkMode ? 'bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border-gray-600' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 border-gray-300',
+    btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4',
     overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4' 
   };
 
   const fallbackFolders = [
-    { id: '1', name: 'E_Coli_Sample_A', objectType: 'Bakteri E. Coli', operator: 'Abraham', date: '', imageCount: 0 },
-    { id: '2', name: 'Yeast_Cells_01', objectType: 'Sel Ragi', operator: 'Pak Nursidik', date: '', imageCount: 0 },
+    { id: '1', name: 'Riset_Coli_Tembalang_01', object_type: 'Bakteri E. Coli', operator: 'Abraham', date: '2026-06-12', image_count: 0 },
   ];
 
   const triggerGlobalKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
@@ -120,44 +119,45 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
     return () => { if (interval) clearInterval(interval); };
   }, [isProcessing]);
 
-  const elapsedMins = String(Math.floor(timerTick / 60)).padStart(2, '0');
-  const elapsedSecs = String(timerTick % 60).padStart(2, '0');
-  const elapsedTimeText = `${elapsedMins}:${elapsedSecs}`;
+  const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
 
-  const handleStartAuto = () => {
+  // === 2. AKUISISI OTOMATIS RIIL BERBASIS HARDWARE ENDPOINT ===
+  const handleStartAuto = async () => {
     setIsProcessing(true);
-    setProcessTask('Mengambil Gambar (Auto)...');
+    setProcessTask('Mengambil Gambar & Koordinat CNC...');
     setTimerTick(0);
     setProgress(0);
     setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
-    let current = 0;
-    // PERBAIKAN: Menggunakan getTime() untuk menghindari error purity
     const startTime = new Date().getTime();
 
-    const interval = setInterval(() => {
-      current += 1;
-      setProgress(current);
-      if (current >= totalImagesConfig) {
-        clearInterval(interval);
-        
-        const scanT = (new Date().getTime() - startTime) / 1000; 
-        const generatedImages: CapturedImage[] = [];
-        for (let i = 0; i < totalImagesConfig; i++) {
-          const gx = i % c; const gy = Math.floor(i / c);
-          generatedImages.push({ index: i, filename: `IMG_AUTO_${String(i+1).padStart(4, '0')}.jpg`, coordX: gx * sx, coordY: gy * sy, gridX: gx, gridY: gy });
-        }
-        setCapturedImages(generatedImages);
-        
-        if (autoStitch) {
-          executeStitching(scanT); 
-        } else { 
-          setProcessTimes({ scan: scanT, stitch: 0, total: scanT });
-          setIsProcessing(false); 
-          setShowReviewModal(true); 
-        }
+    try {
+      // Kirim parameter grid ke backend untuk dieksekusi oleh hardware secara sekuensial
+      const response = await axios.post('http://localhost:8000/api/hardware/scan/grid', {
+        columns: c,
+        rows: r,
+        step_x: sx,
+        step_y: sy,
+        delay_ms: parseInt(camDelay),
+        unit: stepUnit
+      });
+
+      // Simpan riwayat citra pecahan yang ditangkap oleh kamera IMX477
+      setCapturedImages(response.data.images);
+      const scanT = (new Date().getTime() - startTime) / 1000;
+
+      if (autoStitch) {
+        executeStitching(scanT); 
+      } else { 
+        setProcessTimes({ scan: scanT, stitch: 0, total: scanT });
+        setIsProcessing(false); 
+        setShowReviewModal(true); 
       }
-    }, (delaySec * 1000) + (motorMoveTimeSec * 1000));
+    } catch (error) {
+      console.error(error);
+      alert("Proses pemindaian terputus. Periksa kabel limit switch atau port serial CNC.");
+      setIsProcessing(false);
+    }
   };
 
   const handleManualCapture = () => {
@@ -165,28 +165,31 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
     setCapturedImages(prev => [...prev, { index: newIndex, filename: `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`, coordX: 0, coordY: 0, gridX: 0, gridY: 0 }]);
   };
 
-  const executeStitching = (scanTParam = processTimes.scan) => {
+  // === 3. EKSEKUSI AI TILE STITCHING NYATA DI SERVER FASTAPI ===
+  const executeStitching = async (scanTParam = processTimes.scan) => {
     setShowReviewModal(false);
     setIsProcessing(true);
-    setProcessTask('AI Tile Stitching Berjalan...');
+    setProcessTask('AI Tile Stitching Berjalan di Jetson Orin...');
     setTimerTick(0);
-    setProgress(0);
+    setProgress(30); // Pre-load visual indicator
 
     const stitchStart = new Date().getTime();
-    let current = 0;
 
-    const interval = setInterval(() => {
-      current += 5;
-      setProgress(current);
-      if (current >= 100) {
-        clearInterval(interval);
-        const stitchT = (new Date().getTime() - stitchStart) / 1000;
-        setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
-        
-        setIsProcessing(false);
-        setShowStitchModal(true);
-      }
-    }, 150);
+    try {
+      await axios.post('http://localhost:8000/api/hardware/stitch', {
+        images: capturedImages.filter(img => img.filename !== null).map(img => img.filename)
+      });
+
+      const stitchT = (new Date().getTime() - stitchStart) / 1000;
+      setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
+      
+      setIsProcessing(false);
+      setShowStitchModal(true);
+    } catch (error) {
+      console.error(error);
+      alert("Proses stitching gagal. Periksa OpenCV library di VPS/Jetson.");
+      setIsProcessing(false);
+    }
   };
 
   const removeCapturedImage = (index: number) => {
@@ -207,13 +210,36 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
     }, 1500);
   };
 
-  const handleSaveToFolder = () => {
-    if (!selectedFolderId && (!saveForm.folderName || !saveForm.objectType)) return alert("Isi nama folder dan jenis objek!");
-    alert(`Berhasil menyimpan ke folder ${saveForm.folderName ? saveForm.folderName : 'yang dipilih'}.`);
-    setShowSaveModal(false);
+  // === 4. SIMPAN HASIL TANGKAPAN KE POSTGRESQL MELALUI API ===
+  const handleSaveToFolder = async () => {
+    if (!selectedFolderId && (!saveForm.folderName || !saveForm.objectType)) {
+      return alert("Isi nama folder dan jenis objek!");
+    }
+
+    try {
+      if (selectedFolderId) {
+        // Jika folder sudah ada, tambahkan image_count di backend
+        await axios.put(`http://localhost:8000/api/dataset/folders/${selectedFolderId}/add-images`, {
+          count: validImageCount
+        });
+      } else {
+        // Jika buat folder baru dari modal simpan
+        await axios.post('http://localhost:8000/api/dataset/folders', {
+          name: saveForm.folderName,
+          object_type: saveForm.objectType,
+          date: new Date().toISOString().split('T')[0],
+          operator: saveForm.operatorName
+        });
+      }
+      alert('Dataset Berhasil Disimpan Secara Permanen!');
+      setShowSaveModal(false);
+      setCapturedImages([]);
+    } catch (error) {
+      console.error(error);
+      alert("Gagal menyimpan dataset ke basis data.");
+    }
   };
 
-  // PERBAIKAN: Mengembalikan fungsi handleSendToAnalysis yang hilang
   const handleSendToAnalysis = (imageName: string | undefined) => {
     if (!imageName) return;
     if (onNavigateToAnalysis) onNavigateToAnalysis(imageName);
@@ -224,8 +250,6 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
       
       {/* ==================== KIRI: PREVIEW KAMERA ==================== */}
       <div className={`relative w-[55%] h-full flex flex-col shrink-0 overflow-hidden rounded-2xl border-2 ${isDarkMode ? 'border-gray-700 bg-black' : 'border-gray-300 bg-gray-100'}`}>
-        
-        {/* ANIMASI KILATAN RETAKE (FLASH) */}
         {isRetaking && <div className="absolute inset-0 bg-white z-50 animate-flash pointer-events-none"></div>}
 
         <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40">
@@ -248,7 +272,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none' }}>
-          <button className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
+          <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/home')} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
             <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
           </button>
 
@@ -332,7 +356,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                 <div className="h-24 bg-black/5 rounded-xl border border-gray-600/30 overflow-hidden relative flex items-center justify-center p-1">
                   <div className="w-full h-full max-w-[200px] border border-blue-500/50 grid gap-0.5" style={{ gridTemplateColumns: `repeat(${cols || 1}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows || 1}, minmax(0, 1fr))` }}>
                     {Array.from({ length: totalImagesConfig || 0 }).map((_, i) => (
-                      <div key={i} className={`rounded-sm bg-blue-500/10 border border-blue-500/30`}></div>
+                      <div key={i} className="rounded-sm bg-blue-500/10 border border-blue-500/30"></div>
                     ))}
                   </div>
                 </div>
@@ -386,11 +410,15 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                     </div>
                     {controlMode === 'dpad' ? (
                       <div className="grid grid-cols-3 gap-1 aspect-square">
-                        <div /><button className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={24}/></button><div />
-                        <button className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowLeft size={24}/></button>
+                        <div />
+                        <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/move', { axis: 'Y', value: parseFloat(stepX) })} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={24}/></button>
+                        <div />
+                        <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/move', { axis: 'X', value: -parseFloat(stepX) })} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowLeft size={24}/></button>
                         <button className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95"><Crosshair size={20}/></button>
-                        <button className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowRight size={24}/></button>
-                        <div /><button className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={24}/></button><div />
+                        <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/move', { axis: 'X', value: parseFloat(stepX) })} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowRight size={24}/></button>
+                        <div />
+                        <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/move', { axis: 'Y', value: -parseFloat(stepX) })} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={24}/></button>
+                        <div />
                       </div>
                     ) : (
                       <div className={`aspect-square rounded-full border-4 flex items-center justify-center relative touch-none ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-gray-50'}`}>
@@ -409,8 +437,8 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                         className={`w-full h-6 flex items-center justify-center text-center rounded border text-xs font-bold cursor-pointer ${theme.input}`}
                       />
                     </div>
-                    <button className={`flex-1 mb-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={20} className="text-blue-500"/></button>
-                    <button className={`flex-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={20} className="text-blue-500"/></button>
+                    <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/move', { axis: 'Z', value: parseFloat(zStep) })} className={`flex-1 mb-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={20} className="text-blue-500"/></button>
+                    <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/move', { axis: 'Z', value: -parseFloat(zStep) })} className={`flex-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={20} className="text-blue-500"/></button>
                   </div>
                 </div>
               </div>
@@ -487,7 +515,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                       <button onClick={() => removeCapturedImage(img.index)} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600 active:scale-95 shadow-md"><X size={14}/></button>
                     </div>
                   ) : (
-                    <div key={img.index} className={`aspect-square rounded-lg border-2 border-dashed flex flex-col items-center justify-center bg-red-500/5 border-red-500/30 group`}>
+                    <div key={img.index} className="aspect-square rounded-lg border-2 border-dashed flex flex-col items-center justify-center bg-red-500/5 border-red-500/30 group">
                       <span className="text-[8px] font-bold text-red-400 mb-2 text-center">KOSONG<br/>X:{img.coordX} Y:{img.coordY}</span>
                       <button onClick={() => retakeImage(img.index, img.coordX, img.coordY)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold active:scale-95 shadow-lg"><RefreshCcw size={12} className="mr-1"/> Retake</button>
                     </div>
@@ -500,7 +528,7 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
               <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
                 <Trash2 size={20} className="mr-2"/> BATAL & BUANG
               </button>
-              <button onClick={() => setShowSaveModal(true)} disabled={validImageCount === 0} className={`px-6 py-4 rounded-xl font-bold flex items-center border active:scale-95 ${theme.btnTouch} ${theme.text}`}>
+              <button onClick={() => setShowSaveModal(true)} disabled={validImageCount === 0} className={`px-6 py-4 rounded-xl font-bold flex items-center border border-transparent active:scale-95 ${theme.btnTouch} ${theme.text}`}>
                 <Save size={20} className="mr-2"/> SIMPAN KE FOLDER
               </button>
               {validImageCount === 1 ? (
@@ -531,7 +559,6 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
                  <span className="font-mono font-bold text-purple-300">STITCHED_RESULT.jpg</span>
               </div>
               
-              {/* DISPLAY WAKTU PROSES LENGKAP */}
               <div className="flex gap-4">
                 <div className="px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-xs font-mono text-gray-300">
                   <Camera size={14} className="text-blue-400 mr-2" /> Scan: {processTimes.scan.toFixed(1)}s
@@ -623,7 +650,6 @@ export default function ImageGatheringTab({ isDarkMode, openKeypad, availableFol
         </div>
       )}
 
-      {/* VIRTUAL KEYBOARD (Z-INDEX 110) */}
       {vk.visible && globalVirtualKeyboard && (
         <div className="fixed inset-0 z-[110] pointer-events-none flex items-end justify-center pb-4">
           <div className="pointer-events-auto">

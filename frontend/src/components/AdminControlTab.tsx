@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { Cpu, ToggleLeft, ToggleRight, Users, Trash2, Power, HardDrive } from 'lucide-react';
 
 interface AdminControlTabProps {
@@ -7,13 +8,17 @@ interface AdminControlTabProps {
   setIsSystemHardwareEnabled: (val: boolean) => void;
 }
 
+interface LabOperator {
+  id: number;
+  username: string;
+  role: 'ADMIN' | 'OPERATOR';
+  status: string;
+  last_login: string | null;
+}
+
 export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, setIsSystemHardwareEnabled }: AdminControlTabProps) {
-  // Simulasi User Database Manajemen Hak Akses (RBAC)
-  const [userList, setUserList] = useState([
-    { id: 1, name: 'Abraham', role: 'OPERATOR', status: 'ACTIVE', lastLogin: 'Hari ini, 08:30' },
-    { id: 2, name: 'Admin', role: 'ADMIN', status: 'ACTIVE', lastLogin: 'Hari ini, 08:00' },
-    { id: 3, name: 'Andhika_Magang', role: 'OPERATOR', status: 'LOCKED', lastLogin: '05 Jun 2026' }
-  ]);
+  // === 2. UBAH STATE MENJADI DINAMIS DARI DATABASE BACKEND ===
+  const [userList, setUserList] = useState<LabOperator[]>([]);
 
   const theme = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -23,8 +28,73 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
     rowHover: isDarkMode ? 'hover:bg-gray-800/40 border-gray-800' : 'hover:bg-gray-50 border-gray-100'
   };
 
-  const toggleUserRole = (id: number) => {
-    setUserList(userList.map(u => u.id === id ? { ...u, role: u.role === 'ADMIN' ? 'OPERATOR' : 'ADMIN' } : u));
+  // === 3. FUNGSI AMBIL DATA OPERATOR DARI POSTGRESQL ===
+  const fetchOperators = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get<LabOperator[]>('http://localhost:8000/api/auth/operators', {
+        headers: { Authorization: `Bearer ${token}` } // Amankan dengan token JWT Admin
+      });
+      setUserList(response.data);
+    } catch (error) {
+      console.error("Gagal memuat daftar operator lab:", error);
+    }
+  };
+
+  useEffect(() => {
+  const delayFetch = setTimeout(() => {
+    fetchOperators();
+  }, 0);
+  return () => clearTimeout(delayFetch);
+}, []);
+
+  // === 4. MUTASI ROLE NYATA (ADMIN <=> OPERATOR) KERS SERVER ===
+  const toggleUserRole = async (id: number, currentRole: 'ADMIN' | 'OPERATOR') => {
+    try {
+      const token = localStorage.getItem('token');
+      const targetRole = currentRole === 'ADMIN' ? 'OPERATOR' : 'ADMIN';
+      
+      await axios.put(`http://localhost:8000/api/auth/operators/${id}/role`, 
+        { role: targetRole },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      fetchOperators(); // Segarkan tabel data
+    } catch (error) {
+      console.error("Gagal mengubah otoritas akun operator:", error);
+      alert("Gagal mengubah otoritas akun. Pastikan kamu memiliki hak akses root.");
+    }
+  };
+
+  // === 5. PENGHAPUSAN AKUN OPERATOR DARI DATABASE ===
+  const handleDeleteOperator = async (id: number) => {
+    if (!confirm("Yakin ingin menghapus akun operator ini dari sistem?")) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`http://localhost:8000/api/auth/operators/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchOperators();
+    } catch (error) {
+      console.error("Gagal menghapus operator:", error);
+      alert("Gagal menghapus operator.");
+    }
+  };
+
+  // === 6. INTERUPSI RELAY GLOBAL KELUARAN PERANGKAT UTAMA ===
+  const handleToggleHardwareBus = async () => {
+    const targetStatus = !isSystemHardwareEnabled;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('http://localhost:8000/api/hardware/bus/toggle', 
+        { enabled: targetStatus },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setIsSystemHardwareEnabled(targetStatus); // Perbarui saklar di header global App.tsx
+    } catch (error) {
+      console.error("Gagal mengirim sinyal interupsi ke bus daya:", error);
+      alert("Gagal mengirim sinyal interupsi ke bus daya.");
+    }
   };
 
   return (
@@ -34,7 +104,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 shrink-0">
         
         {/* PANEL LEVEL TERKUAT: EMERGENCY HARDWARE INTERRUPT CONTROL */}
-        <div className={`p-4 rounded-2xl border-2 flex flex-col justify-between shadow-lg ${isSystemHardwareEnabled ? 'border-green-600/30 bg-green-500/5' : 'border-red-600/50 bg-red-500/5'}`}>
+        <div className={`p-4 rounded-2xl border-2 flex flex-col justify-between shadow-lg transition-colors ${isSystemHardwareEnabled ? 'border-green-600/30 bg-green-500/5' : 'border-red-600/50 bg-red-500/5'}`}>
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className={`p-3 rounded-xl ${isSystemHardwareEnabled ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
@@ -51,7 +121,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
             <span className="text-xs font-bold flex items-center gap-2">
               Status Bus: {isSystemHardwareEnabled ? <span className="text-green-500 font-black">ONLINE (NORMAL)</span> : <span className="text-red-500 font-black">INTERRUPT LOCKED</span>}
             </span>
-            <button onClick={() => setIsSystemHardwareEnabled(!isSystemHardwareEnabled)} className={`p-0.5 rounded-lg transition-colors ${isSystemHardwareEnabled ? 'text-green-500' : 'text-red-500'}`}>
+            <button onClick={handleToggleHardwareBus} className={`p-0.5 rounded-lg transition-colors ${isSystemHardwareEnabled ? 'text-green-500' : 'text-red-500'}`}>
               {isSystemHardwareEnabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
             </button>
           </div>
@@ -113,7 +183,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
                 <tr key={user.id} className={`border-t transition-colors ${theme.rowHover}`}>
                   <td className="p-4 flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${user.status === 'ACTIVE' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                    {user.name}
+                    {user.username}
                   </td>
                   <td className="p-4">
                     <span className={`px-2 py-0.5 rounded font-mono font-black ${user.role === 'ADMIN' ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-400'}`}>
@@ -121,13 +191,13 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
                     </span>
                   </td>
                   <td className="p-4 text-gray-500 font-medium">{user.status}</td>
-                  <td className="p-4 font-mono text-gray-500">{user.lastLogin}</td>
+                  <td className="p-4 font-mono text-gray-500">{user.last_login || 'N/A'}</td>
                   <td className="p-4 text-right">
-                    <button onClick={() => toggleUserRole(user.id)} className="px-2 py-1 bg-gray-800 border border-gray-700 hover:border-blue-500 rounded-lg text-[10px] font-bold text-gray-300 transition-colors mr-1">
+                    <button onClick={() => toggleUserRole(user.id, user.role)} className="px-2 py-1 bg-gray-800 border border-gray-700 hover:border-blue-500 rounded-lg text-[10px] font-bold text-gray-300 transition-colors mr-1">
                       TOGGLE ROLE
                     </button>
-                    {user.name !== 'Admin' && (
-                      <button className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg"><Trash2 size={14}/></button>
+                    {user.username !== 'admin' && (
+                      <button onClick={() => handleDeleteOperator(user.id)} className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg"><Trash2 size={14}/></button>
                     )}
                   </td>
                 </tr>

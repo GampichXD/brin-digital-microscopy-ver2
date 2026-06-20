@@ -1,8 +1,8 @@
 import { useState } from 'react';
+import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 
-// === PROPS BARU DARI APP.TSX ===
 interface ImageAnalysisTabProps {
   isDarkMode: boolean;
   targetImage: string | null; 
@@ -10,32 +10,51 @@ interface ImageAnalysisTabProps {
   globalVirtualKeyboard: boolean;
 }
 
+interface ColonyPosition {
+  x: number;
+  y: number;
+}
+
 interface AnalysisState {
   id: number;
   processName: string;
   cssFilter: string;
-  colonies: { x: number; y: number }[] | null;
+  colonies: ColonyPosition[] | null;
+  imageSrc: string | null; // <--- Menyimpan path/URL citra hasil pemrosesan OpenCV
 }
 
 export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard }: ImageAnalysisTabProps) {
   const [prevTargetImage, setPrevTargetImage] = useState<string | null>(targetImage);
   const [currentImage, setCurrentImage] = useState<string | null>(targetImage);
   
+  // Base URL server backend FastAPI untuk memuat aset statis gambar
+  const API_BASE_URL = 'http://localhost:8000';
+
   const [history, setHistory] = useState<AnalysisState[]>(
-    targetImage ? [{ id: 1, processName: 'Original Image', cssFilter: 'brightness(1) contrast(1) blur(0px)', colonies: null }] : []
+    targetImage ? [{ 
+      id: 1, 
+      processName: 'Original Image', 
+      cssFilter: 'brightness(1) contrast(1) blur(0px)', 
+      colonies: null,
+      imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}` 
+    }] : []
   );
   const [historyIndex, setHistoryIndex] = useState(targetImage ? 0 : -1);
-
-  // === FITUR BARU: STATE ZOOM ===
   const [zoomLevel, setZoomLevel] = useState(1);
 
   if (targetImage !== prevTargetImage) {
     setPrevTargetImage(targetImage);
     if (targetImage) {
       setCurrentImage(targetImage);
-      setHistory([{ id: 1, processName: 'Original Image', cssFilter: 'brightness(1) contrast(1) blur(0px)', colonies: null }]);
+      setHistory([{ 
+        id: 1, 
+        processName: 'Original Image', 
+        cssFilter: 'brightness(1) contrast(1) blur(0px)', 
+        colonies: null,
+        imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}` 
+      }]);
       setHistoryIndex(0);
-      setZoomLevel(1); // Reset zoom saat gambar ganti
+      setZoomLevel(1);
     } else {
       setCurrentImage(null);
       setHistory([]);
@@ -57,19 +76,16 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
     btnHover: isDarkMode ? 'hover:bg-gray-800 active:bg-gray-700' : 'hover:bg-gray-100 active:bg-gray-200',
-    btnTouch: isDarkMode ? 'bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border-gray-600' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 border-gray-300',
-    modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4' // Modal di z-100
+    btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
+    modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4'
   };
 
   const dummyFolders = [
-    { id: '1', name: 'E_Coli_Sample_A' },
-    { id: '2', name: 'Yeast_Cells_01' },
-    { id: '3', name: 'Micro_Plastics_B' },
+    { id: '1', name: 'Riset_Coli_Tembalang_01' },
   ];
 
-  // Handler Zoom
-  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 3)); // Max 3x
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5)); // Min 0.5x
+  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 3)); 
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5)); 
 
   const handleVKInput = (key: string) => {
     if (!vk.field) return;
@@ -82,13 +98,36 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     setVk({ visible: true, title, field });
   };
 
-  const handleManualUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleManualUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const filename = e.target.files[0].name;
-      setCurrentImage(filename);
-      setHistory([{ id: 1, processName: 'Original Image', cssFilter: 'brightness(1) contrast(1) blur(0px)', colonies: null }]);
-      setHistoryIndex(0);
-      setZoomLevel(1);
+      const file = e.target.files[0];
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', file);
+
+      setIsProcessing(true);
+      setProcessTask('Mengunggah citra mikroskop...');
+
+      try {
+        const response = await axios.post(`${API_BASE_URL}/api/analysis/upload`, formDataUpload, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        setCurrentImage(response.data.filename);
+        setHistory([{ 
+          id: 1, 
+          processName: 'Original Image', 
+          cssFilter: 'brightness(1) contrast(1) blur(0px)', 
+          colonies: null,
+          imageSrc: `${API_BASE_URL}${response.data.url}`
+        }]);
+        setHistoryIndex(0);
+        setZoomLevel(1);
+      } catch (error) {
+        console.error("Gagal mengunggah berkas gambar:", error);
+        alert('Gagal mengunggah berkas gambar ke Jetson Orin.');
+      } finally {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -101,7 +140,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
   const handleSaveToFolder = () => {
     if (!selectedFolderId && (!saveForm.folderName || !saveForm.objectType)) return alert("Pilih folder atau isi data folder baru dengan lengkap!");
-    alert(`Hasil Analisis berhasil disimpan ke folder ${saveForm.folderName ? saveForm.folderName : 'yang dipilih'}.`);
+    alert(`Hasil Analisis berhasil disimpan ke basis data.`);
     setShowSaveModal(false);
   };
 
@@ -111,36 +150,44 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const undo = () => { if (canUndo) setHistoryIndex(prev => prev - 1); };
   const redo = () => { if (canRedo) setHistoryIndex(prev => prev + 1); };
 
-  const executeTool = (toolName: string, cssUpdate: string, isAI: boolean = false) => {
+  // === 2. INTERKONEKSI UTAMA: PROSES CITRA MENGGUNAKAN AI & OPENCV BACKEND ===
+  const executeTool = async (toolName: string, endpointPath: string, params: object = {}, isAI: boolean = false) => {
+    if (!currentImage) return;
     setIsProcessing(true);
     setProcessTask(`Menerapkan ${toolName}...`);
 
-    setTimeout(() => {
+    try {
       const currentState = history[historyIndex];
-      const newColonies = isAI ? Array.from({ length: Math.floor(Math.random() * 15) + 5 }, () => ({
-        x: Math.random() * 80 + 10, 
-        y: Math.random() * 80 + 10  
-      })) : currentState.colonies;
+      // Tembak API komputasi gambar OpenCV/YOLO di Jetson
+      const response = await axios.post(`${API_BASE_URL}/api/analysis/${endpointPath}`, {
+        filename: currentImage,
+        current_src: currentState.imageSrc,
+        ...params
+      });
 
       const newState: AnalysisState = {
         id: history.length + 1,
         processName: toolName,
-        cssFilter: cssUpdate,
-        colonies: newColonies
+        cssFilter: isAI ? 'brightness(1)' : response.data.css_filter || 'brightness(1)',
+        colonies: response.data.colonies || null,
+        imageSrc: `${API_BASE_URL}${response.data.url}` // URL gambar baru hasil olahan filter OpenCV
       };
 
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
-      
+    } catch (error) {
+      console.error(error);
+      alert(`Gagal memproses metode ${toolName}. Periksa log tensor server.`);
+    } finally {
       setIsProcessing(false);
-    }, 1500); 
+    }
   };
 
-  const runDenoise = () => executeTool('Denoising & Smoothing', 'brightness(1) contrast(1) blur(2px)');
-  const runCLAHE = () => executeTool('CLAHE (Contrast Adjustment)', 'brightness(1.2) contrast(1.5) blur(0px)');
-  const runEdgeDetection = () => executeTool('Edge Detection (Sobel)', 'invert(1) grayscale(100%) contrast(200%)');
-  const runColonyCounter = () => executeTool('AI YOLO Colony Counter', history[historyIndex].cssFilter, true);
+  const runDenoise = () => executeTool('Denoising & Smoothing', 'denoise');
+  const runCLAHE = () => executeTool('CLAHE (Contrast Adjustment)', 'clahe');
+  const runEdgeDetection = () => executeTool('Edge Detection (Sobel)', 'sobel');
+  const runColonyCounter = () => executeTool('AI YOLO Colony Counter', 'colony-count', {}, true);
 
   const activeState = history[historyIndex];
 
@@ -196,25 +243,32 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
             <div className={`flex-1 rounded-2xl border-2 flex items-center justify-center relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-300 bg-gray-200'}`}>
               
-              {/* TOMBOL ZOOM MELAYANG (Kiri Atas Kanvas) */}
+              {/* TOMBOL ZOOM MELAYANG */}
               <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 bg-black/50 p-1.5 rounded-xl border border-gray-600 backdrop-blur-md">
                 <button onClick={handleZoomIn} disabled={zoomLevel >= 3} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomIn size={18}/></button>
                 <div className="w-full h-px bg-gray-600 my-0.5"></div>
                 <button onClick={handleZoomOut} disabled={zoomLevel <= 0.5} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomOut size={18}/></button>
               </div>
 
-              {/* Wrapper Transform untuk Zoom */}
+              {/* === 3. PREVIEW DENGAN URL GAMBAR NYATA DARI SERVER JETSON ORIN === */}
               <div 
-                className="w-3/4 aspect-video bg-blue-900/20 border-2 border-blue-500/30 rounded-xl relative transition-transform duration-300 ease-out origin-center"
-                style={{ 
-                  filter: activeState?.cssFilter,
-                  transform: `scale(${zoomLevel})` 
-                }} 
+                className="w-3/4 aspect-video bg-blue-900/20 border-2 border-blue-500/30 rounded-xl relative transition-transform duration-300 ease-out origin-center overflow-hidden shadow-2xl"
+                style={{ transform: `scale(${zoomLevel})` }} 
               >
-                <div className="absolute inset-0 flex items-center justify-center opacity-30">
-                  <Layers size={80} className="text-blue-400" />
-                </div>
+                {activeState?.imageSrc ? (
+                  <img 
+                    src={activeState.imageSrc} 
+                    alt="Analysis Feed" 
+                    className="w-full h-full object-contain"
+                    style={{ filter: activeState.cssFilter }}
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center opacity-30">
+                    <Layers size={80} className="text-blue-400" />
+                  </div>
+                )}
 
+                {/* Plotting Titik Bounding Box Hasil Deteksi Model YOLO */}
                 {activeState?.colonies && activeState.colonies.map((colony, i) => (
                   <div 
                     key={i} 
@@ -238,6 +292,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </div>
           </div>
 
+          {/* SISI KANAN: ANALYSIS TOOLS */}
           <div className="w-[30%] h-full flex flex-col gap-3">
             <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
               <h2 className={`font-bold text-lg mb-1 ${theme.text}`}>Analysis Tools</h2>
@@ -251,7 +306,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                 <button onClick={runColonyCounter} className="w-full p-3 rounded-xl border border-purple-500/50 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 active:scale-95 flex items-center transition-colors text-sm font-bold text-left">
                   <Scan size={18} className="mr-3 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">AI YOLO Colony Counter</span><span className="text-[9px] opacity-70 font-normal">Deteksi & Hitung Otomatis</span></div>
                 </button>
-                <button onClick={() => executeTool('Morphological Analysis', activeState?.cssFilter || '', false)} className="w-full p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 text-blue-400 hover:bg-blue-500/10 active:scale-95 flex items-center transition-colors text-sm font-bold text-left">
+                <button onClick={() => executeTool('Kalkulasi Morfologi', 'morphology')} className="w-full p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 text-blue-400 hover:bg-blue-500/10 active:scale-95 flex items-center transition-colors text-sm font-bold text-left">
                   <Maximize size={18} className="mr-3 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Kalkulasi Morfologi</span><span className="text-[9px] opacity-70 font-normal">Hitung Area & Keliling Sel</span></div>
                 </button>
               </div>
@@ -271,13 +326,13 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
                 <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>3. Utilitas & Kalibrasi</h3>
-                <button onClick={() => executeTool('ROI Selection', activeState?.cssFilter || '')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                <button onClick={() => executeTool('ROI Selection', 'roi')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
                   <Move size={18} className="mr-3 text-green-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Region of Interest (ROI)</span><span className="text-[9px] font-normal text-gray-500">Potong/Pilih Area Spesifik</span></div>
                 </button>
-                <button onClick={() => executeTool('Scale Calibration', activeState?.cssFilter || '')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                <button onClick={() => executeTool('Scale Calibration', 'calibrate')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
                   <Ruler size={18} className="mr-3 text-red-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Kalibrasi Skala (µm)</span><span className="text-[9px] font-normal text-gray-500">Set Rasio Pixel ke Mikrometer</span></div>
                 </button>
-                <button onClick={() => executeTool('Color Split', activeState?.cssFilter || '')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                <button onClick={() => executeTool('Color Split', 'color-split')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
                   <Droplet size={18} className="mr-3 text-pink-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Color Channel Split</span><span className="text-[9px] font-normal text-gray-500">Pisahkan Warna Staining</span></div>
                 </button>
               </div>
@@ -368,7 +423,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         </div>
       )}
 
-      {/* VIRTUAL KEYBOARD (Z-INDEX 110) */}
       {vk.visible && globalVirtualKeyboard && (
         <div className="fixed inset-0 z-[110] pointer-events-none flex items-end justify-center pb-4">
           <div className="pointer-events-auto">

@@ -1,4 +1,6 @@
 import { useState } from 'react';
+// import type { ElementType } from 'react';
+import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { ShieldCheck, User, Lock, Eye, EyeOff, UserPlus, LogIn, Check, Keyboard, ToggleLeft, ToggleRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 import type { UserRole } from '../App';
@@ -10,6 +12,14 @@ interface AuthPageProps {
   setGlobalVirtualKeyboard: (val: boolean) => void;
 }
 
+// Definisikan bentuk tipe respons JWT backend kita
+interface BackendLoginResponse {
+  access_token: string;
+  token_type: string;
+  username: string;
+  role: UserRole;
+}
+
 export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyboard, setGlobalVirtualKeyboard }: AuthPageProps) {
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   
@@ -17,6 +27,7 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(''); // State penampung pesan error API
 
   const [keyboardState, setKeyboardState] = useState<{ visible: boolean, title: string, targetSetter: React.Dispatch<React.SetStateAction<string>> | null }>({ visible: false, title: '', targetSetter: null });
 
@@ -37,26 +48,54 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
   };
 
   const triggerKeyboard = (title: string, setter: React.Dispatch<React.SetStateAction<string>>) => {
-    if (!globalVirtualKeyboard) return; // INTERSEPTOR: Jika mode fisik aktif, jangan munculkan keyboard virtual
+    if (!globalVirtualKeyboard) return; 
     setKeyboardState({ visible: true, title, targetSetter: setter });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // === 2. MODIFIKASI LOGIKA SUBMIT MENEMBAK BACKEND DOCKER ===
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return alert('Username and Password cannot be empty!');
-    
-    if (authMode === 'REGISTER') {
-      if (password !== confirmPassword) return alert('Passwords do not match!');
-      alert('Registrasi Berhasil (Simulasi)! Silakan Login.');
-      setAuthMode('LOGIN');
-      setPassword('');
-      setConfirmPassword('');
-      return;
-    }
+    setErrorMsg('');
 
-    const role: UserRole = username.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'OPERATOR';
-    onLoginSuccess(username, role);
+    if (!username || !password) return alert('Username dan password tidak boleh kosong!');
     
+    try {
+      if (authMode === 'REGISTER') {
+        if (password !== confirmPassword) return alert('Konfirmasi password tidak cocok!');
+        
+        // Tembak endpoint Registrasi Operator baru
+        await axios.post('http://localhost:8000/api/auth/register', {
+          username,
+          password,
+          role: 'OPERATOR' // Default pendaftaran mandiri dari layar alat adalah OPERATOR
+        });
+
+        alert('Registrasi Operator Berhasil! Silakan Login.');
+        setAuthMode('LOGIN');
+        setPassword('');
+        setConfirmPassword('');
+      } else {
+        // Tembak endpoint Login untuk mendapatkan Token JWT asli
+        const response = await axios.post<BackendLoginResponse>('http://localhost:8000/api/auth/login', {
+          username,
+          password
+        });
+
+        // Simpan credentials jangka panjang ke LocalStorage browser
+        localStorage.setItem('token', response.data.access_token);
+        localStorage.setItem('role', response.data.role);
+        localStorage.setItem('username', response.data.username);
+
+        // Buka gerbang kunci instrumen utama App.tsx
+        onLoginSuccess(response.data.username, response.data.role);
+      }
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        setErrorMsg(error.response?.data?.detail || 'Gagal tersambung ke API Mikroskop');
+      } else {
+        setErrorMsg('Terjadi kegagalan sistem internal');
+      }
+    }
   };
 
   return (
@@ -72,7 +111,14 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
           <p className={`text-[9px] font-bold uppercase tracking-widest ${theme.textMuted}`}>Lab Instrument Control Panel</p>
         </div>
 
-        {/* === SLIDER INTERFACE UNTUK DISABLE/ENABLE KEYBOARD FISIK === */}
+        {/* Notifikasi Error Komunikasi Server */}
+        {errorMsg && (
+          <div className="mb-3 p-2.5 text-xs text-red-600 bg-red-500/10 border border-red-500/20 rounded-xl text-center font-bold">
+            {errorMsg}
+          </div>
+        )}
+
+        {/* SLIDER INTERFACE */}
         <div className={`p-2.5 rounded-xl border mb-4 flex items-center justify-between bg-black/10 ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
           <div className="flex items-center gap-2">
             <Keyboard size={16} className={globalVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
@@ -91,8 +137,8 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
         </div>
 
         <div className={`flex rounded-xl border p-1 mb-4 bg-black/5 ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-          <button type="button" onClick={() => { setAuthMode('LOGIN'); setPassword(''); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${authMode === 'LOGIN' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><LogIn size={14}/> LOGIN</button>
-          <button type="button" onClick={() => { setAuthMode('REGISTER'); setPassword(''); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${authMode === 'REGISTER' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><UserPlus size={14}/> REGISTER</button>
+          <button type="button" onClick={() => { setAuthMode('LOGIN'); setPassword(''); setErrorMsg(''); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${authMode === 'LOGIN' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><LogIn size={14}/> LOGIN</button>
+          <button type="button" onClick={() => { setAuthMode('REGISTER'); setPassword(''); setErrorMsg(''); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${authMode === 'REGISTER' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><UserPlus size={14}/> REGISTER</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -102,7 +148,7 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
               <User size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme.textMuted}`} />
               <input 
                 type="text" 
-                readOnly={globalVirtualKeyboard} // Jika keyboard virtual mati, input otomatis bisa diketik pakai keyboard fisik
+                readOnly={globalVirtualKeyboard} 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 onClick={() => triggerKeyboard('Input Username', setUsername)}

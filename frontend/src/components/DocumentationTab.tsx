@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState,  } from 'react';
+import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { Clock, FileText, FileSpreadsheet, Presentation, Download, FilePlus, Search, ShieldAlert, CheckCircle, User } from 'lucide-react';
 
 interface DatasetFolder {
   id: string;
   name: string;
-  objectType: string;
+  object_type: string; // <--- SINKRONISASI: objectType -> object_type sesuai backend
 }
 
 interface DocumentationTabProps {
@@ -23,56 +24,89 @@ interface ActivityLog {
 export default function DocumentationTab({ isDarkMode, availableFolders = [] }: DocumentationTabProps) {
   // === STATE LOG AKTIVITAS (AUDIT TRAIL) ===
   const [logs] = useState<ActivityLog[]>([
-    { id: '1', timestamp: '2026-06-11 10:24', operator: 'Abraham', action: 'AI Colony Counter - Stitched_Result.jpg', status: 'SUCCESS' },
-    { id: '2', timestamp: '2026-06-11 10:15', operator: 'Abraham', action: 'Tile Stitching - Grid 5x4', status: 'SUCCESS' },
-    { id: '3', timestamp: '2026-06-11 09:40', operator: 'Abraham', action: 'Auto Gathering (Batal)', status: 'CANCELLED' },
-    { id: '4', timestamp: '2026-06-10 14:20', operator: 'Pak Yosua Alvin', action: 'Image Analysis - Yeast_Cells_01', status: 'SUCCESS' },
-    { id: '5', timestamp: '2026-06-05 11:02', operator: 'Andhika', action: 'Manual Capture - 12 Images', status: 'SUCCESS' },
-  ]);
-
-  // === STATE GENERATOR DOKUMEN ===
+  { id: '1', timestamp: '2026-06-11 10:24', operator: 'Abraham', action: 'AI Colony Counter - Stitched_Result.jpg', status: 'SUCCESS' },
+  { id: '2', timestamp: '2026-06-11 10:15', operator: 'Abraham', action: 'Tile Stitching - Grid 5x4', status: 'SUCCESS' },
+  { id: '3', timestamp: '2026-06-11 09:40', operator: 'Abraham', action: 'Auto Gathering (Batal)', status: 'CANCELLED' },
+  { id: '4', timestamp: '2026-06-10 14:20', operator: 'Pak Yosua Alvin', action: 'Image Analysis - Yeast_Cells_01', status: 'SUCCESS' },
+  { id: '5', timestamp: '2026-06-05 11:02', operator: 'Andhika', action: 'Manual Capture - 12 Images', status: 'SUCCESS' },
+]);// <--- Ubah jadi dinamis jika nanti ada API Log
   const [selectedFolderId, setSelectedFolderId] = useState<string>('');
   const [reportTitle, setReportTitle] = useState('Laporan Hasil Analisis Mikroskop');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedType, setGeneratedType] = useState('');
+
+  // Fallback logs bawaan instrumen jika endpoint log belum di-bind
+  // useEffect(() => {
+  //   setLogs([
+  //     { id: '1', timestamp: '2026-06-11 10:24', operator: 'Abraham', action: 'AI Colony Counter - Stitched_Result.jpg', status: 'SUCCESS' },
+  //     { id: '2', timestamp: '2026-06-11 10:15', operator: 'Abraham', action: 'Tile Stitching - Grid 5x4', status: 'SUCCESS' },
+  //     { id: '3', timestamp: '2026-06-11 09:40', operator: 'Abraham', action: 'Auto Gathering (Batal)', status: 'CANCELLED' },
+  //     { id: '4', timestamp: '2026-06-10 14:20', operator: 'Pak Yosua Alvin', action: 'Image Analysis - Yeast_Cells_01', status: 'SUCCESS' },
+  //     { id: '5', timestamp: '2026-06-05 11:02', operator: 'Andhika', action: 'Manual Capture - 12 Images', status: 'SUCCESS' },
+  //   ]);
+  // }, []);
 
   const theme = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
     text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
-    btnTouch: isDarkMode ? 'bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border-gray-600' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 border-gray-300',
+    btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     tableHeader: isDarkMode ? 'bg-gray-950 text-gray-400' : 'bg-gray-100 text-gray-700',
     tableRow: isDarkMode ? 'border-gray-800 hover:bg-gray-850' : 'border-gray-100 hover:bg-gray-50',
     overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4'
   };
 
   const fallbackFolders = [
-    { id: '1', name: 'E_Coli_Sample_A', objectType: 'Bakteri E. Coli' },
-    { id: '2', name: 'Yeast_Cells_01', objectType: 'Sel Ragi' },
-    { id: '3', name: 'Micro_Plastics_B', objectType: 'Mikroplastik' },
+    { id: '1', name: 'Riset_Coli_Tembalang_01', object_type: 'Bakteri E. Coli' },
   ];
 
   const foldersToDisplay = availableFolders.length > 0 ? availableFolders : fallbackFolders;
 
-  // Simulasi Pembuatan Dokumen menggunakan Python di Backend nantinya
-  const handleGenerateReport = (type: 'WORD' | 'EXCEL' | 'PPT') => {
+  // === 2. INTERKONEKSI UTAMA: EKSPOR LAPORAN ASLI DARI BACKEND PYTHON ===
+  const handleGenerateReport = async (type: 'WORD' | 'EXCEL' | 'PPT') => {
     if (!selectedFolderId) return alert('Silakan pilih folder data terlebih dahulu!');
     
     setIsGenerating(true);
     setGeneratedType(type);
 
-    setTimeout(() => {
-      setIsGenerating(false);
+    try {
+      // Amankan request sebagai 'blob' karena server akan mengembalikan file biner siap unduh
+      const response = await axios.post(
+        `http://localhost:8000/api/documentation/generate?format=${type}`,
+        {
+          folder_id: selectedFolderId,
+          title: reportTitle
+        },
+        { responseType: 'blob' }
+      );
+
+      // Logika pengunduhan file otomatis di browser instrumen
       const ext = type === 'WORD' ? 'docx' : type === 'EXCEL' ? 'xlsx' : 'pptx';
-      alert(`[MOCK BACKEND] Berhasil menyusun dokumen ${type}!\nFile: ${reportTitle.replace(/\s+/g, '_')}.${ext} siap diunduh dari Jetson Nano.`);
-    }, 2000);
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${reportTitle.replace(/\s+/g, '_')}.${ext}`);
+      document.body.appendChild(link);
+      link.click();
+      
+      // Bersihkan node DOM setelah unduhan dipicu
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error(error);
+      alert('Gagal mengompilasi data dokumen. Periksa modul python-docx/openpyxl pada Jetson Orin.');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
     <div className="flex gap-3 h-full relative">
       
-      {/* ==================== KIRI: LOG AKTIVITAS (AUDIT TRAIL) ==================== */}
+      {/* ==================== KIRI: LOG AKTIVITAS ==================== */}
       <div className={`w-[60%] h-full rounded-2xl border flex flex-col overflow-hidden shadow-sm ${theme.panel}`}>
         <div className="p-4 border-b border-gray-700/50 flex items-center justify-between shrink-0 bg-black/5">
           <div className="flex items-center">
@@ -82,7 +116,6 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
           <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded text-[10px] font-bold">AUTOMATED LOG</span>
         </div>
 
-        {/* Tabel Scrollable */}
         <div className="flex-1 overflow-auto" style={{ scrollbarWidth: 'none' }}>
           <table className="w-full text-left border-collapse">
             <thead className={`sticky top-0 text-[10px] font-bold uppercase tracking-wider ${theme.tableHeader}`}>
@@ -100,7 +133,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
                   <td className="p-3 font-bold flex items-center gap-1.5 whitespace-nowrap">
                     <User size={12} className="text-gray-400" /> {log.operator}
                   </td>
-                  <td className={`p-3 font-sans font-bold max-w-[200px] truncate`}>{log.action}</td>
+                  <td className="p-3 font-sans font-bold max-w-[200px] truncate">{log.action}</td>
                   <td className="p-3 text-center">
                     {log.status === 'SUCCESS' ? (
                       <span className="inline-flex items-center px-2 py-0.5 bg-green-500/10 text-green-500 rounded-full font-sans font-bold text-[9px]">
@@ -122,7 +155,6 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
       {/* ==================== KANAN: GENERATOR DOKUMEN LAPORAN ==================== */}
       <div className="w-[45%] h-full flex flex-col gap-3">
         
-        {/* Setup Informasi Dokumen */}
         <div className={`p-4 rounded-2xl border flex flex-col gap-3 ${theme.panel}`}>
           <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${theme.text}`}>
             <FilePlus size={16} className="mr-2 text-purple-400" /> Report Generator
@@ -152,7 +184,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
                       <Search size={14} className="mr-2 text-gray-500 shrink-0" />
                       <span className="font-bold text-xs truncate">{folder.name}</span>
                     </div>
-                    <span className="text-[9px] opacity-60 px-1.5 py-0.5 bg-black/5 rounded shrink-0">{folder.objectType}</span>
+                    {/* SINKRONISASI: folder.objectType -> folder.object_type */}
+                    <span className="text-[9px] opacity-60 px-1.5 py-0.5 bg-black/5 rounded shrink-0">{folder.object_type}</span>
                   </div>
                 ))}
               </div>
@@ -160,13 +193,11 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
           </div>
         </div>
 
-        {/* Panel Tombol Ekspor */}
         <div className={`p-4 rounded-2xl border flex-1 flex flex-col justify-between ${theme.panel}`}>
           <div>
             <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${theme.textMuted}`}>Pilih Format Ekspor Dokumen:</h4>
             <div className="flex flex-col gap-2">
               
-              {/* Tombol Microsoft Word */}
               <button 
                 onClick={() => handleGenerateReport('WORD')}
                 className="w-full p-3.5 bg-blue-600/10 border border-blue-500/30 text-blue-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-blue-600 hover:text-white active:scale-95 transition-all shadow-sm"
@@ -178,7 +209,6 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
                 <Download size={14} />
               </button>
 
-              {/* Tombol Microsoft Excel */}
               <button 
                 onClick={() => handleGenerateReport('EXCEL')}
                 className="w-full p-3.5 bg-green-600/10 border border-green-500/30 text-green-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-green-600 hover:text-white active:scale-95 transition-all shadow-sm"
@@ -190,7 +220,6 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
                 <Download size={14} />
               </button>
 
-              {/* Tombol Microsoft PPT */}
               <button 
                 onClick={() => handleGenerateReport('PPT')}
                 className="w-full p-3.5 bg-orange-600/10 border border-orange-500/30 text-orange-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-orange-600 hover:text-white active:scale-95 transition-all shadow-sm"
@@ -212,7 +241,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
 
       </div>
 
-      {/* ==================== OVERLAY LOADING PROSES ==================== */}
+      {/* OVERLAY LOADING PROSES */}
       {isGenerating && (
         <div className={theme.overlay}>
           <div className="flex flex-col items-center text-white">

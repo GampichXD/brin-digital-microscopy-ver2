@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { X, Delete, Space, ArrowUp, Hash } from 'lucide-react';
 
 interface VirtualKeyboardProps {
@@ -7,53 +7,58 @@ interface VirtualKeyboardProps {
   onClose: () => void;
 }
 
+// === 1. DEFINISIKAN TIPE KONTRAK LAYOUT YANG KOKOH UNTUK TYPESCRIPT ===
+type KeyboardLayout = string[][];
+
 export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyboardProps) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   
-  // State untuk mode huruf dan simbol
-  const [isShift, setIsShift] = useState(false); // Default huruf kecil
-  const [isSymbol, setIsSymbol] = useState(false); // Default bukan simbol
+  const [isShift, setIsShift] = useState(false); 
+  const [isSymbol, setIsSymbol] = useState(false); 
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     setIsDragging(true);
     setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
     e.currentTarget.setPointerCapture(e.pointerId);
   };
+  
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDragging) return;
     setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
   };
+  
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     setIsDragging(false);
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
-  // Matrix Layouts
   const numRow = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
   
-  const lettersNormal = [
+  // Amankan bentuk matriks array dengan tipe data KeyboardLayout eksplisit
+  const lettersNormal: KeyboardLayout = [
     ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
     ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
     ['z', 'x', 'c', 'v', 'b', 'n', 'm']
   ];
-  const lettersCaps = [
+  
+  const lettersCaps: KeyboardLayout = [
     ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
     ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
     ['Z', 'X', 'C', 'V', 'B', 'N', 'M']
   ];
-  const symbols = [
+  
+  const symbols: KeyboardLayout = [
     ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')'],
     ['-', '_', '=', '+', '[', ']', '{', '}', '\\', '|'],
     [';', ':', "'", '"', '<', '>', ',', '.', '/', '?']
   ];
 
-  const currentLayout = isSymbol ? symbols : (isShift ? lettersCaps : lettersNormal);
+  const currentLayout: KeyboardLayout = isSymbol ? symbols : (isShift ? lettersCaps : lettersNormal);
 
   const handleKeyPress = (key: string) => {
     onInput(key);
-    // Jika sedang ngetik huruf besar (shift nyala), otomatis balik ke huruf kecil setelah 1 karakter (opsional, tapi nyaman)
     if (isShift && !isSymbol) setIsShift(false); 
   };
 
@@ -78,7 +83,7 @@ export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyb
 
       {/* BODY KEYBOARD */}
       <div className="flex flex-col gap-1.5 mt-2">
-        {/* BARIS ANGKA SELALU MUNCUL */}
+        {/* BARIS ANGKA */}
         <div className="flex gap-1 justify-center">
           {numRow.map(key => (
             <button key={key} type="button" onClick={() => handleKeyPress(key)} className="flex-1 h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white font-bold rounded-lg text-sm transition-all shadow-sm">{key}</button>
@@ -87,14 +92,14 @@ export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyb
 
         {/* BARIS HURUF/SIMBOL 1 */}
         <div className="flex gap-1 justify-center">
-          {currentLayout[0].map(key => (
+          {currentLayout[0]?.map(key => (
             <button key={key} type="button" onClick={() => handleKeyPress(key)} className="flex-1 h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white font-bold rounded-lg text-sm transition-all shadow-sm">{key}</button>
           ))}
         </div>
 
         {/* BARIS HURUF/SIMBOL 2 */}
         <div className="flex gap-1 justify-center px-4">
-          {currentLayout[1].map(key => (
+          {currentLayout[1]?.map(key => (
             <button key={key} type="button" onClick={() => handleKeyPress(key)} className="flex-1 h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white font-bold rounded-lg text-sm transition-all shadow-sm">{key}</button>
           ))}
         </div>
@@ -105,7 +110,7 @@ export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyb
             <ArrowUp size={18} />
           </button>
           
-          {currentLayout[2].map(key => (
+          {currentLayout[2]?.map(key => (
             <button key={key} type="button" onClick={() => handleKeyPress(key)} className="flex-1 h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white font-bold rounded-lg text-sm transition-all shadow-sm">{key}</button>
           ))}
           

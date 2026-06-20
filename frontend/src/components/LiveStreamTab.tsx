@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 
@@ -6,7 +7,7 @@ interface LiveStreamTabProps {
   isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
   globalVirtualKeyboard: boolean;
-  isSystemHardwareEnabled: boolean; // Diterima dan digunakan sebagai guard!
+  isSystemHardwareEnabled: boolean; 
 }
 
 export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKeyboard, isSystemHardwareEnabled }: LiveStreamTabProps) {
@@ -25,25 +26,59 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
+  // Simulasi koordinat motor posisi nyata (Nanti dibaca via API SSE/WebSocket)
   const motorPos = { x: 12.55, y: 8.20, z: 1200 };
 
   const themeClasses = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
     text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
     textMuted: isDarkMode ? 'text-gray-400' : 'text-gray-500',
-    btnTouch: isDarkMode ? 'bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border-gray-600' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 border-gray-300',
+    btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
 
-  // === PERBAIKAN: GUARD INTERSEPTOR KEYPAD VIRTUAL VS FISIK ===
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
-    if (!globalVirtualKeyboard) return; // Jika mode virtual mati, jangan pop-up numpad
+    if (!globalVirtualKeyboard) return; 
     openKeypad({
       visible: true,
       title: title,
       value: currentValue,
       onUpdate: setter
     });
+  };
+
+  // === 2. FUNGSI BARU: SEND G-CODE PERGERAKAN MEJA & FOKUS KE FASTAPI ===
+  const sendMotorCommand = async (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
+    if (!isSystemHardwareEnabled) return;
+    
+    // Hitung langkah pergeseran berdasarkan input teks
+    const step = axis === 'Z' ? parseFloat(zStepValue) : parseFloat(xyStepValue);
+    const value = direction === '+' ? step : -step;
+
+    try {
+      await axios.post('http://localhost:8000/api/hardware/motor/move', {
+        axis,
+        value,
+        feed_rate: parseFloat(feedRate),
+        unit: axis === 'Z' ? 'step' : xyStepUnit
+      });
+    } catch (error) {
+      console.error("Gagal mengirim instruksi ke motor GRBL:", error);
+    }
+  };
+
+  // === 3. FUNGSI BARU: KIRIM PARAMETER KAMERA NYATA ===
+  const handleApplyCameraSettings = async () => {
+    try {
+      await axios.post('http://localhost:8000/api/hardware/camera/settings', {
+        shutter_speed: parseInt(shutterSpeed),
+        iso: parseInt(iso)
+      });
+      alert('Konfigurasi Sensor IMX477 Berhasil Diterapkan!');
+    } catch (error) {
+      console.error("Gagal menerapkan konfigurasi kamera:", error);
+      alert('Gagal menerapkan konfigurasi kamera ke Jetson Orin Nano');
+    }
   };
 
   const handleDefaultParams = () => {
@@ -61,10 +96,19 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
   return (
     <div className="flex gap-3 h-full">
       
-      {/* ==================== KIRI: VIDEO & HUD ==================== */}
+      {/* KIRI: VIDEO & HUD */}
       <div className={`relative w-[60%] h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {cameraActive ? (
-          <div className="absolute inset-0 flex items-center justify-center text-green-500/50 font-mono text-lg">[ VIDEO FEED ]</div>
+          // === 4. PERBAIKAN SINKRONISASI: MENEMBAK STREAMING ENDPOINT FASTAPI ===
+          <img 
+            src="http://localhost:8000/api/hardware/camera/stream" 
+            alt="Microscope Live Feed" 
+            className="w-full h-full object-cover rounded-2xl"
+            onError={() => {
+              console.error("Video stream putus");
+              setCameraActive(false);
+            }}
+          />
         ) : (
           <div className="flex flex-col items-center">
             <CameraOff size={64} className={`mb-4 ${themeClasses.textMuted}`} />
@@ -92,28 +136,31 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
         )}
 
         <button 
-  disabled={!isSystemHardwareEnabled} // <--- KUNCI TOMBOL JIKA ADMIN LOCK MESIN
-  onClick={() => setCameraActive(!cameraActive)} 
-  className={`absolute bottom-6 right-6 px-6 py-4 rounded-xl text-lg font-bold flex items-center shadow-2xl z-10 ${
-    !isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
-    cameraActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
-  }`}
->
-  {!isSystemHardwareEnabled ? <><AlertOctagon size={24} className="mr-3"/> Hardware Locked</> :
-   cameraActive ? <><CameraOff size={24} className="mr-3" /> Matikan</> : <><Camera size={24} className="mr-3" /> Nyalakan</>}
-</button>
+          disabled={!isSystemHardwareEnabled} 
+          onClick={() => setCameraActive(!cameraActive)} 
+          className={`absolute bottom-6 right-6 px-6 py-4 rounded-xl text-lg font-bold flex items-center shadow-2xl z-10 ${
+            !isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
+            cameraActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
+          }`}
+        >
+          {!isSystemHardwareEnabled ? <><AlertOctagon size={24} className="mr-3"/> Hardware Locked</> :
+           cameraActive ? <><CameraOff size={24} className="mr-3" /> Matikan</> : <><Camera size={24} className="mr-3" /> Nyalakan</>}
+        </button>
       </div>
 
-      {/* ==================== KANAN: PANEL KONTROL ==================== */}
+      {/* KANAN: PANEL KONTROL */}
       <div className="w-[40%] h-full overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        <style>{`div::-webkit-scrollbar { display: none; }`}</style>
         
         {/* 1. KENDALI MOTOR */}
         <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>Kendali Motor</h3>
             <div className="flex items-center space-x-2">
-              <button className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/30 rounded-lg flex items-center text-xs font-bold hover:bg-red-500 hover:text-white transition-colors active:scale-95">
+              <button 
+                disabled={!isSystemHardwareEnabled}
+                onClick={() => axios.post('http://localhost:8000/api/hardware/motor/home')}
+                className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/30 rounded-lg flex items-center text-xs font-bold hover:bg-red-500 hover:text-white transition-all disabled:opacity-30 active:scale-95"
+              >
                 <RotateCcw size={14} className="mr-1" /> TO ZERO
               </button>
               <div className={`flex rounded-lg border p-1 ${isDarkMode ? 'border-gray-700 bg-gray-950' : 'border-gray-300 bg-gray-100'}`}>
@@ -128,7 +175,6 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-[10px] font-bold ${themeClasses.textMuted}`}>MEJA (X/Y)</span>
                 <div className="flex items-center">
-                  {/* PERBAIKAN: Input Mendukung Pengetikan Keyboard Fisik Saat Virtual Mati */}
                   <input
                     type="number"
                     readOnly={globalVirtualKeyboard}
@@ -145,11 +191,16 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
               
               {controlMode === 'dpad' ? (
                 <div className="grid grid-cols-3 gap-2 aspect-square">
-                  <div /><button className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 ${themeClasses.btnTouch}`}><ArrowUp size={32}/></button><div />
-                  <button className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 ${themeClasses.btnTouch}`}><ArrowLeft size={32}/></button>
-                  <button className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95"><Crosshair size={28}/></button>
-                  <button className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 ${themeClasses.btnTouch}`}><ArrowRight size={32}/></button>
-                  <div /><button className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 ${themeClasses.btnTouch}`}><ArrowDown size={32}/></button><div />
+                  <div />
+                  {/* === 5. SINKRONISASI AKSI KETUK TOMBOL DPAD MOTOR X/Y === */}
+                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowUp size={32}/></button>
+                  <div />
+                  <button onClick={() => sendMotorCommand('X', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowLeft size={32}/></button>
+                  <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95"><Crosshair size={28}/></button>
+                  <button onClick={() => sendMotorCommand('X', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowRight size={32}/></button>
+                  <div />
+                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowDown size={32}/></button>
+                  <div />
                 </div>
               ) : (
                 <div className={`aspect-square rounded-full border-4 flex items-center justify-center relative touch-none ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-gray-50'}`}>
@@ -174,8 +225,9 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
                 </div>
               </div>
               <div className="flex flex-col gap-2 flex-1">
-                <button className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">NAIK</span></button>
-                <button className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
+                {/* === 6. SINKRONISASI AKSI KETUK TOMBOL DPAD FOKUS Z === */}
+                <button onClick={() => sendMotorCommand('Z', '+')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">NAIK</span></button>
+                <button onClick={() => sendMotorCommand('Z', '-')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
               </div>
             </div>
           </div>
@@ -189,7 +241,7 @@ export default function LiveStreamTab({ isDarkMode, openKeypad, globalVirtualKey
             </h3>
             <div className="flex space-x-2">
               <button onClick={handleDefaultCamera} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">DEFAULT</button>
-              <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> TERAPAN</button>
+              <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> TERAPAN</button>
             </div>
           </div>
           
