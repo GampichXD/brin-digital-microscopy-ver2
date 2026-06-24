@@ -38,6 +38,8 @@ export default function App() {
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [grblStatus, setGrblStatus] = useState<string>("IDLE");
   const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
+  const [jetsonTemperature, setJetsonTemperature] = useState<number | null>(null);
+  const [limitSwitchState, setLimitSwitchState] = useState<string>("N/A");
   const wsRef = useRef<WebSocket | null>(null);
 
   const fetchFolders = async () => {
@@ -129,6 +131,8 @@ export default function App() {
         // CASE 2: Sinkronkan penangkap data koordinat aktual & status GRBL mesin asli
         else if (res.event === 'TELEMETRY_DATA') {
           setGrblStatus(res.status);
+          setJetsonTemperature(typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : null);
+          setLimitSwitchState(res.limit_switch ?? 'N/A');
           if (res.position) {
             setLastEchoGCode(`X:${res.position.X.toFixed(2)} Y:${res.position.Y.toFixed(2)} Z:${res.position.Z}`);
           }
@@ -351,6 +355,8 @@ export default function App() {
             setGrblStatus={setGrblStatus}
             lastEchoGCode={lastEchoGCode}
             setLastEchoGCode={setLastEchoGCode}
+            jetsonTemperature={jetsonTemperature}
+            limitSwitchState={limitSwitchState}
             wsRef={wsRef}
             triggerToast={showNotification}
           />

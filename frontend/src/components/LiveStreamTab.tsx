@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon } from 'lucide-react';
 import type { KeypadConfig } from '../App';
@@ -15,6 +15,8 @@ interface LiveStreamTabProps {
   setGrblStatus: (val: string) => void;
   lastEchoGCode: string;
   setLastEchoGCode: (val: string) => void;
+  jetsonTemperature: number | null;
+  limitSwitchState: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
   triggerToast: (message: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
 }
@@ -31,11 +33,16 @@ export default function LiveStreamTab({
   setGrblStatus,
   lastEchoGCode,
   setLastEchoGCode,
+  jetsonTemperature,
+  limitSwitchState,
   wsRef,
   triggerToast
 }: LiveStreamTabProps) {
   
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
+  const joystickVectorRef = useRef({ x: 0, y: 0 });
+  const joystickActiveRef = useRef(false);
+  const lastMoveDirectionRef = useRef<Record<'X' | 'Y' | 'Z', '+' | '-'> >({ X: '+', Y: '+', Z: '+' });
   
   const [xyStepUnit, setXyStepUnit] = useState<'mm' | 'inch'>('mm');
   const [xyStepValue, setXyStepValue] = useState<string>("5");
@@ -51,6 +58,7 @@ export default function LiveStreamTab({
 
   // State koordinat lokal untuk keperluan interpolasi transisi D-Pad
   const [motorPos, setMotorPos] = useState({ x: 0.00, y: 0.00, z: 0 });
+  const [joystickVector, setJoystickVector] = useState({ x: 0, y: 0 });
 
   const themeClasses = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -113,15 +121,43 @@ export default function LiveStreamTab({
     });
   };
 
-  const sendMotorCommand = (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
+  const toMm = (axis: 'X' | 'Y' | 'Z') => {
+    const rawValue = axis === 'Z' ? parseFloat(zStepValue) : parseFloat(xyStepValue);
+    const safeValue = Number.isFinite(rawValue) ? rawValue : 0;
+    return axis === 'Z' ? safeValue : safeValue * (xyStepUnit === 'inch' ? 25.4 : 1);
+  };
+
+  const sendCncSettings = async () => {
+    try {
+      await axios.post('http://localhost:8000/api/hardware/cnc/settings', {
+        feed_rate: parseFloat(feedRate),
+        backlash: parseFloat(backlash),
+        acceleration: parseFloat(acceleration),
+        settle_time: parseInt(settleTime, 10),
+      });
+      triggerToast('Parameter CNC berhasil diterapkan ke controller.', 'SUCCESS');
+    } catch (error) {
+      console.error('Gagal menerapkan parameter CNC:', error);
+      triggerToast('Gagal menerapkan parameter CNC.', 'ERROR');
+    }
+  };
+
+  const sendMotorCommand = async (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
     
-    const step = axis === 'Z' ? parseFloat(zStepValue) : parseFloat(xyStepValue);
-    const value = direction === '+' ? step : -step;
+    const stepMm = toMm(axis);
+    const backlashMm = axis === 'Z' ? 0 : Math.max(0, parseFloat(backlash) || 0);
+    const lastDirection = lastMoveDirectionRef.current[axis];
+    const compensatedValue = direction === '+' ? stepMm : -stepMm;
+    const adjustedValue = axis !== 'Z' && lastDirection && lastDirection !== direction
+      ? compensatedValue + (direction === '+' ? backlashMm : -backlashMm)
+      : compensatedValue;
     
     const gcodeStr = axis === 'Z' 
-      ? `G1 Z${value} F200` 
-      : `G1 ${axis}${value} F${feedRate}`;
+      ? `G1 Z${adjustedValue.toFixed(3)} F200`
+      : `G1 ${axis}${adjustedValue.toFixed(3)} F${feedRate}`;
+
+    lastMoveDirectionRef.current[axis] = direction;
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setGrblStatus('MOVING...');
@@ -131,12 +167,17 @@ export default function LiveStreamTab({
         gcode: gcodeStr
       }));
     } else {
-      axios.post('http://localhost:8000/api/hardware/motor/move', {
+      await axios.post('http://localhost:8000/api/hardware/motor/move', {
         axis,
-        value,
+        value: adjustedValue,
         feed_rate: parseFloat(feedRate),
         unit: axis === 'Z' ? 'step' : xyStepUnit
       }).catch(err => console.error(err));
+    }
+
+    const settleMs = Math.max(0, parseInt(settleTime, 10) || 0);
+    if (settleMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, settleMs));
     }
   };
 
@@ -290,8 +331,47 @@ export default function LiveStreamTab({
                   <div />
                 </div>
               ) : (
-                <div className={`aspect-square rounded-full border-4 flex items-center justify-center relative touch-none ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-gray-50'}`}>
-                  <div className="w-16 h-16 rounded-full bg-blue-500 flex items-center justify-center text-white"><Move size={24} /></div>
+                <div
+                  className={`aspect-square rounded-full border-4 flex items-center justify-center relative touch-none overflow-hidden ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-gray-50'}`}
+                  onPointerDown={(e) => {
+                    if (!isSystemHardwareEnabled) return;
+                    joystickActiveRef.current = true;
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (!joystickActiveRef.current) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = (e.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+                    const y = (e.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
+                    const nextVector = { x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) };
+                    joystickVectorRef.current = nextVector;
+                    setJoystickVector(nextVector);
+                  }}
+                  onPointerUp={async (e) => {
+                    if (!joystickActiveRef.current) return;
+                    joystickActiveRef.current = false;
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+
+                    const { x, y } = joystickVectorRef.current;
+                    const threshold = 0.28;
+                    const absX = Math.abs(x);
+                    const absY = Math.abs(y);
+
+                    if (absX > threshold || absY > threshold) {
+                      if (absX >= absY) {
+                        await sendMotorCommand('X', x >= 0 ? '+' : '-');
+                      } else {
+                        await sendMotorCommand('Y', y <= 0 ? '+' : '-');
+                      }
+                    }
+
+                    joystickVectorRef.current = { x: 0, y: 0 };
+                    setJoystickVector({ x: 0, y: 0 });
+                  }}
+                >
+                  <div className="w-16 h-16 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg transition-transform" style={{ transform: `translate(${joystickVector.x * 32}px, ${joystickVector.y * 32}px)` }}>
+                    <Move size={24} />
+                  </div>
                 </div>
               )}
             </div>
@@ -364,7 +444,7 @@ export default function LiveStreamTab({
             <div className="flex space-x-2">
               <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">DEFAULT</button>
               <button 
-                onClick={() => triggerToast('Parameter Kecepatan & Backlash CNC Berhasil Disimpan!', 'SUCCESS')}
+                onClick={sendCncSettings}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
               >
                 <Save size={14} className="mr-1" /> TERAPAN
@@ -426,11 +506,11 @@ export default function LiveStreamTab({
            <div className="grid grid-cols-2 gap-3">
              <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
                 <div className="flex items-center mb-1"><Thermometer size={14} className="text-orange-400 mr-2"/><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Suhu Jetson</span></div>
-                <div className={`text-sm font-bold font-mono ${themeClasses.text}`}>52°C</div>
+               <div className={`text-sm font-bold font-mono ${themeClasses.text}`}>{jetsonTemperature !== null ? `${jetsonTemperature.toFixed(1)}°C` : 'N/A'}</div>
              </div>
              <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
                 <div className="flex items-center mb-1"><Settings size={14} className="text-green-500 mr-2"/><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Limit Switch</span></div>
-                <div className={`text-sm font-bold font-mono text-green-500`}>Aman</div>
+               <div className={`text-sm font-bold font-mono ${limitSwitchState !== 'N/A' ? 'text-green-500' : themeClasses.textMuted}`}>{limitSwitchState}</div>
              </div>
              <div className={`col-span-2 p-3 rounded-xl border flex justify-between items-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
                 <div className="flex items-center">

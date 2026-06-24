@@ -40,6 +40,13 @@ class HardwareBusTogglePayload(BaseModel):
     enabled: bool
 
 
+class CncSettingsPayload(BaseModel):
+    feed_rate: float
+    backlash: float
+    acceleration: float
+    settle_time: int
+
+
 async def publish_hardware_command(payload: dict) -> None:
     redis = await aioredis.from_url(REDIS_URL)
     try:
@@ -138,6 +145,21 @@ async def apply_camera_settings(payload: CameraSettingsPayload):
         "iso": payload.iso,
     })
     return {"status": "SUCCESS", "message": "Pengaturan kamera diterima."}
+
+
+@router.post("/cnc/settings")
+async def apply_cnc_settings(payload: CncSettingsPayload):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    await publish_hardware_command({
+        "action": "APPLY_CNC_SETTINGS",
+        "feed_rate": payload.feed_rate,
+        "backlash": payload.backlash,
+        "acceleration": payload.acceleration,
+        "settle_time": payload.settle_time,
+    })
+    return {"status": "SUCCESS", "message": "Parameter CNC diterima."}
 
 
 @router.post("/bus/toggle")
