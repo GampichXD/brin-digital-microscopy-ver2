@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 
-// === 1. ANTARMUKA PROPS TERINTEGRASI LEVEL GLOBAL ===
 interface LiveStreamTabProps {
   isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
@@ -27,7 +26,7 @@ export default function LiveStreamTab({
   isSystemHardwareEnabled,
   cameraActive,
   setCameraActive,
-  videoSrc,
+  videoSrc: initialVideoSrc, // Gunakan fallback properti jika ada
   grblStatus,
   setGrblStatus,
   lastEchoGCode,
@@ -50,8 +49,9 @@ export default function LiveStreamTab({
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
-  // State simulasi pergerakan koordinat HUD di laptop
-  const [motorPos, setMotorPos] = useState({ x: 12.55, y: 8.20, z: 1200 });
+  // 🟢 STATE REAL-TIME UPDATE VIDEO & KOORDINAT
+  const [liveVideo, setLiveVideo] = useState<string | null>(initialVideoSrc);
+  const [motorPos, setMotorPos] = useState({ x: 0.00, y: 0.00, z: 0 });
 
   const themeClasses = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -60,6 +60,58 @@ export default function LiveStreamTab({
     btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
+
+  // ====================================================================
+  // 🟢 SIRKUIT EVENT LISTENER WEBSOCKET UNTUK TELEMETRI & STREAM DATA
+  // ====================================================================
+  useEffect(() => {
+    // Jika kamera diaktifkan dan pipa WebSocket terbuka
+    if (cameraActive && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      console.log("[REACT TAB] Meminta Jetson mengaktifkan live stream...");
+      wsRef.current.send(JSON.stringify({ action: "START_STREAM" }));
+    }
+
+    const handleIncomingMessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // 🟢 PERBAIKAN: Langsung set video tanpa validasi "&& cameraActive" 
+        // karena jika data STREAM_DATA sudah lewat, berarti kamera pasti aktif di hulu
+        if (data.event === "STREAM_DATA") {
+          setLiveVideo(data.image);
+        }
+        
+        if (data.event === "TELEMETRY_DATA") {
+          setMotorPos({
+            x: data.position.X,
+            y: data.position.Y,
+            z: data.position.Z
+          });
+          setGrblStatus(data.status);
+        }
+      } catch (err) {
+        
+        // Abaikan format biner non-JSON
+        console.error("Gagal memproses pesan WebSocket:", err);
+      }
+    };
+
+    // Pasang fungsi pendengar ke sirkuit WebSocket global
+    const currentWs = wsRef.current;
+    if (currentWs) {
+      currentWs.addEventListener('message', handleIncomingMessage);
+    }
+
+    // Pembersihan saat pindah tab atau kamera dimatikan
+    return () => {
+      if (currentWs) {
+        currentWs.removeEventListener('message', handleIncomingMessage);
+        if (currentWs.readyState === WebSocket.OPEN) {
+          currentWs.send(JSON.stringify({ action: "STOP_STREAM" }));
+        }
+      }
+    };
+  }, [cameraActive, wsRef, setGrblStatus]);
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if (!globalVirtualKeyboard) return; 
@@ -82,12 +134,6 @@ export default function LiveStreamTab({
       ? `G1 Z${value} F200` 
       : `G1 ${axis}${value} F${feedRate}`;
 
-    // Mutasi visual angka koordinat di layar HUD agar interaktif saat pengujian laptop
-    setMotorPos(prev => ({
-      ...prev,
-      [axis.toLowerCase()]: parseFloat((prev[axis.toLowerCase() as keyof typeof prev] + value).toFixed(2))
-    }));
-
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setGrblStatus('MOVING...');
       setLastEchoGCode(gcodeStr);
@@ -96,7 +142,6 @@ export default function LiveStreamTab({
         gcode: gcodeStr
       }));
     } else {
-      // Fallback Rest-API pendukung sirkuit pengujian luring di laptop
       axios.post('http://localhost:8000/api/hardware/motor/move', {
         axis,
         value,
@@ -136,9 +181,9 @@ export default function LiveStreamTab({
       {/* KIRI: VIDEO & HUD LAYER */}
       <div className={`relative w-[60%] h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {cameraActive ? (
-          videoSrc ? (
+          liveVideo ? (
             <img 
-              src={videoSrc} 
+              src={liveVideo} 
               alt="Microscope Live Feed" 
               className="w-full h-full object-cover rounded-2xl"
             />
@@ -179,7 +224,7 @@ export default function LiveStreamTab({
           onClick={() => {
             const nextState = !cameraActive;
             setCameraActive(nextState);
-            // Pemicu animasi sukses melayang
+            if (!nextState) setLiveVideo(null); // Reset gambar jika dimatikan
             triggerToast(
               nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Aliran Kamera Dinonaktifkan.',
               nextState ? 'SUCCESS' : 'INFO'
@@ -195,7 +240,7 @@ export default function LiveStreamTab({
         </button>
       </div>
 
-      {/* KANAN: PANEL KONTROL ASLI MILIKMU */}
+      {/* KANAN: PANEL KONTROL ASLI */}
       <div className="w-[40%] h-full overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         
         {/* 1. KENDALI MOTOR */}
@@ -206,9 +251,7 @@ export default function LiveStreamTab({
               <button 
                 disabled={!isSystemHardwareEnabled}
                 onClick={() => {
-                  setMotorPos({ x: 0, y: 0, z: 0 }); 
                   triggerToast('Perintah Homing Dikirim! Mengembalikan CNC ke (0,0,0)', 'INFO');
-                  
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ action: "HOMING" }));
                   } else {
@@ -332,7 +375,7 @@ export default function LiveStreamTab({
             <div className="flex space-x-2">
               <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">DEFAULT</button>
               <button 
-                onClick={() => triggerToast('Parameter Kecepatan & Backlash CNC Berhasil Disimpan!', 'SUCCESS')} // <--- SUNTIKKAN INI
+                onClick={() => triggerToast('Parameter Kecepatan & Backlash CNC Berhasil Disimpan!', 'SUCCESS')}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
               >
                 <Save size={14} className="mr-1" /> TERAPAN

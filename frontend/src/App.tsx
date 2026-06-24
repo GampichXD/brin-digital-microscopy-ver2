@@ -33,7 +33,7 @@ interface DatasetFolder {
 export default function App() {
   const [folders, setFolders] = useState<DatasetFolder[]>([]);
   
-  // === GLOBAL HARDWARE STREAM PIPELINE (OPSI A) ===
+  // === GLOBAL HARDWARE STREAM PIPELINE ===
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [grblStatus, setGrblStatus] = useState<string>("IDLE");
@@ -93,45 +93,50 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // === PIPELINE WEBSOCKET GLOBAL LEVEL APP ===
+  // ====================================================================
+  // 🟢 PIPELINE WEBSOCKET GLOBAL LEVEL APP (TERINTEGRASI REDIS BROKER)
+  // ====================================================================
   useEffect(() => {
     if (!cameraActive || !isSystemHardwareEnabled) {
       return;
     }
 
-    console.log('[GLOBAL WEBSOCKET] Menginisialisasi sirkuit pusat...');
-    const ws = new WebSocket('ws://127.0.0.1:8000/api/hardware/ws');
+    console.log('[GLOBAL WEBSOCKET] Menginisialisasi sirkuit pusat lewat Redis Client...');
+    
+    // Menghubungkan ke rute broker khusus klien agar tidak memblokir websocket utama milik Jetson
+    const ws = new WebSocket('ws://127.0.0.1:8000/api/hardware/client/ws');
     wsRef.current = ws;
-    ws.binaryType = 'blob';
 
     ws.onopen = () => {
       setGrblStatus('READY');
-      console.log('[GLOBAL WEBSOCKET] Pipa data hardware tersambung penuh.');
+      console.log('[GLOBAL WEBSOCKET] Tersambung penuh ke makelar data VPS. Pipa siaran aktif.');
     };
 
     ws.onmessage = async (event) => {
-      if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
-        const imageBlob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: 'image/jpeg' });
-        const objectURL = URL.createObjectURL(imageBlob);
-        setVideoSrc(prev => {
-          if (prev) URL.revokeObjectURL(prev);
-          return objectURL;
-        });
-      } else {
-        try {
-          const res = JSON.parse(event.data);
-          if (res.event === 'MOTOR_STATUS') {
-            setGrblStatus(res.status);
-            if (res.echo_gcode) setLastEchoGCode(res.echo_gcode);
-          }
-        } catch (err) {
-          console.error('Gagal membaca paket data teks mesin:', err);
+      try {
+        // Seluruh payload biner dan telemetri dibungkus dalam format tekstual JSON via Redis Pub/Sub
+        const res = JSON.parse(event.data);
+        
+        // CASE 1: Tangkap Gambar Live Stream Base64 dari Jetson
+        if (res.event === 'STREAM_DATA') {
+          setVideoSrc(res.image);
         }
+        
+        // CASE 2: Sinkronkan penangkap data koordinat aktual & status GRBL mesin asli
+        else if (res.event === 'TELEMETRY_DATA') {
+          setGrblStatus(res.status);
+          if (res.position) {
+            setLastEchoGCode(`X:${res.position.X.toFixed(2)} Y:${res.position.Y.toFixed(2)} Z:${res.position.Z}`);
+          }
+        }
+      } catch (err) {
+        console.error("Gagal memproses pesan WebSocket:", err);
+        // Mencegah crash fatal jika menerima format non-JSON di sirkuit luar
       }
     };
 
     ws.onclose = (event) => {
-      console.log(`[GLOBAL WEBSOCKET] Putus sirkuit (Code: ${event.code}).`);
+      console.log(`[GLOBAL WEBSOCKET] Putus sirkuit broker (Code: ${event.code}). Memicu siaga.`);
       if (wsRef.current === ws) {
         wsRef.current = null;
         setVideoSrc(null);
@@ -143,16 +148,11 @@ export default function App() {
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
       }
-      setTimeout(() => {
-        if (wsRef.current === ws || !cameraActive) {
-          wsRef.current = null;
-          setVideoSrc(prev => {
-            if (prev) URL.revokeObjectURL(prev);
-            return null;
-          });
-          setGrblStatus('OFFLINE');
-        }
-      }, 0);
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+        setVideoSrc(null);
+        setGrblStatus('OFFLINE');
+      }
     };
   }, [cameraActive, isSystemHardwareEnabled]);
 
@@ -253,7 +253,7 @@ export default function App() {
             } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
           >
             <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
-            <span className={`hidden sm:inline ${useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'}`}>Screen KB</span>
+            <span className="hidden sm:inline">Screen KB</span>
             {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
           </button>
 
@@ -274,7 +274,7 @@ export default function App() {
               localStorage.removeItem('username');
               setCurrentUser(null); 
               setActiveTab('Live Stream'); 
-              setCameraActive(false); // Amankan penutupan kamera saat log out
+              setCameraActive(false);
             }} 
             className="p-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all active:scale-95 shadow-md"
             title="Keluar dari Instrumen"
@@ -332,7 +332,7 @@ export default function App() {
         })}
       </nav>
 
-      {/* APPLICATION CONTENT CONTAINER (PASSING DATA PROPS PASUKAN ALIRAN KAMERA) */}
+      {/* APPLICATION CONTENT CONTAINER */}
       <main className="flex-1 min-h-0 p-3 relative">
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
@@ -365,7 +365,7 @@ export default function App() {
             isDarkMode={isDarkMode} 
             openKeypad={handleOpenKeypadGlobal}
             globalVirtualKeyboard={useVirtualKeyboard}
-            videoSrc={videoSrc} // <--- Kirim alirannya ke sini juga!
+            videoSrc={videoSrc}
             cameraActive={cameraActive}
             onNavigateToAnalysis={(imageName) => {
               setTargetAnalysisImage(imageName); 
@@ -392,7 +392,7 @@ export default function App() {
       {/* GLOBAL VIRTUAL NUMPAD MELAYANG */}
       {keypad.visible && useVirtualKeyboard && (
         <div className={`absolute z-50 rounded-xl shadow-2xl border-2 flex flex-col touch-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`} style={{ left: keypadPos.x, top: keypadPos.y, width: '260px' }}>
-          <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+          <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
             <span className="text-xs font-bold">{keypad.title}</span>
             <button 
               onPointerDown={(e) => {
@@ -425,7 +425,7 @@ export default function App() {
             <div className="w-2 h-2 rounded-full bg-green-500 animate-ping"></div>
           </div>
           <div className="flex flex-col flex-1">
-            <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Sistem Otoritas Berhasil</span>
+            <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Status Hubungan Alat</span>
             <span className="text-xs font-bold text-gray-200 mt-0.5">{toast.message}</span>
           </div>
           <button onClick={() => setToast(prev => ({ ...prev, visible: false }))} className="p-1 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
