@@ -1,4 +1,4 @@
-import { useState} from 'react';
+import { useState } from 'react';
 import type { ElementType } from 'react';
 import axios from 'axios';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, Image as ImageIcon, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -8,8 +8,8 @@ interface DatabaseTabProps {
   isDarkMode: boolean;
   globalVirtualKeyboard: boolean;
   triggerToast: (msg: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
-  availableFolders: DatasetFolder[]; // Menangkap state global dari App.tsx
-  onRefreshFolders: () => void;      // Menangkap fungsi pemicu dari App.tsx
+  availableFolders: DatasetFolder[]; 
+  onRefreshFolders: () => void;      
 }
 
 interface DatasetFolder {
@@ -62,7 +62,6 @@ function TouchDropdown({ options, value, onChange, isDarkMode, icon: Icon }: Tou
 }
 
 export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast, availableFolders, onRefreshFolders }: DatabaseTabProps) {
-  // === FIX REFACTOR: Hapus state lokal folders bawaan lama demi mematuhi ESLint ===
   const [searchQuery, setSearchQuery] = useState('');
   const [filterObject, setFilterObject] = useState('Semua Objek');
   const [filterOperator, setFilterOperator] = useState('Semua Operator');
@@ -91,7 +90,9 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   const storageUsedPercentage = 85;
 
-  const currentImages = Array.from({ length: activeFolder?.image_count || 0 }, (_, i) => `IMG_${String(i + 1).padStart(4, '0')}.jpg`).slice(0, 20);
+  // 🟢 FIX 1: Berikan minimal fallback 1 gambar simulasi agar grid UI pratinjau tidak beku/kosong saat folder baru dibuka
+  const imageCount = activeFolder && activeFolder.image_count > 0 ? activeFolder.image_count : 4;
+  const currentImages = Array.from({ length: imageCount }, (_, i) => `IMG_${String(i + 1).padStart(4, '0')}.jpg`).slice(0, 20);
 
   const theme = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -102,7 +103,6 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     modalOverlay: 'fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4',
   };
 
-  // === FIX SINKRONISASI: Gunakan availableFolders hasil operan global App.tsx ===
   const uniqueObjects = ['Semua Objek', ...Array.from(new Set(availableFolders.map(f => f.object_type)))];
   const uniqueOperators = ['Semua Operator', ...Array.from(new Set(availableFolders.map(f => f.operator)))];
   const dateOptions = ['Semua Waktu', 'Hari Ini', 'Bulan Ini'];
@@ -154,13 +154,15 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
           date: new Date().toISOString().split('T')[0],
           operator: formData.operator
         });
-        
-        triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`);
+        triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`, 'SUCCESS');
       } else {
-        triggerToast('Metadata folder berhasil diperbarui!');
+        triggerToast('Metadata folder berhasil diperbarui!', 'SUCCESS');
       }
+      
+      // 🟢 FIX 2: Bersihkan state keyboard agar fokus ring border tidak bocor/stuck di background memori
       setIsFormOpen(false);
-      onRefreshFolders(); // Menggunakan prop refresh global dari App.tsx
+      setKeyboardState({ visible: false, targetField: '', title: '' });
+      onRefreshFolders(); 
     } catch (error) {
       console.error(error);
       triggerToast('Gagal menyimpan folder dataset', 'ERROR');
@@ -175,9 +177,8 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
       setIsConfirmOpen(false);
       setTargetDelete(null);
-      onRefreshFolders(); // Menggunakan prop refresh global dari App.tsx
-      
-      triggerToast('Folder dataset telah dihapus permanen dari basis data.');
+      onRefreshFolders(); 
+      triggerToast('Folder dataset telah dihapus permanen dari basis data.', 'SUCCESS');
     } catch (error) {
       console.error(error);
       triggerToast('Gagal menghapus folder dari server.', 'ERROR');
@@ -206,12 +207,12 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   };
 
   const executeDeleteImages = () => {
-    alert(`Mensimulasikan penghapusan ${targetImageDelete.length} gambar...`);
     setIsConfirmImageOpen(false);
     setTargetImageDelete([]);
     setSelectedImages([]);
     setIsSelectMode(false);
     setPreviewIndex(null);
+    triggerToast('Simulasi penghapusan gambar sukses dilakukan.', 'INFO');
   };
 
   const handleBatchDownload = () => {
@@ -250,14 +251,14 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      alert(`Berhasil menangkap file: ${e.dataTransfer.files[0].name}`);
+      triggerToast(`Berhasil menangkap file: ${e.dataTransfer.files[0].name}`, 'SUCCESS');
       setIsUploadOpen(false);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      alert(`Berhasil menangkap file: ${e.target.files[0].name}`);
+      triggerToast(`Berhasil menangkap file: ${e.target.files[0].name}`, 'SUCCESS');
       setIsUploadOpen(false);
     }
   };
@@ -467,7 +468,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         <div className={theme.modalOverlay}>
           <div className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
             <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-4"><AlertTriangle size={32} /></div>
-            <h2 className={`text-xl font-bold mb-2 ${theme.text}`}>Yakin Hapus Gambar?</h2>
+            <div className={`text-xl font-bold mb-2 ${theme.text}`}>Yakin Hapus Gambar?</div>
             <p className={`text-sm mb-6 ${theme.textMuted}`}>Kamu akan menghapus <strong>{targetImageDelete.length} gambar</strong> secara permanen.</p>
             <div className="flex gap-3 w-full">
               <button onClick={() => setIsConfirmImageOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>Batal</button>

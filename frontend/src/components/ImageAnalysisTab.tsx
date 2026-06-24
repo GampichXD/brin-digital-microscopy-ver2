@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 
-// SINKRONISASI PROPS: Tambahkan availableFolders dari App.tsx
 interface DatasetFolder {
   id: string;
   name: string;
@@ -15,7 +14,7 @@ interface ImageAnalysisTabProps {
   targetImage: string | null; 
   onClearTarget: () => void;  
   globalVirtualKeyboard: boolean;
-  availableFolders?: DatasetFolder[]; // <--- Tambahkan props ini
+  availableFolders?: DatasetFolder[];
 }
 
 interface ColonyPosition {
@@ -32,42 +31,12 @@ interface AnalysisState {
 }
 
 export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard, availableFolders = [] }: ImageAnalysisTabProps) {
-  const [prevTargetImage, setPrevTargetImage] = useState<string | null>(targetImage);
   const [currentImage, setCurrentImage] = useState<string | null>(targetImage);
-  
   const API_BASE_URL = 'http://localhost:8000';
-
-  const [history, setHistory] = useState<AnalysisState[]>(
-    targetImage ? [{ 
-      id: 1, 
-      processName: 'Original Image', 
-      cssFilter: 'brightness(1) contrast(1) blur(0px)', 
-      colonies: null,
-      imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}` 
-    }] : []
-  );
-  const [historyIndex, setHistoryIndex] = useState(targetImage ? 0 : -1);
+  
+  const [history, setHistory] = useState<AnalysisState[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const [zoomLevel, setZoomLevel] = useState(1);
-
-  if (targetImage !== prevTargetImage) {
-    setPrevTargetImage(targetImage);
-    if (targetImage) {
-      setCurrentImage(targetImage);
-      setHistory([{ 
-        id: 1, 
-        processName: 'Original Image', 
-        cssFilter: 'brightness(1) contrast(1) blur(0px)', 
-        colonies: null,
-        imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}` 
-      }]);
-      setHistoryIndex(0);
-      setZoomLevel(1);
-    } else {
-      setCurrentImage(null);
-      setHistory([]);
-      setHistoryIndex(-1);
-    }
-  }
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processTask, setProcessTask] = useState('');
@@ -87,25 +56,50 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4'
   };
 
-  // Fungsi saat operator memilih gambar tiruan/statis dari database folder yang diklik
+  // 🟢 FIX UTAMA: Bungkus sinkronisasi operan gambar ke dalam useEffect untuk mencegah crash berantai
+  useEffect(() => {
+    // Jalankan mutasi state di luar antrean makro sinkronisasi komponen
+    const timer = setTimeout(() => {
+      if (targetImage) {
+        setCurrentImage(targetImage);
+        setHistory([
+          {
+            id: 1,
+            processName: 'Original Image',
+            cssFilter: 'brightness(1) contrast(1) blur(0px)',
+            colonies: null,
+            imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}`
+          }
+        ]);
+        setHistoryIndex(0);
+        setZoomLevel(1);
+      } else {
+        setCurrentImage(null);
+        setHistory([]);
+        setHistoryIndex(-1);
+      }
+    }, 0);
+
+    return () => clearTimeout(timer); // Bersihkan sirkuit timer jika tab ditutup mendadak
+  }, [targetImage]);
+
   const handleSelectFromDatabaseFolder = (folderName: string) => {
-  // Mengarah ke berkas citra utama dari sampel database yang dipilih
-  const targetSampleFile = `${folderName}_sample.jpg`;
-  setCurrentImage(targetSampleFile);
-  setHistory([{ 
-    id: 1, 
-    processName: 'Loaded from Database Library', 
-    cssFilter: 'brightness(1) contrast(1) blur(0px)', 
-    colonies: null,
-    imageSrc: `${API_BASE_URL}/static/uploads/samples/${folderName}.jpg` // Path direktori penyimpanan sampel database
-  }]);
-  setHistoryIndex(0);
-  setZoomLevel(1);
-};
+    const targetSampleFile = `${folderName}_sample.jpg`;
+    setCurrentImage(targetSampleFile);
+    setHistory([{ 
+      id: 1, 
+      processName: 'Loaded from Database Library', 
+      cssFilter: 'brightness(1) contrast(1) blur(0px)', 
+      colonies: null,
+      imageSrc: `${API_BASE_URL}/static/uploads/samples/${folderName}.jpg` 
+    }]);
+    setHistoryIndex(0);
+    setZoomLevel(1);
+  };
 
-  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 3)); 
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5)); 
-
+  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 3));
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5));
+  
   const handleVKInput = (key: string) => {
     if (!vk.field) return;
     const updateVal = (prev: string) => key === 'BACK' ? prev.slice(0, -1) : prev + key;
@@ -120,7 +114,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const processImageUpload = async (file: File) => {
     const formDataUpload = new FormData();
     formDataUpload.append('file', file);
-
     setIsProcessing(true);
     setProcessTask('Mengunggah citra mikroskop...');
 
@@ -128,7 +121,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       const response = await axios.post(`${API_BASE_URL}/api/analysis/upload`, formDataUpload, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-
       setCurrentImage(response.data.filename);
       setHistory([{ 
         id: 1, 
@@ -184,7 +176,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         current_src: currentState.imageSrc,
         ...params
       });
-
       const newState: AnalysisState = {
         id: history.length + 1,
         processName: toolName,
@@ -192,7 +183,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         colonies: response.data.colonies || null,
         imageSrc: `${API_BASE_URL}${response.data.url}`
       };
-
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
@@ -208,7 +198,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const runCLAHE = () => executeTool('CLAHE (Contrast Adjustment)', 'clahe');
   const runEdgeDetection = () => executeTool('Edge Detection (Sobel)', 'sobel');
   const runColonyCounter = () => executeTool('AI YOLO Colony Counter', 'colony-count', {}, true);
-
+  
   const activeState = history[historyIndex];
 
   return (
@@ -216,8 +206,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       
       {!currentImage && (
         <div className="w-full h-full p-2 flex flex-col md:flex-row gap-3">
-          
-          {/* JALUR UTAMA KIRI: DRAG-DROP & TOUCH FILE STORAGE EXPLORER */}
           <div 
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onDrop={(e) => {
@@ -243,39 +231,35 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </label>
           </div>
 
-          {/* === JALUR KANAN BARU: PILIH DARI DATA FOLDER DATABASE POSTGRESQL === */}
           <div className={`w-full md:w-[40%] rounded-3xl border p-4 flex flex-col shadow-sm ${theme.panel}`}>
-  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-800">
-    <Database size={16} className="text-blue-400" />
-    <h3 className={`text-xs font-black uppercase tracking-wider ${theme.text}`}>Pilih dari Pustaka Database</h3>
-  </div>
-  
-  <p className={`text-[10px] mb-3 leading-normal ${theme.textMuted}`}>
-    Pilih folder sampel mikroba/bakteri yang telah terdaftar di database laboratorium untuk memuat citra mentahnya ke dalam kanvas analisis.
-  </p>
-
-  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'none' }}>
-    {availableFolders.length === 0 ? (
-      <div className="text-center py-8 text-[11px] font-medium text-gray-500">
-        Belum ada repositori data sampel di PostgreSQL
-      </div>
-    ) : (
-      availableFolders.map(folder => (
-        <div 
-          key={folder.id}
-          onClick={() => handleSelectFromDatabaseFolder(folder.name)}
-          className={`p-2.5 rounded-xl border border-gray-800/60 cursor-pointer flex flex-col gap-1 transition-all ${
-            isDarkMode ? 'bg-gray-950/40 hover:bg-blue-500/10 hover:border-blue-500/40' : 'bg-gray-50 hover:bg-blue-50/50 hover:border-blue-400'
-          }`}
-        >
-          <span className={`text-xs font-bold truncate ${theme.text}`}>{folder.name}</span>
-          <span className="text-[9px] font-mono font-bold text-blue-400 uppercase">{folder.object_type}</span>
-        </div>
-      ))
-    )}
-  </div>
-</div>
-
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-800">
+              <Database size={16} className="text-blue-400" />
+              <h3 className={`text-xs font-black uppercase tracking-wider ${theme.text}`}>Pilih dari Pustaka Database</h3>
+            </div>
+            <p className={`text-[10px] mb-3 leading-normal ${theme.textMuted}`}>
+              Pilih folder sampel mikroba/bakteri yang telah terdaftar di database laboratorium untuk memuat citra mentahnya ke dalam kanvas analisis.
+            </p>
+            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'none' }}>
+              {availableFolders.length === 0 ? (
+                <div className="text-center py-8 text-[11px] font-medium text-gray-500">
+                  Belum ada repositori data sampel di PostgreSQL
+                </div>
+              ) : (
+                availableFolders.map(folder => (
+                  <div 
+                    key={folder.id}
+                    onClick={() => handleSelectFromDatabaseFolder(folder.name)}
+                    className={`p-2.5 rounded-xl border border-gray-800/60 cursor-pointer flex flex-col gap-1 transition-all ${
+                      isDarkMode ? 'bg-gray-950/40 hover:bg-blue-500/10 hover:border-blue-500/40' : 'bg-gray-50 hover:bg-blue-50/50 hover:border-blue-400'
+                    }`}
+                  >
+                    <span className={`text-xs font-bold truncate ${theme.text}`}>{folder.name}</span>
+                    <span className="text-[9px] font-mono font-bold text-blue-400 uppercase">{folder.object_type}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -289,7 +273,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                 </button>
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className={`text-sm font-bold font-mono truncate ${theme.text}`}>{currentImage}</span>
-                  <span className="text-[10px] font-bold text-blue-500 truncate flex gap-2">
+                  <span className={`text-[10px] font-bold text-blue-500 truncate flex gap-2`}>
                     <span>STATUS: {activeState?.processName.toUpperCase()}</span>
                     <span>•</span>
                     <span>ZOOM: {Math.round(zoomLevel * 100)}%</span>
@@ -356,7 +340,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </div>
           </div>
 
-          {/* SISI KANAN: ANALYSIS TOOLS */}
           <div className="w-[30%] h-full flex flex-col gap-3">
             <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
               <h2 className={`font-bold text-lg mb-1 ${theme.text}`}>Analysis Tools</h2>
@@ -422,17 +405,17 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               <div>
                 <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>Pilih Folder Destinasi:</label>
                 <div className="grid gap-2 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
-  {availableFolders.map(folder => (
-    <div 
-      key={folder.id} 
-      onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} 
-      className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}
-    >
-      <FolderPlus size={18} className="mr-3" />
-      <span className="font-bold text-sm">{folder.name}</span>
-    </div>
-  ))}
-</div>
+                  {availableFolders.map(folder => (
+                    <div 
+                      key={folder.id} 
+                      onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} 
+                      className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}
+                    >
+                      <FolderPlus size={18} className="mr-3" />
+                      <span className="font-bold text-sm">{folder.name}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="flex items-center text-xs font-bold text-gray-500">

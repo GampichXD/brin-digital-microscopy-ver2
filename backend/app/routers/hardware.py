@@ -3,6 +3,8 @@ from pydantic import BaseModel
 import time
 import json
 import asyncio
+import os
+import base64
 from redis import asyncio as aioredis  # Driver Redis Asinkron untuk ekosistem Docker
 
 from ..hardware.motor_driver import motor_driver
@@ -11,12 +13,39 @@ from ..hardware.camera_driver import cam_driver as camera_driver
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 
 # URL Jaringan internal untuk kontainer Redis di dalam docker-compose.yml
-# REDIS_URL = "redis://redis-server:6379"
-REDIS_URL = "redis://127.0.0.1:6379"
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 
-# Struktur data untuk menerima kendali D-Pad manual dari Frontend Dashboard (React)
-class MotorCommand(BaseModel):
-    command: str
+# Saklar logis untuk menonaktifkan semua kontrol hardware dari panel admin.
+hardware_bus_enabled = True
+
+# 🟢 FIX 1: Deklarasikan direktori penyimpanan static uploads agar bebas dari NameError
+UPLOAD_DIR = "./static/uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+# 🟢 FIX 2: Perbarui struktur skema Pydantic agar cocok 100% dengan kiriman objek Axios dari Frontend
+class MotorMovePayload(BaseModel):
+    axis: str
+    value: float
+    feed_rate: float
+    unit: str
+
+
+class CameraSettingsPayload(BaseModel):
+    shutter_speed: int
+    iso: int
+
+
+class HardwareBusTogglePayload(BaseModel):
+    enabled: bool
+
+
+async def publish_hardware_command(payload: dict) -> None:
+    redis = await aioredis.from_url(REDIS_URL)
+    try:
+        await redis.publish("hardware_commands", json.dumps(payload))
+    finally:
+        await redis.close()
 
 # Dictionary internal untuk mencatat timestamp instruksi terakhir dari setiap IP user
 last_command_time = {}
@@ -25,7 +54,6 @@ def is_local_network(ip_address: str) -> bool:
     """Mengecek apakah IP user berasal dari jaringan lokal Jetson (Localhost/Private Subnet)."""
     if ip_address in ["127.0.0.1", "localhost", "::1"]:
         return True
-    # Deteksi subnet standar laboratorium (192.168.x.x atau 10.x.x.x)
     if ip_address.startswith("192.168.") or ip_address.startswith("10."):
         return True
     return False
@@ -34,23 +62,29 @@ def is_local_network(ip_address: str) -> bool:
 # 1. ROUTE HTTP POST: UNTUK KENDALI MOTOR D-PAD MANUAL USER
 # ====================================================================
 @router.post("/motor/move")
-async def move_motor(payload: MotorCommand, request: Request):
+async def move_motor(payload: MotorMovePayload, request: Request):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
     user_ip = request.client.host
     current_time = time.time()
-    clean_gcode = payload.command.strip().upper()
 
-    # 🟢 MODE A: AKSES LOKAL JETSON (Smooth & Tanpa Batas)
+    # Pecahan properti frontend disusun ke dalam gcode_str
+    axis_letter = payload.axis.upper()
+    gcode_str = f"G1 {axis_letter}{payload.value} F{payload.feed_rate}"
+
+    # MODE A: AKSES LOKAL JETSON
     if is_local_network(user_ip):
-        print(f"[NETWORK DETECTOR] Akses Lokal Terdeteksi dari {user_ip}. Eksekusi Instan.")
-        response = motor_driver.send_gcode(clean_gcode)
+        print(f"[NETWORK DETECTOR] Akses Lokal Terdeteksi dari {user_ip}. Eksekusi: {gcode_str}")
+        # 🟢 PERBAIKAN BARIS 56: Ubah clean_gcode menjadi gcode_str
+        response = await motor_driver.send_gcode(gcode_str)
         return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
 
-    # 🔴 MODE B: AKSES JARAK JAUH / VIA VPS INTERNET (Smooth & Aman)
+    # MODE B: AKSES JARAK JAUH / VIA VPS INTERNET
     else:
         print(f"[NETWORK DETECTOR] Akses Jarak Jauh Terdeteksi dari {user_ip}. Menerapkan Guard.")
         last_time = last_command_time.get(user_ip, 0)
         
-        # Guard Throttling: Interval 500ms mencegah penumpukan buffer akibat ping internet lag
         if current_time - last_time < 0.5:
             print(f"[GUARD WARNING] Perintah dari {user_ip} diblokir sementara (Over-speed).")
             raise HTTPException(
@@ -60,9 +94,61 @@ async def move_motor(payload: MotorCommand, request: Request):
         
         last_command_time[user_ip] = current_time
         
-        # Meneruskan perintah ke relay driver (yang nantinya melempar JSON ke Jetson)
-        response = motor_driver.send_gcode(clean_gcode)
+        # 🟢 PERBAIKAN BARIS 73: Ubah clean_gcode menjadi gcode_str
+        response = await motor_driver.send_gcode(gcode_str)
         return {"status": "SUCCESS", "mode": "REMOTE_GUARDED", "grbl_response": response}
+
+
+@router.post("/motor/home")
+async def home_motor(request: Request):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    user_ip = request.client.host
+    if is_local_network(user_ip):
+        response = await motor_driver.send_gcode("$H")
+        return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
+
+    await publish_hardware_command({"action": "HOMING"})
+    return {"status": "SUCCESS", "mode": "REMOTE", "action": "HOMING"}
+
+
+@router.post("/motor/unlock")
+async def unlock_motor(request: Request):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    user_ip = request.client.host
+    if is_local_network(user_ip):
+        response = await motor_driver.send_gcode("$X")
+        return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
+
+    await publish_hardware_command({"action": "UNLOCK"})
+    return {"status": "SUCCESS", "mode": "REMOTE", "action": "UNLOCK"}
+
+
+@router.post("/camera/settings")
+async def apply_camera_settings(payload: CameraSettingsPayload):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    await publish_hardware_command({
+        "action": "APPLY_CAMERA_SETTINGS",
+        "shutter_speed": payload.shutter_speed,
+        "iso": payload.iso,
+    })
+    return {"status": "SUCCESS", "message": "Pengaturan kamera diterima."}
+
+
+@router.post("/bus/toggle")
+async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
+    global hardware_bus_enabled
+    hardware_bus_enabled = payload.enabled
+
+    if not hardware_bus_enabled:
+        await publish_hardware_command({"action": "STOP_STREAM"})
+
+    return {"status": "SUCCESS", "enabled": hardware_bus_enabled}
 
 
 # ====================================================================
@@ -84,7 +170,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
         await pubsub.subscribe("hardware_commands")
         try:
             async for message in pubsub.listen():
-                if message['type'] == 'data':
+                if message.get('type') == 'message':
                     command_payload = message['data'].decode('utf-8')
                     await websocket.send_text(command_payload)
         except asyncio.CancelledError:
@@ -136,7 +222,6 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         print("[VPS ROUTER WARNING] Koneksi Jetson Orin Nano terputus dari sirkuit cloud.")
     finally:
-        # 🟢 PERBAIKAN UTAMA: Batalkan task background sebelum menutup redis
         if listener_task and not listener_task.done():
             listener_task.cancel()
             try:
@@ -148,28 +233,51 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
         camera_driver.stop()
         await redis.close()
 
+
 # ====================================================================
 # 3. WEBSOCKET KHUSUS CLIENT CLIENT (BROWSER REACT)
 # ====================================================================
 @router.websocket("/client/ws")
 async def client_websocket_endpoint(websocket: WebSocket):
-    """Endpoint tempat browser user (React) terhubung untuk memantau video & telemetri."""
+    """Endpoint tempat browser user (React) terhubung untuk memantau & mengontrol instrumen."""
     await websocket.accept()
     redis = await aioredis.from_url(REDIS_URL)
-    pubsub = redis.pubsub()
+
+    print("[VPS CLIENT] Browser user terhubung penuh dengan sikit sirkuit interaktif.")
     
-    # Langsung ikut mendengarkan dua channel siaran utama dari Redis
-    await pubsub.subscribe("microscope_video_stream", "microscope_telemetry")
-    print("[VPS CLIENT] Browser user terhubung ke piringan distribusi data.")
+    # 🟢 TASK A: Mendengarkan siaran video/telemetri dari Redis dan menembakkannya ke Browser
+    async def listen_to_redis_broadcast():
+        pubsub = redis.pubsub()
+        await pubsub.subscribe("microscope_video_stream", "microscope_telemetry")
+        try:
+            async for message in pubsub.listen():
+                if message.get('type') == 'message':
+                    await websocket.send_text(message['data'].decode('utf-8'))
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await pubsub.unsubscribe("microscope_video_stream", "microscope_telemetry")
+            await pubsub.close()
+
+    # Jalankan pendengar siaran Redis di background task
+    broadcast_task = asyncio.create_task(listen_to_redis_broadcast())
     
     try:
-        async for message in pubsub.listen():
-            if message['type'] == 'data':
-                # Teruskan data video/telemetri dari Redis langsung ke layar browser React
-                await websocket.send_text(message['data'].decode('utf-8'))
+        # 🟢 TASK B: Jalankan antrean penerima instruksi (START_STREAM / STOP_STREAM) dari Browser React
+        while True:
+            client_msg = await websocket.receive_text()
+            # Lempar perintah dari browser langsung ke channel instruksi mekatronika
+            await redis.publish("hardware_commands", client_msg)
+            print(f"[VPS BROKER] Meneruskan perintah UI ke Hardware Core: {client_msg}")
+
     except WebSocketDisconnect:
-        print("[VPS CLIENT] Browser user menutup tab / disconnect.")
+        print("[VPS CLIENT] Hubungan Browser user terputus dari sirkuit.")
     finally:
-        await pubsub.unsubscribe("microscope_video_stream", "microscope_telemetry")
-        await pubsub.close()
+        # Hancurkan background task secara bersih untuk mencegah kebocoran memori (memory leak)
+        if not broadcast_task.done():
+            broadcast_task.cancel()
+            try:
+                await broadcast_task
+            except asyncio.CancelledError:
+                pass
         await redis.close()

@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine
-from . import models
-from .routers import auth, dataset, hardware # Pengelompokan import router
+from . import models  # Pastikan path ini sesuai dengan file struktur modelmu
+from .routers import auth, dataset, hardware 
 
-# Otomatis menciptakan tabel di PostgreSQL kontainer Docker jika belum ada
+# 🟢 LANGKAH 1: Pastikan tabel database PostgreSQL tercipta sukses di awal sebelum router memicu request
+print("[API STARTUP] Menyambungkan ke PostgreSQL dan sinkronisasi skema tabel...")
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -13,9 +14,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-app.include_router(hardware.router) # Daftarkan router hardware agar bisa diakses dari frontend
-
-# Konfigurasi CORS
+# Konfigurasi CORS (Cross-Origin Resource Sharing)
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -29,9 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === DAFTARKAN ROUTER DI SINI ===
+# 🟢 LANGKAH 2: Daftarkan seluruh router secara berkelompok di fase akhir setelah sirkuit core server siap
+print("[API STARTUP] Mendaftarkan sirkuit pipa data router ke jaringan...")
 app.include_router(auth.router)
-app.include_router(dataset.router) # Dikelompokkan bersama di sini
+app.include_router(dataset.router)
+app.include_router(hardware.router)  # Router hardware diletakkan di bawah setelah database aman
 
 @app.get("/", tags=["Health Check"])
 async def root():

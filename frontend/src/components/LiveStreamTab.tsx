@@ -26,7 +26,7 @@ export default function LiveStreamTab({
   isSystemHardwareEnabled,
   cameraActive,
   setCameraActive,
-  videoSrc: initialVideoSrc, // Gunakan fallback properti jika ada
+  videoSrc, // 🟢 GUNTING LOGIKA LOKAL: Gunakan referensi stream langsung dari level pusat App.tsx
   grblStatus,
   setGrblStatus,
   lastEchoGCode,
@@ -49,8 +49,7 @@ export default function LiveStreamTab({
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
   const [iso, setIso] = useState<string>("200");
 
-  // 🟢 STATE REAL-TIME UPDATE VIDEO & KOORDINAT
-  const [liveVideo, setLiveVideo] = useState<string | null>(initialVideoSrc);
+  // State koordinat lokal untuk keperluan interpolasi transisi D-Pad
   const [motorPos, setMotorPos] = useState({ x: 0.00, y: 0.00, z: 0 });
 
   const themeClasses = {
@@ -62,56 +61,47 @@ export default function LiveStreamTab({
   };
 
   // ====================================================================
-  // 🟢 SIRKUIT EVENT LISTENER WEBSOCKET UNTUK TELEMETRI & STREAM DATA
+  // 🟢 AMANKAN HANDSHAKE: HANYA BERTUGAS MEMICU TOMBOL START/STOP STREAM
   // ====================================================================
   useEffect(() => {
-    // Jika kamera diaktifkan dan pipa WebSocket terbuka
-    if (cameraActive && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log("[REACT TAB] Meminta Jetson mengaktifkan live stream...");
-      wsRef.current.send(JSON.stringify({ action: "START_STREAM" }));
-    }
-
-    const handleIncomingMessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        // 🟢 PERBAIKAN: Langsung set video tanpa validasi "&& cameraActive" 
-        // karena jika data STREAM_DATA sudah lewat, berarti kamera pasti aktif di hulu
-        if (data.event === "STREAM_DATA") {
-          setLiveVideo(data.image);
-        }
-        
-        if (data.event === "TELEMETRY_DATA") {
-          setMotorPos({
-            x: data.position.X,
-            y: data.position.Y,
-            z: data.position.Z
-          });
-          setGrblStatus(data.status);
-        }
-      } catch (err) {
-        
-        // Abaikan format biner non-JSON
-        console.error("Gagal memproses pesan WebSocket:", err);
-      }
-    };
-
-    // Pasang fungsi pendengar ke sirkuit WebSocket global
+    // 1. Salin referensi ref ke variabel lokal untuk mengamankan fungsi cleanup linting
     const currentWs = wsRef.current;
-    if (currentWs) {
-      currentWs.addEventListener('message', handleIncomingMessage);
+
+    if (cameraActive && currentWs && currentWs.readyState === WebSocket.OPEN) {
+      console.log("[REACT TAB] Sirkuit WebSocket aktif. Mengirim sinyal akselerasi optik...");
+      currentWs.send(JSON.stringify({ action: "START_STREAM" }));
     }
 
-    // Pembersihan saat pindah tab atau kamera dimatikan
-    return () => {
-      if (currentWs) {
-        currentWs.removeEventListener('message', handleIncomingMessage);
-        if (currentWs.readyState === WebSocket.OPEN) {
+    // 2. Gunakan setTimeout agar update state motorPos dijadwalkan secara asinkron
+    // Langkah ini memecah cascading render berantai yang dilarang linter
+    if (lastEchoGCode && lastEchoGCode.startsWith("X:")) {
+      const timer = setTimeout(() => {
+        try {
+          const parts = lastEchoGCode.split(" ");
+          const xVal = parseFloat(parts[0].split(":")[1]);
+          const yVal = parseFloat(parts[1].split(":")[1]);
+          const zVal = parseInt(parts[2].split(":")[1]);
+          setMotorPos({ x: xVal, y: yVal, z: zVal });
+        } catch (e) {
+          console.error("Gagal mem-parsing koordinat motor dari lastEchoGCode:", e);
+          // Abaikan format sisa inisial N/A
+        }
+      }, 0);
+
+      return () => {
+        clearTimeout(timer);
+        if (currentWs && currentWs.readyState === WebSocket.OPEN) {
           currentWs.send(JSON.stringify({ action: "STOP_STREAM" }));
         }
+      };
+    }
+
+    return () => {
+      if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+        currentWs.send(JSON.stringify({ action: "STOP_STREAM" }));
       }
     };
-  }, [cameraActive, wsRef, setGrblStatus]);
+  }, [cameraActive, wsRef, lastEchoGCode]);
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if (!globalVirtualKeyboard) return; 
@@ -123,7 +113,6 @@ export default function LiveStreamTab({
     });
   };
 
-  // === 2. MANIPULASI GERAKAN SUMBU VIA GERBANG PIPELINE UTAMA ===
   const sendMotorCommand = (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
     
@@ -181,9 +170,10 @@ export default function LiveStreamTab({
       {/* KIRI: VIDEO & HUD LAYER */}
       <div className={`relative w-[60%] h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {cameraActive ? (
-          liveVideo ? (
+          /* 🟢 PERBAIKAN SEJATI: Membaca props global 'videoSrc' secara langsung */
+          videoSrc ? (
             <img 
-              src={liveVideo} 
+              src={videoSrc} 
               alt="Microscope Live Feed" 
               className="w-full h-full object-cover rounded-2xl"
             />
@@ -224,7 +214,6 @@ export default function LiveStreamTab({
           onClick={() => {
             const nextState = !cameraActive;
             setCameraActive(nextState);
-            if (!nextState) setLiveVideo(null); // Reset gambar jika dimatikan
             triggerToast(
               nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Aliran Kamera Dinonaktifkan.',
               nextState ? 'SUCCESS' : 'INFO'

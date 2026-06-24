@@ -110,6 +110,10 @@ export default function App() {
     ws.onopen = () => {
       setGrblStatus('READY');
       console.log('[GLOBAL WEBSOCKET] Tersambung penuh ke makelar data VPS. Pipa siaran aktif.');
+
+      if (cameraActive && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'START_STREAM' }));
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -367,6 +371,7 @@ export default function App() {
             globalVirtualKeyboard={useVirtualKeyboard}
             videoSrc={videoSrc}
             cameraActive={cameraActive}
+            wsRef={wsRef}
             onNavigateToAnalysis={(imageName) => {
               setTargetAnalysisImage(imageName); 
               setActiveTab('Image Analysis'); 
@@ -382,7 +387,11 @@ export default function App() {
             availableFolders={folders}
           />
         )}
-        {activeTab === 'Documentation' && <DocumentationTab isDarkMode={isDarkMode} />}
+        {activeTab === 'Documentation' &&
+        <DocumentationTab
+        isDarkMode={isDarkMode}
+        availableFolders={folders}
+        />}
         
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
           <AdminControlTab isDarkMode={isDarkMode} isSystemHardwareEnabled={isSystemHardwareEnabled} setIsSystemHardwareEnabled={setIsSystemHardwareEnabled} />

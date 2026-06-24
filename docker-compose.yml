@@ -1,6 +1,12 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: mikroskop_redis
+    ports:
+      - "6379:6379"
+
   frontend:
     build: ./frontend
     container_name: mikroskop_frontend
@@ -12,6 +18,11 @@ services:
     container_name: mikroskop_backend
     ports:
       - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - VPS_WS_URL=ws://host.docker.internal:8000/api/hardware/ws
+    depends_on:
+      - redis
     # Jika nanti di Linux/Raspberry Pi/Jetson untuk hardware fisik:
     # devices:
     #   - "/dev/ttyUSB0:/dev/ttyUSB0"

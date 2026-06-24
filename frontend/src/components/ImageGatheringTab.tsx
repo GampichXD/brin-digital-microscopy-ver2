@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import axios from 'axios'; 
+import axios from 'axios';
 import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers, CameraOff } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';
@@ -14,15 +14,15 @@ interface DatasetFolder {
   image_count: number; 
 }
 
-// === 1. ANTARMUKA PROPS: DISUNTIKKAN DENGAN SUMBER ALIRAN DARI APP.TSX ===
 interface ImageGatheringTabProps {
   isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
   availableFolders?: DatasetFolder[]; 
   onNavigateToAnalysis?: (imageName: string) => void;
   globalVirtualKeyboard: boolean; 
-  videoSrc: string | null;     // Props Aliran Citra Global
-  cameraActive: boolean;       // Props Status Sensor Global
+  videoSrc: string | null;
+  cameraActive: boolean;       
+  wsRef: React.MutableRefObject<WebSocket | null>; 
 }
 
 interface CapturedImage {
@@ -41,7 +41,8 @@ export default function ImageGatheringTab({
   onNavigateToAnalysis, 
   globalVirtualKeyboard,
   videoSrc,
-  cameraActive
+  cameraActive,
+  wsRef
 }: ImageGatheringTabProps) {
   const [gatherMode, setGatherMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [cols, setCols] = useState("5");
@@ -53,16 +54,16 @@ export default function ImageGatheringTab({
   const [camDelay, setCamDelay] = useState("500");
   const [autoStitch, setAutoStitch] = useState(false);
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
-  const [motorPos, setMotorPos] = useState({ x: 12.55, y: 8.20, z: 1200 });
+  
+  // 🟢 SYNC STATE: Mulai dari koordinat nol riil mekatronika
+  const [motorPos, setMotorPos] = useState({ x: 0.00, y: 0.00, z: 0 });
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processTask, setProcessTask] = useState('');
   const [progress, setProgress] = useState(0);
   const [timerTick, setTimerTick] = useState(0);
-
   const [processTimes, setProcessTimes] = useState({ scan: 0, stitch: 0, total: 0 });
-  const [isRetaking, setIsRetaking] = useState(false); 
-
+  const [isRetaking, setIsRetaking] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showStitchModal, setShowStitchModal] = useState(false);
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
@@ -110,7 +111,7 @@ export default function ImageGatheringTab({
   ];
 
   const triggerGlobalKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
-    if(!globalVirtualKeyboard) return; 
+    if(!globalVirtualKeyboard) return;
     openKeypad({ visible: true, title, value: currentValue, onUpdate: setter });
   };
 
@@ -133,6 +134,20 @@ export default function ImageGatheringTab({
 
   const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
 
+  // 🟢 SINKRONISASI AKTIF PIPELINE STREAM KAMERA TERPUSAT
+  useEffect(() => {
+    const currentWs = wsRef.current; // Mengisolasi ref untuk fungsi penutupan yang aman
+    
+    if (cameraActive && currentWs && currentWs.readyState === WebSocket.OPEN) {
+      console.log("[GATHER TAB] Membuka sirkuit pipa stream optik...");
+      currentWs.send(JSON.stringify({ action: "START_STREAM" }));
+    }
+
+    return () => {
+      // Jalur dibiarkan terbuka secara persisten untuk navigasi mulus antar tab
+    };
+  }, [cameraActive, wsRef]);
+
   const handleStartAuto = async () => {
     setIsProcessing(true);
     setProcessTask('Mengambil Gambar & Koordinat CNC...');
@@ -141,7 +156,6 @@ export default function ImageGatheringTab({
     setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
     const startTime = new Date().getTime();
-
     try {
       const response = await axios.post('http://localhost:8000/api/hardware/scan/grid', {
         columns: c,
@@ -151,15 +165,13 @@ export default function ImageGatheringTab({
         delay_ms: parseInt(camDelay),
         unit: stepUnit
       });
-
       setCapturedImages(response.data.images);
       const scanT = (new Date().getTime() - startTime) / 1000;
-
       if (autoStitch) {
-        executeStitching(scanT); 
+        executeStitching(scanT);
       } else { 
         setProcessTimes({ scan: scanT, stitch: 0, total: scanT });
-        setIsProcessing(false); 
+        setIsProcessing(false);
         setShowReviewModal(true); 
       }
     } catch (error) {
@@ -171,7 +183,7 @@ export default function ImageGatheringTab({
 
   const handleManualCapture = () => {
     const newIndex = capturedImages.length;
-    setCapturedImages(prev => [...prev, { index: newIndex, filename: `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`, coordX: 0, coordY: 0, gridX: 0, gridY: 0 }]);
+    setCapturedImages(prev => [...prev, { index: newIndex, filename: `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`, coordX: motorPos.x, coordY: motorPos.y, gridX: 0, gridY: 0 }]);
   };
 
   const executeStitching = async (scanTParam = processTimes.scan) => {
@@ -182,15 +194,12 @@ export default function ImageGatheringTab({
     setProgress(30); 
 
     const stitchStart = new Date().getTime();
-
     try {
       await axios.post('http://localhost:8000/api/hardware/stitch', {
         images: capturedImages.filter(img => img.filename !== null).map(img => img.filename)
       });
-
       const stitchT = (new Date().getTime() - stitchStart) / 1000;
       setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
-      
       setIsProcessing(false);
       setShowStitchModal(true);
     } catch (error) {
@@ -250,17 +259,15 @@ export default function ImageGatheringTab({
     if (onNavigateToAnalysis) onNavigateToAnalysis(imageName);
   };
 
-  // === 2. HELPER KENDALI KANAN: POST REQUEST YANG SESUAI DENGAN BACKEND STRUCTURE ===
   const sendHttpMove = (axis: 'X' | 'Y' | 'Z', multiplier: number) => {
     const stepValue = axis === 'Z' ? parseFloat(zStep) : parseFloat(stepX);
     const calculatedValue = stepValue * multiplier;
     
-    // Mutasi visual angka HUD
     setMotorPos(prev => ({
       ...prev,
       [axis.toLowerCase()]: parseFloat((prev[axis.toLowerCase() as keyof typeof prev] + calculatedValue).toFixed(2))
     }));
-    
+
     axios.post('http://localhost:8000/api/hardware/motor/move', { 
       axis, 
       value: calculatedValue,
@@ -277,14 +284,12 @@ export default function ImageGatheringTab({
         {isRetaking && <div className="absolute inset-0 bg-white z-50 animate-flash pointer-events-none"></div>}
 
         {cameraActive && videoSrc ? (
-          // Jika kamera induk aktif dan memancarkan data biner, render gambarnya
           <img 
             src={videoSrc} 
             alt="Microscope Live Feed Global" 
             className="w-full h-full object-cover rounded-2xl"
           />
         ) : (
-          // Jika mati, tampilkan info instruktif
           <div className="flex flex-col items-center justify-center p-6 text-center">
             <CameraOff size={64} className={`mb-4 ${theme.textMuted}`} />
             <p className={`font-mono font-bold text-base ${theme.text}`}>Aliran Citra Kosong</p>
@@ -294,7 +299,6 @@ export default function ImageGatheringTab({
 
         {cameraActive && videoSrc && (
           <div className="absolute top-4 left-4 p-3 bg-black/75 backdrop-blur-md rounded-xl border border-white/10 flex flex-col gap-1 shadow-2xl text-white z-10 min-w-[220px]">
-            {/* Bagian Atas: Status Pipeline */}
             <div className="flex items-center border-b border-white/10 pb-1.5 mb-1">
               <Crosshair size={14} className="text-red-400 mr-2 animate-pulse" />
               <span className="font-mono text-[10px] font-bold tracking-wider text-gray-300">
@@ -302,7 +306,6 @@ export default function ImageGatheringTab({
               </span>
             </div>
             
-            {/* Bagian Bawah: Koordinat Riil Motor X, Y, Z */}
             <div className="grid grid-cols-3 gap-2 font-mono text-[11px] font-bold">
               <div className="flex flex-col bg-white/5 px-2 py-1 rounded border border-white/5">
                 <span className="text-red-400 text-[9px] uppercase tracking-wide">Motor X</span>
@@ -323,7 +326,6 @@ export default function ImageGatheringTab({
 
       {/* ==================== KANAN: PANEL KONTROL REST-API ==================== */}
       <div className="w-[45%] h-full flex flex-col gap-3">
-        
         <div className={`flex rounded-xl border p-1 shrink-0 ${theme.panel}`}>
           <button onClick={() => setGatherMode('AUTO')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${gatherMode === 'AUTO' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>AUTO GATHER</button>
           <button onClick={() => setGatherMode('MANUAL')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${gatherMode === 'MANUAL' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>MANUAL GATHER</button>
@@ -408,9 +410,7 @@ export default function ImageGatheringTab({
               </div>
 
               <div className={`p-3 rounded-2xl border shrink-0 flex flex-col ${theme.panel}`}>
-                <h3 className={`text-xs font-bold uppercase tracking-wider flex items-center mb-2 ${theme.textMuted}`}>
-                  <Map size={14} className="mr-2" /> Minimap Area CNC (Macro)
-                </h3>
+                <h3 className={`text-xs font-bold uppercase tracking-wider flex items-center mb-2 ${theme.textMuted}`}><Map size={14} className="mr-2" /> Minimap Area CNC (Macro)</h3>
                 <div className="h-24 bg-black/5 rounded-xl border border-gray-600/30 overflow-hidden relative flex items-center justify-center p-1">
                   <div className="w-full h-full max-w-[200px] border border-blue-500/50 grid gap-0.5" style={{ gridTemplateColumns: `repeat(${cols || 1}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows || 1}, minmax(0, 1fr))` }}>
                     {Array.from({ length: totalImagesConfig || 0 }).map((_, i) => (
@@ -484,6 +484,7 @@ export default function ImageGatheringTab({
                       </div>
                     )}
                   </div>
+  
                   <div className="w-16 flex flex-col">
                     <div className="flex flex-col mb-2">
                       <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Z (stp)</span>
@@ -515,7 +516,6 @@ export default function ImageGatheringTab({
       </div>
 
       {/* ==================== OVERLAYS & MODALS ==================== */}
-
       {isProcessing && (
         <div className={theme.overlay}>
           <div className="flex flex-col items-center text-white w-full max-w-lg">
