@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database } from 'lucide-react';
+import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 
 interface DatasetFolder {
@@ -15,6 +15,7 @@ interface ImageAnalysisTabProps {
   onClearTarget: () => void;  
   globalVirtualKeyboard: boolean;
   availableFolders?: DatasetFolder[];
+  onRefreshFolders?: () => void;
 }
 
 interface ColonyPosition {
@@ -27,23 +28,35 @@ interface AnalysisState {
   processName: string;
   cssFilter: string;
   colonies: ColonyPosition[] | null;
+  stats?: any;
   imageSrc: string | null;
 }
 
-export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard, availableFolders = [] }: ImageAnalysisTabProps) {
+export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard, availableFolders = [], onRefreshFolders }: ImageAnalysisTabProps) {
   const [currentImage, setCurrentImage] = useState<string | null>(targetImage);
   const API_BASE_URL = 'http://localhost:8000';
   
   const [history, setHistory] = useState<AnalysisState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const pinchStartDist = useRef(0);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processTask, setProcessTask] = useState('');
   
+  // State for navigating database folders -> images
+  const [selectedDatabaseFolderId, setSelectedDatabaseFolderId] = useState<string | null>(null);
+  const [selectedFolderName, setSelectedFolderName] = useState<string>('');
+  const [folderImages, setFolderImages] = useState<{name: string, synced: boolean}[]>([]);
+  
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: 'Abraham' });
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<{ok: boolean, msg: string} | null>(null);
   const [vk, setVk] = useState<{ visible: boolean, title: string, field: 'folderName' | 'objectType' | 'operatorName' | null }>({ visible: false, title: '', field: null });
 
   const theme = {
@@ -73,6 +86,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         ]);
         setHistoryIndex(0);
         setZoomLevel(1);
+        setPan({ x: 0, y: 0 });
       } else {
         setCurrentImage(null);
         setHistory([]);
@@ -83,23 +97,96 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     return () => clearTimeout(timer); // Bersihkan sirkuit timer jika tab ditutup mendadak
   }, [targetImage]);
 
-  const handleSelectFromDatabaseFolder = (folderName: string) => {
-    const targetSampleFile = `${folderName}_sample.jpg`;
-    setCurrentImage(targetSampleFile);
+  const handleSelectFromDatabaseFolder = async (folderId: string, folderName: string) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/dataset/folders/${folderId}/images`);
+      const images = response.data;
+      
+      if (images && images.length > 0) {
+        setSelectedDatabaseFolderId(folderId);
+        setSelectedFolderName(folderName);
+        setFolderImages(images);
+      } else {
+        alert("Folder ini kosong, belum ada gambar untuk dianalisis.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Gagal memuat daftar gambar dari folder database.");
+    }
+  };
+
+  const handleSelectDatabaseImage = (folderId: string, folderName: string, fileName: string) => {
+    setCurrentImage(fileName);
     setHistory([{ 
       id: 1, 
-      processName: 'Loaded from Database Library', 
+      processName: `Loaded from ${folderName}`, 
       cssFilter: 'brightness(1) contrast(1) blur(0px)', 
       colonies: null,
-      imageSrc: `${API_BASE_URL}/static/uploads/samples/${folderName}.jpg` 
+      imageSrc: `${API_BASE_URL}/static/datasets/${folderId}/${fileName}` 
     }]);
     setHistoryIndex(0);
     setZoomLevel(1);
+    setPan({x:0, y:0});
   };
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 3));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5));
   
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) setZoomLevel(prev => Math.min(prev + 0.1, 3));
+    else setZoomLevel(prev => Math.max(prev - 0.1, 0.5));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 1 || e.button === 0) { // Middle or Left click
+      isDragging.current = true;
+      dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    setPan({
+      x: e.clientX - dragStart.current.x,
+      y: e.clientY - dragStart.current.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      isDragging.current = true;
+      dragStart.current = { x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y };
+    } else if (e.touches.length === 2) {
+      isDragging.current = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchStartDist.current = Math.sqrt(dx*dx + dy*dy);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && isDragging.current) {
+      setPan({
+        x: e.touches[0].clientX - dragStart.current.x,
+        y: e.touches[0].clientY - dragStart.current.y
+      });
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const delta = (dist - pinchStartDist.current) * 0.01;
+      if (Math.abs(delta) > 0.05) {
+        setZoomLevel(prev => Math.min(Math.max(prev + delta, 0.5), 3));
+        pinchStartDist.current = dist;
+      }
+    }
+  };
+
   const handleVKInput = (key: string) => {
     if (!vk.field) return;
     const updateVal = (prev: string) => key === 'BACK' ? prev.slice(0, -1) : prev + key;
@@ -152,10 +239,83 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     onClearTarget(); 
   };
 
-  const handleSaveToFolder = () => {
-    if (!selectedFolderId && (!saveForm.folderName || !saveForm.objectType)) return alert("Pilih folder atau isi data folder baru dengan lengkap!");
-    alert(`Hasil Analisis berhasil disimpan ke basis data.`);
-    setShowSaveModal(false);
+  const handleSaveToFolder = async () => {
+    const activeImageSrc = history[historyIndex]?.imageSrc;
+    if (!activeImageSrc) return alert('Tidak ada gambar aktif di kanvas untuk disimpan.');
+
+    // Validasi: harus pilih folder lama atau isi form folder baru
+    const isCreatingNew = !selectedFolderId && (saveForm.folderName.trim() !== '');
+    const isSavingToExisting = !!selectedFolderId;
+    if (!isCreatingNew && !isSavingToExisting) {
+      return alert('Pilih folder tujuan atau isi nama folder baru terlebih dahulu!');
+    }
+    if (isCreatingNew && !saveForm.objectType.trim()) {
+      return alert('Jenis objek harus diisi jika membuat folder baru!');
+    }
+
+    setIsSaving(true);
+    setSaveResult(null);
+
+    try {
+      // 1. Ambil data gambar dari URL kanvas sebagai Blob
+      const imgResp = await fetch(activeImageSrc);
+      const blob = await imgResp.blob();
+
+      // Tentukan nama file output yang bermakna
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const processLabel = (history[historyIndex]?.processName || 'analysis').replace(/\s+/g, '_').toLowerCase();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const outputFilename = `analysis_${processLabel}_${timestamp}.${ext}`;
+
+      let targetFolderId = selectedFolderId;
+
+      // 2. Buat folder baru jika diperlukan
+      if (isCreatingNew) {
+        const today = new Date().toISOString().slice(0, 10);
+        const createResp = await axios.post(`${API_BASE_URL}/api/dataset/folders`, {
+          name: saveForm.folderName.trim(),
+          object_type: saveForm.objectType.trim(),
+          date: today,
+          operator: saveForm.operatorName.trim() || 'Anonim',
+        });
+        targetFolderId = createResp.data.id;
+      }
+
+      // 3. Upload gambar ke folder tujuan
+      const formData = new FormData();
+      formData.append('files', blob, outputFilename);
+      await axios.post(`${API_BASE_URL}/api/dataset/folders/${targetFolderId}/images`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      // 4. Catat log aktivitas (Audit Trail)
+      try {
+        await axios.post(`${API_BASE_URL}/api/logs`, {
+          operator: saveForm.operatorName.trim() || 'Abraham',
+          action: `Simpan Analisis - ${outputFilename}`,
+          status: 'SUCCESS'
+        });
+      } catch (logErr) {
+        console.error('Gagal mencatat log aktivitas:', logErr);
+      }
+
+      setSaveResult({ ok: true, msg: `✓ Berhasil disimpan sebagai "${outputFilename}"` });
+      // Picu refresh folder di DatabaseTab secara langsung, tanpa menunggu manual refresh
+      onRefreshFolders?.();
+      // Tutup modal setelah jeda singkat
+      setTimeout(() => {
+        setShowSaveModal(false);
+        setSaveResult(null);
+        setSelectedFolderId(null);
+        setSaveForm({ folderName: '', objectType: '', operatorName: 'Abraham' });
+      }, 1800);
+
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || 'Kesalahan tidak diketahui';
+      setSaveResult({ ok: false, msg: `✗ Gagal menyimpan: ${detail}` });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const canUndo = historyIndex > 0;
@@ -176,11 +336,21 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         current_src: currentState.imageSrc,
         ...params
       });
+      let coloniesData = response.data.colonies || null;
+      if (typeof coloniesData === 'number') {
+        const count = coloniesData;
+        coloniesData = Array.from({length: count}).map(() => ({
+          x: 20 + Math.random() * 60,
+          y: 20 + Math.random() * 60
+        }));
+      }
+
       const newState: AnalysisState = {
         id: history.length + 1,
         processName: toolName,
         cssFilter: isAI ? 'brightness(1)' : response.data.css_filter || 'brightness(1)',
-        colonies: response.data.colonies || null,
+        colonies: coloniesData,
+        stats: response.data.stats || null,
         imageSrc: `${API_BASE_URL}${response.data.url}`
       };
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
@@ -194,9 +364,9 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     }
   };
 
-  const runDenoise = () => executeTool('Denoising & Smoothing', 'denoise');
-  const runCLAHE = () => executeTool('CLAHE (Contrast Adjustment)', 'clahe');
-  const runEdgeDetection = () => executeTool('Edge Detection (Sobel)', 'sobel');
+  const runDenoise = () => executeTool('Adaptive Thresholding', 'adaptive-thresh');
+  const runCLAHE = () => executeTool('Ekstraksi Kontur Geometri', 'contour');
+  const runEdgeDetection = () => { /* Nanti ditambahkan */ };
   const runColonyCounter = () => executeTool('AI YOLO Colony Counter', 'colony-count', {}, true);
   
   const activeState = history[historyIndex];
@@ -240,23 +410,52 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               Pilih folder sampel mikroba/bakteri yang telah terdaftar di database laboratorium untuk memuat citra mentahnya ke dalam kanvas analisis.
             </p>
             <div className="flex-1 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'none' }}>
-              {availableFolders.length === 0 ? (
-                <div className="text-center py-8 text-[11px] font-medium text-gray-500">
-                  Belum ada repositori data sampel di PostgreSQL
-                </div>
-              ) : (
-                availableFolders.map(folder => (
-                  <div 
-                    key={folder.id}
-                    onClick={() => handleSelectFromDatabaseFolder(folder.name)}
-                    className={`p-2.5 rounded-xl border border-gray-800/60 cursor-pointer flex flex-col gap-1 transition-all ${
-                      isDarkMode ? 'bg-gray-950/40 hover:bg-blue-500/10 hover:border-blue-500/40' : 'bg-gray-50 hover:bg-blue-50/50 hover:border-blue-400'
-                    }`}
-                  >
-                    <span className={`text-xs font-bold truncate ${theme.text}`}>{folder.name}</span>
-                    <span className="text-[9px] font-mono font-bold text-blue-400 uppercase">{folder.object_type}</span>
+              {!selectedDatabaseFolderId ? (
+                availableFolders.length === 0 ? (
+                  <div className="text-center py-8 text-[11px] font-medium text-gray-500">
+                    Belum ada repositori data sampel di PostgreSQL
                   </div>
-                ))
+                ) : (
+                  availableFolders.map(folder => (
+                    <div 
+                      key={folder.id}
+                      onClick={() => handleSelectFromDatabaseFolder(folder.id, folder.name)}
+                      className={`p-2.5 rounded-xl border border-gray-800/60 cursor-pointer flex flex-col gap-1 transition-all ${
+                        isDarkMode ? 'bg-gray-950/40 hover:bg-blue-500/10 hover:border-blue-500/40' : 'bg-gray-50 hover:bg-blue-50/50 hover:border-blue-400'
+                      }`}
+                    >
+                      <span className={`text-xs font-bold truncate ${theme.text}`}>{folder.name}</span>
+                      <span className="text-[9px] font-mono font-bold text-blue-400 uppercase">{folder.object_type}</span>
+                    </div>
+                  ))
+                )
+              ) : (
+                <>
+                  <button onClick={() => setSelectedDatabaseFolderId(null)} className={`mb-2 text-xs flex items-center gap-1 transition-colors ${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>
+                    <ArrowLeft size={12} /> Kembali ke Pustaka
+                  </button>
+                  <div className="grid grid-cols-3 gap-2 pb-2">
+                    {folderImages.map(img => (
+                      <div 
+                        key={img.name}
+                        onClick={() => handleSelectDatabaseImage(selectedDatabaseFolderId, selectedFolderName, img.name)}
+                        className={`aspect-square rounded-xl border border-gray-800/60 cursor-pointer overflow-hidden relative group transition-all shadow-sm ${
+                          isDarkMode ? 'hover:border-blue-500/80 hover:shadow-[0_0_10px_rgba(59,130,246,0.3)]' : 'hover:border-blue-400 hover:shadow-md'
+                        }`}
+                        title={img.name}
+                      >
+                        <img 
+                          src={`${API_BASE_URL}/static/datasets/${selectedDatabaseFolderId}/${img.name}`} 
+                          className="w-full h-full object-cover transition-transform group-hover:scale-110" 
+                          alt={img.name}
+                        />
+                        <div className="absolute inset-x-0 bottom-0 bg-black/70 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex justify-center backdrop-blur-sm">
+                          <span className="text-[8px] font-mono text-gray-200 truncate">{img.name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -301,8 +500,16 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               </div>
 
               <div 
-                className="w-3/4 aspect-video bg-blue-900/20 border-2 border-blue-500/30 rounded-xl relative transition-transform duration-300 ease-out origin-center overflow-hidden shadow-2xl"
-                style={{ transform: `scale(${zoomLevel})` }} 
+                className="w-3/4 aspect-video bg-blue-900/20 border-2 border-blue-500/30 rounded-xl relative transition-transform duration-75 ease-out origin-center overflow-hidden shadow-2xl cursor-grab active:cursor-grabbing touch-none"
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` }} 
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleMouseUp}
               >
                 {activeState?.imageSrc ? (
                   <img 
@@ -337,6 +544,24 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                    </div>
                 </div>
               )}
+
+              {activeState?.stats && (
+                <div className="absolute bottom-6 right-6 px-4 py-3 bg-blue-900/80 border border-blue-500 rounded-xl backdrop-blur-md flex flex-col shadow-2xl min-w-[200px]">
+                   <span className="text-xs text-blue-300 font-bold uppercase mb-2 border-b border-blue-500/50 pb-1">Statistik Morfologi</span>
+                   <div className="flex justify-between items-center mb-1">
+                     <span className="text-sm text-gray-300">Total Objek:</span>
+                     <span className="text-sm font-bold text-white">{activeState.stats.total_cells}</span>
+                   </div>
+                   <div className="flex justify-between items-center mb-1">
+                     <span className="text-sm text-gray-300">Rata-rata Luas:</span>
+                     <span className="text-sm font-bold text-white">{activeState.stats.avg_area} px²</span>
+                   </div>
+                   <div className="flex justify-between items-center">
+                     <span className="text-sm text-gray-300">Rata-rata Keliling:</span>
+                     <span className="text-sm font-bold text-white">{activeState.stats.avg_perimeter} px</span>
+                   </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -359,14 +584,14 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
                 <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>2. Image Enhancement</h3>
-                <button onClick={runCLAHE} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Contrast size={18} className="mr-3 text-orange-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">CLAHE Thresholding</span><span className="text-[9px] font-normal text-gray-500">Pertajam Kontras Lokal</span></div>
-                </button>
                 <button onClick={runDenoise} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Wand2 size={18} className="mr-3 text-yellow-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Denoising & Smoothing</span><span className="text-[9px] font-normal text-gray-500">Bersihkan Noise Sensor</span></div>
+                  <Activity size={18} className="mr-3 text-orange-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Adaptive Thresholding</span><span className="text-[9px] font-normal text-gray-500">Binarisasi & Deteksi Objek</span></div>
                 </button>
-                <button onClick={runEdgeDetection} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Layers size={18} className="mr-3 text-cyan-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Edge Detection (Sobel)</span><span className="text-[9px] font-normal text-gray-500">Ekstraksi Dinding Sel</span></div>
+                <button onClick={runCLAHE} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                  <Layers size={18} className="mr-3 text-cyan-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Ekstraksi Kontur</span><span className="text-[9px] font-normal text-gray-500">Temukan Dinding Sel Geometri</span></div>
+                </button>
+                <button onClick={() => executeTool('Edge Detection (Sobel)', 'sobel')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                  <Scan size={18} className="mr-3 text-yellow-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Edge Detection (Sobel)</span><span className="text-[9px] font-normal text-gray-500">Ekstraksi Garis Sobel (Baru)</span></div>
                 </button>
               </div>
 
@@ -461,10 +686,20 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               </div>
             </div>
 
+            {saveResult && (
+              <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-bold text-center ${saveResult.ok ? 'bg-green-500/15 border border-green-500 text-green-400' : 'bg-red-500/15 border border-red-500 text-red-400'}`}>
+                {saveResult.msg}
+              </div>
+            )}
+
             <div className="flex gap-3">
-              <button onClick={() => setShowSaveModal(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnTouch}`}>Batal</button>
-              <button onClick={handleSaveToFolder} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 shadow-lg">
-                <Save size={18} className="mr-2"/> Konfirmasi Simpan
+              <button onClick={() => { setShowSaveModal(false); setSaveResult(null); }} disabled={isSaving} className={`flex-1 py-3 rounded-xl font-bold border disabled:opacity-40 ${theme.textMuted} ${theme.btnTouch}`}>Batal</button>
+              <button onClick={handleSaveToFolder} disabled={isSaving || !!saveResult?.ok} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-60 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 shadow-lg transition-all">
+                {isSaving ? (
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>Menyimpan...</>
+                ) : (
+                  <><Save size={18} className="mr-2"/> Konfirmasi Simpan</>
+                )}
               </button>
             </div>
           </div>

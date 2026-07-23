@@ -23,6 +23,8 @@ interface ImageGatheringTabProps {
   videoSrc: string | null;
   cameraActive: boolean;       
   wsRef: React.MutableRefObject<WebSocket | null>; 
+  triggerToast: (msg: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
+  onRefreshFolders?: () => void;
 }
 
 interface CapturedImage {
@@ -42,7 +44,9 @@ export default function ImageGatheringTab({
   globalVirtualKeyboard,
   videoSrc,
   cameraActive,
-  wsRef
+  wsRef,
+  triggerToast,
+  onRefreshFolders
 }: ImageGatheringTabProps) {
   const [gatherMode, setGatherMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [cols, setCols] = useState("5");
@@ -106,10 +110,6 @@ export default function ImageGatheringTab({
     overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4' 
   };
 
-  const fallbackFolders = [
-    { id: '1', name: 'Riset_Coli_Tembalang_01', object_type: 'Bakteri E. Coli', operator: 'Abraham', date: '2026-06-12', image_count: 0 },
-  ];
-
   const triggerGlobalKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if(!globalVirtualKeyboard) return;
     openKeypad({ visible: true, title, value: currentValue, onUpdate: setter });
@@ -134,19 +134,22 @@ export default function ImageGatheringTab({
 
   const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
 
-  // 🟢 SINKRONISASI AKTIF PIPELINE STREAM KAMERA TERPUSAT
   useEffect(() => {
-    const currentWs = wsRef.current; // Mengisolasi ref untuk fungsi penutupan yang aman
-    
+    const currentWs = wsRef.current;
     if (cameraActive && currentWs && currentWs.readyState === WebSocket.OPEN) {
-      console.log("[GATHER TAB] Membuka sirkuit pipa stream optik...");
       currentWs.send(JSON.stringify({ action: "START_STREAM" }));
     }
-
-    return () => {
-      // Jalur dibiarkan terbuka secara persisten untuk navigasi mulus antar tab
-    };
   }, [cameraActive, wsRef]);
+
+  const handleHome = async () => {
+    try {
+      await axios.post('http://localhost:8000/api/hardware/motor/home');
+      setMotorPos({ x: 0, y: 0, z: 0 });
+      triggerToast('Motor diarahkan ke titik nol (0,0)...', 'INFO');
+    } catch (_error) {
+      triggerToast('Gagal mengeksekusi perintah homing', 'ERROR');
+    }
+  };
 
   const handleStartAuto = async () => {
     setIsProcessing(true);
@@ -156,6 +159,14 @@ export default function ImageGatheringTab({
     setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
     const startTime = new Date().getTime();
+    const timePerGridMs = parseInt(camDelay) + 1200; 
+    let currentProgress = 0;
+    const totalGrids = c * r;
+    const progressInterval = setInterval(() => {
+      currentProgress++;
+      if (currentProgress <= totalGrids) setProgress(currentProgress);
+    }, timePerGridMs);
+
     try {
       const response = await axios.post('http://localhost:8000/api/hardware/scan/grid', {
         columns: c,
@@ -165,8 +176,11 @@ export default function ImageGatheringTab({
         delay_ms: parseInt(camDelay),
         unit: stepUnit
       });
+      clearInterval(progressInterval);
+      setProgress(totalGrids);
       setCapturedImages(response.data.images);
       const scanT = (new Date().getTime() - startTime) / 1000;
+      triggerToast('Pemindaian grid berhasil!', 'SUCCESS');
       if (autoStitch) {
         executeStitching(scanT);
       } else { 
@@ -174,25 +188,48 @@ export default function ImageGatheringTab({
         setIsProcessing(false);
         setShowReviewModal(true); 
       }
-    } catch (error) {
-      console.error(error);
-      alert("Proses pemindaian terputus. Periksa kabel limit switch atau port serial CNC.");
+    } catch (_error) {
+      clearInterval(progressInterval);
+      triggerToast('Proses pemindaian terputus!', 'ERROR');
       setIsProcessing(false);
     }
   };
 
-  const handleManualCapture = () => {
+  const handleManualCapture = async () => {
     const newIndex = capturedImages.length;
-    setCapturedImages(prev => [...prev, { index: newIndex, filename: `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`, coordX: motorPos.x, coordY: motorPos.y, gridX: 0, gridY: 0 }]);
+    const filename = `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`;
+
+    setIsProcessing(true);
+    setProcessTask(`Mengambil Gambar Manual (X:${motorPos.x}, Y:${motorPos.y})...`);
+    setTimerTick(0);
+    try {
+      await axios.post('http://localhost:8000/api/hardware/scan/retake', {
+        coord_x: motorPos.x,
+        coord_y: motorPos.y,
+        filename: filename,
+        delay_ms: parseInt(camDelay)
+      });
+      setCapturedImages(prev => [...prev, { 
+        index: newIndex, 
+        filename: filename, 
+        coordX: motorPos.x, 
+        coordY: motorPos.y, 
+        gridX: 0, 
+        gridY: 0
+      }]);
+      triggerToast('Gambar manual berhasil diambil!', 'SUCCESS');
+      setIsProcessing(false);
+    } catch (_error) {
+      triggerToast('Gagal mengambil gambar manual!', 'ERROR');
+      setIsProcessing(false);
+    }
   };
 
   const executeStitching = async (scanTParam = processTimes.scan) => {
     setShowReviewModal(false);
     setIsProcessing(true);
-    setProcessTask('AI Tile Stitching Berjalan di Jetson Orin...');
+    setProcessTask('AI Tile Stitching Berjalan di Edge Device...');
     setTimerTick(0);
-    setProgress(30); 
-
     const stitchStart = new Date().getTime();
     try {
       await axios.post('http://localhost:8000/api/hardware/stitch', {
@@ -202,41 +239,54 @@ export default function ImageGatheringTab({
       setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
       setIsProcessing(false);
       setShowStitchModal(true);
-    } catch (error) {
-      console.error(error);
-      alert("Proses stitching gagal. Periksa OpenCV library di VPS/Jetson.");
+      triggerToast('Proses tile stitching berhasil diselesaikan!', 'SUCCESS');
+    } catch (_error) {
+      triggerToast('Proses Tile Stitching gagal!', 'ERROR');
       setIsProcessing(false);
     }
   };
 
   const removeCapturedImage = (index: number) => {
     setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: null } : img));
+    triggerToast('Gambar dihapus dari list', 'INFO');
   };
 
-  const retakeImage = (index: number, cx: number, cy: number) => {
+  const retakeImage = async (index: number, cx: number, cy: number) => {
+    setShowReviewModal(false);
     setIsProcessing(true);
     setProcessTask(`Retake Koordinat (X:${cx}, Y:${cy})...`);
     setTimerTick(0);
-    setProgress(0);
+    const newFilename = `IMG_${String(index+1).padStart(4, '0')}.jpg`;
 
-    setTimeout(() => {
-      setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: `IMG_RETAKE_${String(index+1).padStart(4, '0')}.jpg` } : img));
-      setIsProcessing(false);
+    try {
       setIsRetaking(true);
-      setTimeout(() => setIsRetaking(false), 500); 
-    }, 1500);
+      await axios.post('http://localhost:8000/api/hardware/scan/retake', {
+        coord_x: cx,
+        coord_y: cy,
+        filename: newFilename,
+        delay_ms: parseInt(camDelay)
+      });
+      setTimeout(() => setIsRetaking(false), 400);
+      setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: newFilename } : img));
+      setIsProcessing(false);
+      setShowReviewModal(true);
+      triggerToast('Retake gambar berhasil', 'SUCCESS');
+    } catch (_error) {
+      triggerToast('Gagal melakukan retake!', 'ERROR');
+      setIsProcessing(false);
+      setShowReviewModal(true);
+    }
   };
 
   const handleSaveToFolder = async () => {
     if (!selectedFolderId && (!saveForm.folderName || !saveForm.objectType)) {
-      return alert("Isi nama folder dan jenis objek!");
+      triggerToast('Isi nama folder dan jenis objek!', 'ERROR');
+      return;
     }
 
     try {
       if (selectedFolderId) {
-        await axios.put(`http://localhost:8000/api/dataset/folders/${selectedFolderId}/add-images`, {
-          count: validImageCount
-        });
+        await axios.put(`http://localhost:8000/api/dataset/folders/${selectedFolderId}/add-images`, { count: validImageCount });
       } else {
         await axios.post('http://localhost:8000/api/dataset/folders', {
           name: saveForm.folderName,
@@ -245,17 +295,17 @@ export default function ImageGatheringTab({
           operator: saveForm.operatorName
         });
       }
-      alert('Dataset Berhasil Disimpan Secara Permanen!');
+      triggerToast('Data berhasil disimpan ke database!', 'SUCCESS');
       setShowSaveModal(false);
       setCapturedImages([]);
-    } catch (error) {
-      console.error(error);
-      alert("Gagal menyimpan dataset ke basis data.");
+    } catch (_error) {
+      triggerToast('Gagal menyimpan ke database!', 'ERROR');
     }
   };
 
   const handleSendToAnalysis = (imageName: string | undefined) => {
     if (!imageName) return;
+    triggerToast(`Meneruskan ${imageName} ke modul Analysis...`, 'INFO');
     if (onNavigateToAnalysis) onNavigateToAnalysis(imageName);
   };
 
@@ -332,7 +382,7 @@ export default function ImageGatheringTab({
         </div>
 
         <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/home')} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
+          <button onClick={handleHome} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
             <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
           </button>
 
@@ -517,7 +567,7 @@ export default function ImageGatheringTab({
 
       {/* ==================== OVERLAYS & MODALS ==================== */}
       {isProcessing && (
-        <div className={theme.overlay}>
+        <div className={theme.overlay} style={{ zIndex: 60 }}>
           <div className="flex flex-col items-center text-white w-full max-w-lg">
             {processTask.includes('Mengambil') ? (
               <div className="w-64 h-64 bg-black/50 border border-gray-600 rounded-xl p-2 mb-6">
@@ -565,10 +615,10 @@ export default function ImageGatheringTab({
                 {capturedImages.map((img) => (
                   img.filename ? (
                     <div key={img.index} className={`aspect-square rounded-lg border flex flex-col items-center justify-center relative group overflow-hidden ${theme.panel} ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                      <ImageIcon size={28} className={`mb-1 ${theme.textMuted} opacity-50`} />
-                      <div className="flex flex-col items-center text-center">
-                         <span className={`text-[9px] font-mono font-bold ${theme.textMuted}`}>{img.filename.replace('.jpg','')}</span>
-                         {gatherMode === 'AUTO' && <span className="text-[8px] font-bold text-blue-400 mt-0.5">X:{img.coordX} Y:{img.coordY}</span>}
+                      <img src={`http://localhost:8000/static/uploads/${img.filename}?t=${(img as unknown as { timestamp?: number }).timestamp || 1}`} className="w-full h-full object-cover absolute inset-0 z-0 opacity-80 group-hover:opacity-100 transition-opacity" alt="grid-tile" />
+                      <div className="flex flex-col items-center text-center z-10 bg-black/50 w-full p-1 mt-auto">
+                         <span className="text-[9px] font-mono font-bold text-white shadow-sm">{img.filename.replace('.jpg','')}</span>
+                         {gatherMode === 'AUTO' && <span className="text-[8px] font-bold text-blue-300 mt-0.5">X:{img.coordX} Y:{img.coordY}</span>}
                       </div>
                       <button onClick={() => removeCapturedImage(img.index)} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600 active:scale-95 shadow-md"><X size={14}/></button>
                     </div>
@@ -583,7 +633,7 @@ export default function ImageGatheringTab({
             </div>
 
             <div className="p-6 border-t border-gray-700 flex items-center bg-black/20 gap-4 shrink-0">
-              <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
+              <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); triggerToast('Hasil akuisisi telah dibuang', 'INFO');}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
                 <Trash2 size={20} className="mr-2"/> BATAL & BUANG
               </button>
               <button onClick={() => setShowSaveModal(true)} disabled={validImageCount === 0} className={`px-6 py-4 rounded-xl font-bold flex items-center border border-transparent active:scale-95 ${theme.btnTouch} ${theme.text}`}>
@@ -612,9 +662,12 @@ export default function ImageGatheringTab({
             </div>
             
             <div className="p-8 flex flex-col justify-center items-center bg-black/40 border-y border-gray-800">
-              <div className="w-full aspect-video border-2 border-purple-500/50 rounded-xl bg-purple-500/10 flex flex-col items-center justify-center relative overflow-hidden mb-4">
-                 <ImageIcon size={64} className="text-purple-400 mb-4 opacity-80" />
-                 <span className="font-mono font-bold text-purple-300">STITCHED_RESULT.jpg</span>
+              <div className="w-full aspect-video border-2 border-purple-500/50 rounded-xl bg-purple-500/10 flex flex-col items-center justify-center relative overflow-hidden mb-4 group">
+                 <img src={`http://localhost:8000/static/uploads/stitched_ta_output.jpg?t=${processTimes.total}`} className="w-full h-full object-cover absolute inset-0 z-0 opacity-90 group-hover:opacity-100 transition-opacity" alt="stitched-result" />
+                 <div className="z-10 bg-black/60 p-2 rounded-lg mt-auto mb-2 flex items-center shadow-lg backdrop-blur-sm">
+                   <ImageIcon size={18} className="text-purple-400 mr-2" />
+                   <span className="font-mono font-bold text-purple-300">stitched_ta_output.jpg</span>
+                 </div>
               </div>
               
               <div className="flex gap-4">
@@ -631,7 +684,7 @@ export default function ImageGatheringTab({
             </div>
 
             <div className="p-6 flex items-center gap-4 bg-black/20">
-              <button onClick={() => {setShowStitchModal(false); setCapturedImages([]);}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
+              <button onClick={() => {setShowStitchModal(false); setCapturedImages([]); triggerToast('Hasil jahitan tile telah dibuang', 'INFO');}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
                 <Trash2 size={20} className="mr-2"/> BUANG HASIL
               </button>
               <button onClick={() => setShowSaveModal(true)} className={`px-6 py-4 rounded-xl font-bold flex items-center border ${theme.btnTouch} ${theme.text}`}><Save size={20} className="mr-2"/> SIMPAN</button>
@@ -651,7 +704,7 @@ export default function ImageGatheringTab({
               <div>
                 <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>Pilih Folder yang Ada:</label>
                 <div className="grid gap-2 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                  {(availableFolders.length > 0 ? availableFolders : fallbackFolders).map((folder: {id: string, name: string}) => (
+                  {availableFolders.map((folder: {id: string, name: string}) => (
                     <div key={folder.id} onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}>
                       <FolderPlus size={18} className="mr-3" />
                       <span className="font-bold text-sm">{folder.name}</span>

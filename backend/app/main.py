@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 from .database import engine
 from . import models  # Pastikan path ini sesuai dengan file struktur modelmu
-from .routers import auth, dataset, hardware 
+from .routers import auth, dataset, hardware, analysis, documentation, logs
 
 # 🟢 LANGKAH 1: Pastikan tabel database PostgreSQL tercipta sukses di awal sebelum router memicu request
 print("[API STARTUP] Menyambungkan ke PostgreSQL dan sinkronisasi skema tabel...")
@@ -13,6 +15,11 @@ app = FastAPI(
     description="Backend API untuk kontrol motor CNC, Kamera IMX477, dan inferensi YOLO Colony Counter",
     version="1.0.0"
 )
+
+# Pastikan folder static ada
+if not os.path.exists("static"):
+    os.makedirs("static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Konfigurasi CORS (Cross-Origin Resource Sharing)
 origins = [
@@ -32,7 +39,10 @@ app.add_middleware(
 print("[API STARTUP] Mendaftarkan sirkuit pipa data router ke jaringan...")
 app.include_router(auth.router)
 app.include_router(dataset.router)
-app.include_router(hardware.router)  # Router hardware diletakkan di bawah setelah database aman
+app.include_router(hardware.router)
+app.include_router(analysis.router)
+app.include_router(documentation.router)  # Report generator: Word, Excel, PPT
+app.include_router(logs.router)
 
 @app.get("/", tags=["Health Check"])
 async def root():

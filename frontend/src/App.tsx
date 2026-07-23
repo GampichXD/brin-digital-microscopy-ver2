@@ -378,6 +378,9 @@ export default function App() {
             videoSrc={videoSrc}
             cameraActive={cameraActive}
             wsRef={wsRef}
+            triggerToast={showNotification}
+            availableFolders={folders}
+            onRefreshFolders={fetchFolders}
             onNavigateToAnalysis={(imageName) => {
               setTargetAnalysisImage(imageName); 
               setActiveTab('Image Analysis'); 
@@ -391,6 +394,7 @@ export default function App() {
             globalVirtualKeyboard={useVirtualKeyboard}
             onClearTarget={() => setTargetAnalysisImage(null)}
             availableFolders={folders}
+            onRefreshFolders={fetchFolders}
           />
         )}
         {activeTab === 'Documentation' &&

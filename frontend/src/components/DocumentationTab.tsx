@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Clock, FileText, FileSpreadsheet, Presentation, Download, FilePlus, Search, ShieldAlert, CheckCircle, User } from 'lucide-react';
 
@@ -6,6 +6,8 @@ interface DatasetFolder {
   id: string;
   name: string;
   object_type: string;
+  date?: string;
+  operator?: string;
 }
 
 interface DocumentationTabProps {
@@ -23,13 +25,20 @@ interface ActivityLog {
 
 export default function DocumentationTab({ isDarkMode, availableFolders = [] }: DocumentationTabProps) {
   // === STATE LOG AKTIVITAS (AUDIT TRAIL) ===
-  const [logs] = useState<ActivityLog[]>([
-    { id: '1', timestamp: '2026-06-11 10:24', operator: 'Abraham', action: 'AI Colony Counter - Stitched_Result.jpg', status: 'SUCCESS' },
-    { id: '2', timestamp: '2026-06-11 10:15', operator: 'Abraham', action: 'Tile Stitching - Grid 5x4', status: 'SUCCESS' },
-    { id: '3', timestamp: '2026-06-11 09:40', operator: 'Abraham', action: 'Auto Gathering (Batal)', status: 'CANCELLED' },
-    { id: '4', timestamp: '2026-06-10 14:20', operator: 'Pak Yosua Alvin', action: 'Image Analysis - Yeast_Cells_01', status: 'SUCCESS' },
-    { id: '5', timestamp: '2026-06-05 11:02', operator: 'Andhika', action: 'Manual Capture - 12 Images', status: 'SUCCESS' },
-  ]);
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
+
+  const fetchLogs = async () => {
+    try {
+      const res = await axios.get('http://localhost:8000/api/logs');
+      setLogs(res.data);
+    } catch (err) {
+      console.error('Gagal mengambil log aktivitas:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
 
   const [selectedFolderId, setSelectedFolderId] = useState<string>('');
   const [reportTitle, setReportTitle] = useState('Laporan Hasil Analisis Mikroskop');
@@ -58,12 +67,19 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
     setIsGenerating(true);
     setGeneratedType(type);
 
+    // Ambil metadata folder yang dipilih untuk dikirim ke API
+    const selectedFolder = foldersToDisplay.find(f => f.id === selectedFolderId);
+
     try {
       const response = await axios.post(
         `http://localhost:8000/api/documentation/generate?format=${type}`,
         {
           folder_id: selectedFolderId,
-          title: reportTitle
+          title: reportTitle,
+          folder_name: selectedFolder?.name || '',
+          object_type: selectedFolder?.object_type || '',
+          operator:    selectedFolder?.operator || '',
+          date:        selectedFolder?.date || '',
         },
         { responseType: 'blob' }
       );
@@ -76,12 +92,45 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
       link.setAttribute('download', `${reportTitle.replace(/\s+/g, '_')}.${ext}`);
       document.body.appendChild(link);
       link.click();
-      
       link.parentNode?.removeChild(link);
       window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error(error);
-      alert('Gagal mengompilasi data dokumen. Periksa modul python-docx/openpyxl pada Jetson Orin.');
+      
+      // Catat log aktivitas
+      try {
+        await axios.post('http://localhost:8000/api/logs', {
+          operator: selectedFolder?.operator || 'Abraham',
+          action: `Generate Dokumen ${type} - ${reportTitle}`,
+          status: 'SUCCESS'
+        });
+        fetchLogs();
+      } catch (logErr) {
+        console.error('Gagal mencatat log:', logErr);
+      }
+    } catch (err: any) {
+      // Decode pesan error sebenarnya dari blob (axios blob mode menyembunyikan pesan JSON)
+      try {
+        const errBlob: Blob = err?.response?.data;
+        if (errBlob instanceof Blob) {
+          const text = await errBlob.text();
+          const json = JSON.parse(text);
+          alert(`Gagal generate laporan: ${json.detail || text}`);
+        } else {
+          alert(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`);
+        }
+      } catch {
+        alert(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`);
+      }
+      console.error(err);
+      
+      // Catat log error
+      try {
+        await axios.post('http://localhost:8000/api/logs', {
+          operator: selectedFolder?.operator || 'Abraham',
+          action: `Gagal Generate ${type} - ${reportTitle}`,
+          status: 'ERROR'
+        });
+        fetchLogs();
+      } catch (logErr) {}
     } finally {
       setIsGenerating(false);
     }

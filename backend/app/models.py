@@ -18,3 +18,13 @@ class DatasetFolder(Base):
     date = Column(String, nullable=False)  # Tanggal pengambilan (YYYY-MM-DD)
     operator = Column(String, nullable=False)  # Nama penanggung jawab
     image_count = Column(Integer, default=0)  # Jumlah citra di dalam folder
+
+
+class SystemLog(Base):
+    __tablename__ = "system_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(String, index=True, nullable=False)
+    operator = Column(String, nullable=False)
+    action = Column(String, nullable=False)
+    status = Column(String, default="SUCCESS")  # 'SUCCESS', 'ERROR', 'CANCELLED'

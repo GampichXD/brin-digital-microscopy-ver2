@@ -256,7 +256,7 @@ export default function LiveStreamTab({
             const nextState = !cameraActive;
             setCameraActive(nextState);
             triggerToast(
-              nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Aliran Kamera Dinonaktifkan.',
+              nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Stream Kamera Dinonaktifkan.',
               nextState ? 'SUCCESS' : 'INFO'
             );
           }} 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ElementType } from 'react';
 import axios from 'axios';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, Image as ImageIcon, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -90,9 +90,15 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   const storageUsedPercentage = 85;
 
-  // 🟢 FIX 1: Berikan minimal fallback 1 gambar simulasi agar grid UI pratinjau tidak beku/kosong saat folder baru dibuka
-  const imageCount = activeFolder && activeFolder.image_count > 0 ? activeFolder.image_count : 4;
-  const currentImages = Array.from({ length: imageCount }, (_, i) => `IMG_${String(i + 1).padStart(4, '0')}.jpg`).slice(0, 20);
+  const [currentImages, setCurrentImages] = useState<{name: string, synced: boolean}[]>([]);
+
+  useEffect(() => {
+    if (activeFolder && viewMode === 'images') {
+      axios.get(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`)
+        .then(res => setCurrentImages(res.data))
+        .catch(err => console.error("Gagal memuat gambar dari folder:", err));
+    }
+  }, [activeFolder, viewMode]);
 
   const theme = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
@@ -120,16 +126,21 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   });
 
   const handleSimulateDownload = (fileName: string) => {
-    const fileContent = `SIMULASI DOWNLOAD!\nFile: ${fileName}\nIni adalah simulasi download ZIP atau File frontend.`;
-    const blob = new Blob([fileContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
+    if (!activeFolder) return;
+    
+    triggerToast(`Mempersiapkan unduhan ${fileName}...`, 'INFO');
+    
     const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName.replace('.jpg', '.txt');
+    if (fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
+      a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/download`;
+    } else {
+      a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/images/${fileName}/download`;
+    }
+    
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   const openEditForm = (folder: DatasetFolder) => {
@@ -156,10 +167,13 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         });
         triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`, 'SUCCESS');
       } else {
+        await axios.put(`http://localhost:8000/api/dataset/folders/${formData.id}`, {
+          name: formData.name,
+          object_type: formData.object_type,
+          operator: formData.operator
+        });
         triggerToast('Metadata folder berhasil diperbarui!', 'SUCCESS');
       }
-      
-      // 🟢 FIX 2: Bersihkan state keyboard agar fokus ring border tidak bocor/stuck di background memori
       setIsFormOpen(false);
       setKeyboardState({ visible: false, targetField: '', title: '' });
       onRefreshFolders(); 
@@ -175,6 +189,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     if (!targetDelete) return;
     try {
       await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
+      if (activeFolder?.id === targetDelete) setActiveFolder(null);
       setIsConfirmOpen(false);
       setTargetDelete(null);
       onRefreshFolders(); 
@@ -197,7 +212,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   const toggleSelectAll = () => {
     if (selectedImages.length === currentImages.length) setSelectedImages([]);
-    else setSelectedImages([...currentImages]);
+    else setSelectedImages(currentImages.map(img => img.name));
   };
 
   const confirmDeleteImages = (images: string[]) => {
@@ -248,18 +263,41 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     else if (e.type === "dragleave") setDragActive(false);
   };
 
+  const uploadFiles = async (files: FileList | File[]) => {
+    if (!activeFolder || files.length === 0) return;
+    triggerToast(`Mengunggah ${files.length} file...`, 'INFO');
+    
+    const formDataObj = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formDataObj.append('files', files[i]);
+    }
+
+    try {
+      await axios.post(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`, formDataObj, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      triggerToast(`Berhasil mengunggah ${files.length} gambar!`, 'SUCCESS');
+      setIsUploadOpen(false);
+      onRefreshFolders();
+      // Segarkan daftar gambar di view saat ini
+      axios.get(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`)
+        .then(res => setCurrentImages(res.data));
+    } catch (err) {
+      console.error(err);
+      triggerToast("Gagal mengunggah gambar", 'ERROR');
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      triggerToast(`Berhasil menangkap file: ${e.dataTransfer.files[0].name}`, 'SUCCESS');
-      setIsUploadOpen(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      uploadFiles(e.dataTransfer.files);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      triggerToast(`Berhasil menangkap file: ${e.target.files[0].name}`, 'SUCCESS');
-      setIsUploadOpen(false);
+    if (e.target.files && e.target.files.length > 0) {
+      uploadFiles(e.target.files);
     }
   };
 
@@ -392,21 +430,26 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
         {viewMode === 'images' && (
           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-10">
-            {currentImages.map((fileName, i) => {
+            {currentImages.map((imgObj, i) => {
+              const fileName = imgObj.name;
               const isSelected = selectedImages.includes(fileName);
               return (
                 <div
                   key={i}
                   onClick={() => isSelectMode ? toggleSelectImage(fileName) : setPreviewIndex(i)}
-                  className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center relative group overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-blue-500 bg-blue-500/10' : `border-dashed ${theme.panel}`}`}
+                  className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center relative group overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-blue-500 ring-2 ring-blue-500 ring-offset-2' : `border-transparent ${theme.panel}`}`}
                 >
+                  <img src={`http://localhost:8000/static/datasets/${activeFolder.id}/${fileName}`} alt={fileName} className="absolute inset-0 w-full h-full object-cover z-0" />
+                  
                   {isSelectMode && (
-                    <div className={`absolute top-2 left-2 z-20 ${isSelected ? 'text-blue-500' : theme.textMuted}`}>
-                      {isSelected ? <CheckSquare size={20} className="bg-white/10 rounded" /> : <Square size={20} />}
+                    <div className={`absolute top-2 left-2 z-20 ${isSelected ? 'text-blue-500' : 'text-white drop-shadow-md'}`}>
+                      {isSelected ? <CheckSquare size={20} className="bg-white rounded" /> : <Square size={20} />}
                     </div>
                   )}
-                  <ImageIcon size={32} className={`mb-2 ${isSelected ? 'text-blue-500' : theme.textMuted} ${!isSelected && 'opacity-50'}`} />
-                  <span className={`text-[10px] font-mono ${isSelected ? 'text-blue-400 font-bold' : theme.textMuted}`}>{fileName}</span>
+
+                  <div className={`absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent z-10 flex flex-col items-center`}>
+                    <span className={`text-[10px] font-mono ${isSelected ? 'text-blue-300 font-bold' : 'text-gray-200'}`}>{fileName}</span>
+                  </div>
 
                   {!isSelectMode && (
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-sm z-10">
@@ -424,13 +467,10 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       {/* ================= MODALS & POPUPS ================= */}
       {previewIndex !== null && (
         <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-4 backdrop-blur-md">
-          <div className="absolute top-4 left-6 right-6 flex justify-between items-center text-white">
-            <div className="flex flex-col">
-              <span className="font-bold text-lg">{currentImages[previewIndex]}</span>
-              <span className="text-xs text-gray-400">Pratinjau Resolusi Tinggi (IMX477)</span>
+            <div className={`p-4 border-b flex justify-between items-center ${isDarkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-white border-gray-200'}`}>
+              <span className="font-bold text-lg">{currentImages[previewIndex]?.name}</span>
+              <button onClick={() => setPreviewIndex(null)} className="p-2 hover:bg-red-500 hover:text-white rounded-lg transition-colors"><X size={20} /></button>
             </div>
-            <button onClick={() => setPreviewIndex(null)} className="p-3 bg-gray-800 hover:bg-gray-700 rounded-full active:scale-95 transition-colors"><X size={24} /></button>
-          </div>
 
           <button
             onClick={() => setPreviewIndex(prev => Math.max(0, prev! - 1))}
@@ -440,9 +480,10 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
             <ChevronLeft size={32} />
           </button>
 
-          <div className="w-[70%] max-w-2xl aspect-video bg-gray-900 border-2 border-gray-700 rounded-2xl flex flex-col items-center justify-center shadow-2xl">
-            <ImageIcon size={80} className="text-gray-600 mb-6" />
-            <span className="text-gray-500 font-mono text-2xl tracking-widest">{currentImages[previewIndex]}</span>
+          <div className="flex-1 flex items-center justify-center relative p-8">
+            <div className="w-full max-w-4xl aspect-video bg-black rounded-2xl flex flex-col items-center justify-center overflow-hidden shadow-2xl border border-gray-700 relative">
+              <img src={`http://localhost:8000/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="w-full h-full object-contain" />
+            </div>
           </div>
 
           <button
@@ -453,12 +494,12 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
             <ChevronRight size={32} />
           </button>
 
-          <div className="absolute bottom-8 flex gap-4">
-            <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]]); }} className="px-6 py-3 bg-red-600/80 hover:bg-red-600 text-white rounded-xl font-bold flex items-center active:scale-95 transition-colors border border-red-500/50">
-              <Trash2 size={20} className="mr-2" /> Hapus
+          <div className={`p-4 border-t flex justify-center gap-4 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]?.name]); }} className="px-6 py-3 bg-red-600/80 hover:bg-red-600 text-white rounded-xl font-bold flex items-center active:scale-95 transition-colors border border-red-500/50">
+              <Trash2 size={18} className="mr-2" /> Hapus File
             </button>
-            <button onClick={() => handleSimulateDownload(currentImages[previewIndex])} className="px-6 py-3 bg-blue-600/80 hover:bg-blue-600 text-white rounded-xl font-bold flex items-center active:scale-95 transition-colors border border-blue-500/50">
-              <Download size={20} className="mr-2" /> Unduh
+            <button onClick={() => handleSimulateDownload(currentImages[previewIndex]?.name)} className="px-6 py-3 bg-blue-600/80 hover:bg-blue-600 text-white rounded-xl font-bold flex items-center active:scale-95 transition-colors border border-blue-500/50">
+              <Download size={18} className="mr-2" /> Unduh Raw
             </button>
           </div>
         </div>

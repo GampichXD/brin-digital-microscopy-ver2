@@ -46,6 +46,23 @@ class CncSettingsPayload(BaseModel):
     acceleration: float
     settle_time: int
 
+class GridScanPayload(BaseModel):
+    columns: int
+    rows: int
+    step_x: float
+    step_y: float
+    delay_ms: int
+    unit: str
+
+class StitchPayload(BaseModel):
+    images: list[str]
+
+class RetakePayload(BaseModel):
+    coord_x: float
+    coord_y: float
+    filename: str
+    delay_ms: int
+
 
 async def publish_hardware_command(payload: dict) -> None:
     redis = await aioredis.from_url(REDIS_URL)
@@ -161,6 +178,111 @@ async def apply_cnc_settings(payload: CncSettingsPayload):
     })
     return {"status": "SUCCESS", "message": "Parameter CNC diterima."}
 
+@router.post("/scan/grid")
+async def scan_grid(payload: GridScanPayload):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    images = []
+    idx = 0
+    redis = await aioredis.from_url(REDIS_URL)
+
+    try:
+        # LOGIKA NYATA KENDALI EDGE DEVICE
+        for r in range(payload.rows):
+            for c in range(payload.columns):
+                coord_x = c * payload.step_x
+                coord_y = r * payload.step_y
+                filename = f"IMG_{str(idx+1).zfill(4)}.jpg"
+                
+                # 1. Gerakkan motor CNC di Edge Device lewat relai
+                gcode = f"G1 X{coord_x} Y{coord_y} F250.0"
+                await motor_driver.send_gcode(gcode)
+                
+                # 2. Tunggu motor bergerak secara spasial + delay kamera dari UI (ms to detik)
+                await asyncio.sleep(1.2 + (payload.delay_ms / 1000.0))
+                
+                # 3. Perintahkan Edge Device (Jetson) untuk memotret dan menyimpan ke memori lokal
+                await redis.publish("hardware_commands", json.dumps({
+                    "action": "CAPTURE_IMAGE",
+                    "filename": filename
+                }))
+                
+                images.append({
+                    "index": idx,
+                    "filename": filename,
+                    "coordX": round(coord_x, 2),
+                    "coordY": round(coord_y, 2),
+                    "gridX": c,
+                    "gridY": r
+                })
+                idx += 1
+    finally:
+        await redis.close()
+        
+    return {"status": "SUCCESS", "images": images}
+
+@router.post("/scan/retake")
+async def retake_grid_image(payload: RetakePayload):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    redis = await aioredis.from_url(REDIS_URL)
+    try:
+        # 1. Gerakkan motor CNC ke koordinat Retake
+        gcode = f"G1 X{payload.coord_x} Y{payload.coord_y} F250.0"
+        await motor_driver.send_gcode(gcode)
+        
+        # 2. Tunggu stabilitas mekanik
+        await asyncio.sleep(1.2 + (payload.delay_ms / 1000.0))
+        
+        # 3. Jepret
+        await redis.publish("hardware_commands", json.dumps({
+            "action": "CAPTURE_IMAGE",
+            "filename": payload.filename
+        }))
+        
+        # 4. Beri sedikit waktu agar Edge & Websocket memproses Base64 upload
+        await asyncio.sleep(0.5)
+    finally:
+        await redis.close()
+        
+    return {"status": "SUCCESS", "filename": payload.filename}
+
+@router.post("/stitch")
+async def stitch_images(payload: StitchPayload):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    
+    # LOGIKA NYATA INTEGRASI AI EDGE DEVICE
+    output_filename = "stitched_ta_output.jpg"
+    output_path = os.path.join(UPLOAD_DIR, output_filename)
+    
+    # Hapus file lama jika ada agar tidak rancu dengan hasil sebelumnya
+    if os.path.exists(output_path):
+        os.remove(output_path)
+
+    redis = await aioredis.from_url(REDIS_URL)
+    try:
+        # Perintahkan Jetson Edge untuk memulai deep learning tile stitching hanya pada gambar-gambar spesifik sesi ini
+        await redis.publish("hardware_commands", json.dumps({
+            "action": "START_STITCHING",
+            "images": payload.images
+        }))
+    finally:
+        await redis.close()
+
+    # Polling menunggu file dari Edge masuk ke VPS (maksimal 60 detik)
+    timeout = 60
+    elapsed = 0
+    while elapsed < timeout:
+        if os.path.exists(output_path):
+            return {"status": "SUCCESS", "message": "Proses penyatuan ubin berhasil secara nyata"}
+        await asyncio.sleep(1)
+        elapsed += 1
+        
+    raise HTTPException(status_code=504, detail="Timeout menunggu Edge Device menyelesaikan stitching AI.")
+
 
 @router.post("/bus/toggle")
 async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
@@ -225,7 +347,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                 print(f"[VPS ROUTER FEEDBACK] Respon balik GRBL: {data.get('grbl_response')}")
                 await redis.publish("microscope_motor_feedback", message)
                 
-            elif event_type in ["STITCHING_COMPLETE", "COUNTING_COMPLETE", "EDIT_COMPLETE"]:
+            elif event_type in ["IMAGE_CAPTURED", "STITCHING_COMPLETE", "COUNTING_COMPLETE", "EDIT_COMPLETE"]:
                 filename = data.get("filename", "output.jpg")
                 img_b64_data = data.get("image_data", "")
                 

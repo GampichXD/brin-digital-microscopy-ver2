@@ -22,3 +22,7 @@ backend/.env
 # OS sampah
 .DS_Store
 Thumbs.db
+
+# Abaikan dataset gambar hasil capture & analisis (Heavy Files)
+backend/static/datasets/*
+!backend/static/datasets/.gitkeep
