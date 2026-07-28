@@ -1,11 +1,21 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# Menyesuaikan dengan credential Docker Postgres yang sukses berjalan
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/microscopy_db"
+# Bisa dipakai untuk lokal maupun Docker; Docker akan meng-override via env.
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///./microscopy.db",
+)
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

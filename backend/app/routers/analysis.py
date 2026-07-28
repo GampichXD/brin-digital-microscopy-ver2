@@ -5,8 +5,8 @@ import shutil
 import uuid
 import json
 import asyncio
-from redis import asyncio as aioredis
 from typing import Optional, Dict, Any
+from app.redis_mock import get_redis_client
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 UPLOAD_DIR = "./static/uploads"
@@ -90,7 +90,7 @@ async def apply_tool(tool_name: str, payload: ToolPayload):
     if os.path.exists(output_path):
         os.remove(output_path)
 
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
     try:
         # Kirim perintah ke Edge Device (vps_bridge.py)
         await redis.publish("hardware_commands", json.dumps({

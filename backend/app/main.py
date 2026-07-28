@@ -7,14 +7,20 @@ from . import models  # Pastikan path ini sesuai dengan file struktur modelmu
 from .routers import auth, dataset, hardware, analysis, documentation, logs
 
 # 🟢 LANGKAH 1: Pastikan tabel database PostgreSQL tercipta sukses di awal sebelum router memicu request
-print("[API STARTUP] Menyambungkan ke PostgreSQL dan sinkronisasi skema tabel...")
-models.Base.metadata.create_all(bind=engine)
-
 app = FastAPI(
     title="Digital Microscopy Control API",
     description="Backend API untuk kontrol motor CNC, Kamera IMX477, dan inferensi YOLO Colony Counter",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    print("[API STARTUP] Menyambungkan ke PostgreSQL dan sinkronisasi skema tabel...")
+    try:
+        models.Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        print(f"[API STARTUP WARNING] PostgreSQL belum siap: {exc}")
 
 # Pastikan folder static ada
 if not os.path.exists("static"):

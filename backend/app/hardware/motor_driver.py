@@ -43,5 +43,19 @@ class GRBLMotorVPSRelay:
             print(f"[VPS RELAY ERROR] Gagal memantulkan data ke jaringan: {e}")
             return f"ERROR: {e}"
 
+    async def home(self) -> str:
+        """Meneruskan perintah HOMING ke Jetson Orin Nano / Edge device."""
+        if self.jetson_websocket is None:
+            print("[VPS WARNING] Perintah homing diabaikan. Jetson Orin Nano sedang LURING!")
+            return "ERROR: Edge Device Offline"
+        try:
+            payload = {"action": "HOMING"}
+            await self.jetson_websocket.send_text(json.dumps(payload))
+            print("[VPS RELAY SUCCESS] Instruksi HOMING berhasil dipancarkan ke Jetson.")
+            return "ok"
+        except Exception as e:
+            print(f"[VPS RELAY ERROR] Gagal memantulkan homing ke jaringan: {e}")
+            return f"ERROR: {e}"
+
 # Instansiasi objek tunggal (Singleton) tetap menggunakan nama variabel lama
 motor_driver = GRBLMotorVPSRelay()

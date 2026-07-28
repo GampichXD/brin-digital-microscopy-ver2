@@ -1,6 +1,16 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mikroskop_postgres
+    environment:
+      POSTGRES_DB: microscopy_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   redis:
     image: redis:7-alpine
     container_name: mikroskop_redis
@@ -19,9 +29,13 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/microscopy_db
       - REDIS_URL=redis://redis:6379
       - VPS_WS_URL=ws://host.docker.internal:8000/api/hardware/ws
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
+      - postgres
       - redis
     # Jika nanti di Linux/Raspberry Pi/Jetson untuk hardware fisik:
     # devices:
@@ -38,3 +52,6 @@ services:
     depends_on:
       - frontend
       - backend
+
+volumes:
+  postgres_data:

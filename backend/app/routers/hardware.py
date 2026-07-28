@@ -9,6 +9,7 @@ from redis import asyncio as aioredis  # Driver Redis Asinkron untuk ekosistem D
 
 from ..hardware.motor_driver import motor_driver
 from ..hardware.camera_driver import cam_driver as camera_driver
+from ..redis_mock import get_redis_client
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 
@@ -65,7 +66,7 @@ class RetakePayload(BaseModel):
 
 
 async def publish_hardware_command(payload: dict) -> None:
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
     try:
         await redis.publish("hardware_commands", json.dumps(payload))
     finally:
@@ -130,7 +131,7 @@ async def home_motor(request: Request):
 
     user_ip = request.client.host
     if is_local_network(user_ip):
-        response = await motor_driver.send_gcode("$H")
+        response = await motor_driver.home()
         return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
 
     await publish_hardware_command({"action": "HOMING"})
@@ -185,7 +186,7 @@ async def scan_grid(payload: GridScanPayload):
 
     images = []
     idx = 0
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
 
     try:
         # LOGIKA NYATA KENDALI EDGE DEVICE
@@ -227,7 +228,7 @@ async def retake_grid_image(payload: RetakePayload):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
 
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
     try:
         # 1. Gerakkan motor CNC ke koordinat Retake
         gcode = f"G1 X{payload.coord_x} Y{payload.coord_y} F250.0"
@@ -262,7 +263,7 @@ async def stitch_images(payload: StitchPayload):
     if os.path.exists(output_path):
         os.remove(output_path)
 
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
     try:
         # Perintahkan Jetson Edge untuk memulai deep learning tile stitching hanya pada gambar-gambar spesifik sesi ini
         await redis.publish("hardware_commands", json.dumps({
@@ -302,7 +303,7 @@ async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
 async def hardware_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
     motor_driver.register_jetson(websocket)
     print("[VPS ROUTER] Sirkuit pipa WebSocket Jetson Orin Nano Berhasil Dibuka.")
     
@@ -375,6 +376,15 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
         
         motor_driver.unregister_jetson()
         camera_driver.stop()
+        try:
+            await redis.publish("microscope_telemetry", json.dumps({
+                "event": "TELEMETRY_DATA",
+                "status": "OFFLINE",
+                "limit_switch": "N/A",
+                "jetson_temp_c": None
+            }))
+        except Exception:
+            pass
         await redis.close()
 
 
@@ -385,9 +395,19 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
 async def client_websocket_endpoint(websocket: WebSocket):
     """Endpoint tempat browser user (React) terhubung untuk memantau & mengontrol instrumen."""
     await websocket.accept()
-    redis = await aioredis.from_url(REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
 
     print("[VPS CLIENT] Browser user terhubung penuh dengan sikit sirkuit interaktif.")
+    if motor_driver.jetson_websocket is None:
+        try:
+            await websocket.send_text(json.dumps({
+                "event": "TELEMETRY_DATA",
+                "status": "OFFLINE",
+                "limit_switch": "N/A",
+                "jetson_temp_c": None
+            }))
+        except Exception:
+            pass
     
     # 🟢 TASK A: Mendengarkan siaran video/telemetri dari Redis dan menembakkannya ke Browser
     async def listen_to_redis_broadcast():

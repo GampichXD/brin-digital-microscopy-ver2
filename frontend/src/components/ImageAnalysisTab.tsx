@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
+import { logSystemAction } from '../utils/logger';
 
 interface DatasetFolder {
   id: string;
@@ -54,7 +55,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: 'Abraham' });
+  const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: localStorage.getItem('username') || 'Operator' });
   const [isSaving, setIsSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ok: boolean, msg: string} | null>(null);
   const [vk, setVk] = useState<{ visible: boolean, title: string, field: 'folderName' | 'objectType' | 'operatorName' | null }>({ visible: false, title: '', field: null });
@@ -289,15 +290,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       });
 
       // 4. Catat log aktivitas (Audit Trail)
-      try {
-        await axios.post(`${API_BASE_URL}/api/logs`, {
-          operator: saveForm.operatorName.trim() || 'Abraham',
-          action: `Simpan Analisis - ${outputFilename}`,
-          status: 'SUCCESS'
-        });
-      } catch (logErr) {
-        console.error('Gagal mencatat log aktivitas:', logErr);
-      }
+      await logSystemAction(`Simpan Hasil Analisis ke Database (${outputFilename})`, 'SUCCESS');
 
       setSaveResult({ ok: true, msg: `✓ Berhasil disimpan sebagai "${outputFilename}"` });
       // Picu refresh folder di DatabaseTab secara langsung, tanpa menunggu manual refresh
@@ -307,7 +300,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         setShowSaveModal(false);
         setSaveResult(null);
         setSelectedFolderId(null);
-        setSaveForm({ folderName: '', objectType: '', operatorName: 'Abraham' });
+        setSaveForm({ folderName: '', objectType: '', operatorName: localStorage.getItem('username') || 'Operator' });
       }, 1800);
 
     } catch (err: any) {
@@ -356,9 +349,11 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
+      logSystemAction(`Analisis Citra (${toolName}) Selesai`, 'SUCCESS');
     } catch (error) {
       console.error(error);
       alert(`Gagal memproses metode ${toolName}. Periksa log tensor server.`);
+      logSystemAction(`Analisis Citra (${toolName}) Gagal`, 'ERROR');
     } finally {
       setIsProcessing(false);
     }

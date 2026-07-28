@@ -4,6 +4,7 @@ import axios from 'axios';
 import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers, CameraOff } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';
+import { logSystemAction } from '../utils/logger';
 
 interface DatasetFolder {
   id: string;
@@ -52,9 +53,9 @@ export default function ImageGatheringTab({
   const [cols, setCols] = useState("5");
   const [rows, setRows] = useState("4");
   const [stepUnit, setStepUnit] = useState<'mm' | 'inch'>('mm');
-  const [stepX, setStepX] = useState("1.5"); 
-  const [stepY, setStepY] = useState("1.5"); 
-  const [zStep, setZStep] = useState("100");
+  const [stepX, setStepX] = useState("1"); 
+  const [stepY, setStepY] = useState("1"); 
+  const [zStep, setZStep] = useState("1");
   const [camDelay, setCamDelay] = useState("500");
   const [autoStitch, setAutoStitch] = useState(false);
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
@@ -75,7 +76,7 @@ export default function ImageGatheringTab({
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   
-  const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: 'Abraham' });
+  const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: localStorage.getItem('username') || 'Operator' });
   const [vk, setVk] = useState<{ visible: boolean, title: string, field: 'folderName' | 'objectType' | 'operatorName' | null }>({ visible: false, title: '', field: null });
 
   const c = parseInt(cols) || 1;
@@ -134,12 +135,7 @@ export default function ImageGatheringTab({
 
   const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
 
-  useEffect(() => {
-    const currentWs = wsRef.current;
-    if (cameraActive && currentWs && currentWs.readyState === WebSocket.OPEN) {
-      currentWs.send(JSON.stringify({ action: "START_STREAM" }));
-    }
-  }, [cameraActive, wsRef]);
+
 
   const handleHome = async () => {
     try {
@@ -181,6 +177,7 @@ export default function ImageGatheringTab({
       setCapturedImages(response.data.images);
       const scanT = (new Date().getTime() - startTime) / 1000;
       triggerToast('Pemindaian grid berhasil!', 'SUCCESS');
+      logSystemAction('Gathering Image (Grid Scan 2D) Selesai', 'SUCCESS');
       if (autoStitch) {
         executeStitching(scanT);
       } else { 
@@ -191,6 +188,7 @@ export default function ImageGatheringTab({
     } catch (_error) {
       clearInterval(progressInterval);
       triggerToast('Proses pemindaian terputus!', 'ERROR');
+      logSystemAction('Gathering Image (Grid Scan 2D) Gagal', 'ERROR');
       setIsProcessing(false);
     }
   };
@@ -218,9 +216,11 @@ export default function ImageGatheringTab({
         gridY: 0
       }]);
       triggerToast('Gambar manual berhasil diambil!', 'SUCCESS');
+      logSystemAction('Gathering Image (Manual Capture) Selesai', 'SUCCESS');
       setIsProcessing(false);
     } catch (_error) {
       triggerToast('Gagal mengambil gambar manual!', 'ERROR');
+      logSystemAction('Gathering Image (Manual Capture) Gagal', 'ERROR');
       setIsProcessing(false);
     }
   };
@@ -240,8 +240,10 @@ export default function ImageGatheringTab({
       setIsProcessing(false);
       setShowStitchModal(true);
       triggerToast('Proses tile stitching berhasil diselesaikan!', 'SUCCESS');
+      logSystemAction('Tile Stitching Mosaik Selesai', 'SUCCESS');
     } catch (_error) {
       triggerToast('Proses Tile Stitching gagal!', 'ERROR');
+      logSystemAction('Tile Stitching Mosaik Gagal', 'ERROR');
       setIsProcessing(false);
     }
   };
@@ -271,8 +273,10 @@ export default function ImageGatheringTab({
       setIsProcessing(false);
       setShowReviewModal(true);
       triggerToast('Retake gambar berhasil', 'SUCCESS');
+      logSystemAction('Retake Gambar Selesai', 'SUCCESS');
     } catch (_error) {
       triggerToast('Gagal melakukan retake!', 'ERROR');
+      logSystemAction('Retake Gambar Gagal', 'ERROR');
       setIsProcessing(false);
       setShowReviewModal(true);
     }
@@ -296,10 +300,12 @@ export default function ImageGatheringTab({
         });
       }
       triggerToast('Data berhasil disimpan ke database!', 'SUCCESS');
+      logSystemAction('Simpan Data Gathering ke Database', 'SUCCESS');
       setShowSaveModal(false);
       setCapturedImages([]);
     } catch (_error) {
       triggerToast('Gagal menyimpan ke database!', 'ERROR');
+      logSystemAction('Gagal Simpan Data Gathering ke Database', 'ERROR');
     }
   };
 

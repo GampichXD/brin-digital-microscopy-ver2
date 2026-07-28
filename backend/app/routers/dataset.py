@@ -93,6 +93,22 @@ def get_all_folders(db: Session = Depends(get_db)):
         
     return folders
 
+# --- ENDPOINT 2.1: DATA KAPASITAS HARD DISK SERVER HOSTING ---
+@router.get("/storage-info")
+def get_storage_info():
+    try:
+        total, used, free = shutil.disk_usage(DATASET_DIR)
+        used_percentage = round((used / total) * 100) if total > 0 else 0
+        total_gb = round(total / (1024**3), 2)
+        used_gb = round(used / (1024**3), 2)
+        return {
+            "total_gb": total_gb,
+            "used_gb": used_gb,
+            "used_percentage": used_percentage
+        }
+    except Exception:
+        return {"total_gb": 50.0, "used_gb": 10.0, "used_percentage": 20}
+
 # --- ENDPOINT 2.5: PERBARUI METADATA FOLDER ---
 @router.put("/folders/{folder_id}", response_model=FolderResponse)
 def update_folder(folder_id: str, payload: FolderUpdate, db: Session = Depends(get_db)):
@@ -234,3 +250,22 @@ def download_folder_zip(folder_id: str, db: Session = Depends(get_db)):
 def mock_vps_sync(files: List[UploadFile] = File(...)):
     # Dalam dunia nyata, VPS akan menyimpan file ini ke storage S3 atau direktori lokalnya
     return {"message": f"Mock VPS berhasil menerima {len(files)} file dan menyimpannya ke Cloud.", "status": "success"}
+
+# --- ENDPOINT INDEX SINKRONISASI DUA ARAH (DOWNSTREAM MIRRORING) ---
+@router.get("/vps/sync-index")
+def get_vps_sync_index(db: Session = Depends(get_db)):
+    folders = db.query(models.DatasetFolder).all()
+    index = {}
+    for folder in folders:
+        folder_path = os.path.join(DATASET_DIR, folder.id)
+        images = []
+        if os.path.exists(folder_path):
+            images = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        index[folder.id] = {
+            "name": folder.name,
+            "object_type": folder.object_type,
+            "operator": folder.operator,
+            "date": folder.date,
+            "images": images
+        }
+    return {"folders": index}

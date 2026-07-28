@@ -36,11 +36,18 @@ export default function App() {
   // === GLOBAL HARDWARE STREAM PIPELINE ===
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
-  const [grblStatus, setGrblStatus] = useState<string>("IDLE");
+  const [grblStatus, setGrblStatus] = useState<string>("OFFLINE");
   const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
   const [jetsonTemperature, setJetsonTemperature] = useState<number | null>(null);
   const [limitSwitchState, setLimitSwitchState] = useState<string>("N/A");
+  const [jetsonRam, setJetsonRam] = useState<string>("5.12/7.62 GB");
+  const [jetsonRom, setJetsonRom] = useState<string>("2.10/50.00 GB");
   const wsRef = useRef<WebSocket | null>(null);
+  const cameraActiveRef = useRef<boolean>(cameraActive);
+
+  useEffect(() => {
+    cameraActiveRef.current = cameraActive;
+  }, [cameraActive]);
 
   const fetchFolders = async () => {
     try {
@@ -99,7 +106,7 @@ export default function App() {
   // 🟢 PIPELINE WEBSOCKET GLOBAL LEVEL APP (TERINTEGRASI REDIS BROKER)
   // ====================================================================
   useEffect(() => {
-    if (!cameraActive || !isSystemHardwareEnabled) {
+    if (!isSystemHardwareEnabled) {
       return;
     }
 
@@ -110,10 +117,9 @@ export default function App() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      setGrblStatus('READY');
       console.log('[GLOBAL WEBSOCKET] Tersambung penuh ke makelar data VPS. Pipa siaran aktif.');
 
-      if (cameraActive && ws.readyState === WebSocket.OPEN) {
+      if (cameraActiveRef.current && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ action: 'START_STREAM' }));
       }
     };
@@ -133,6 +139,8 @@ export default function App() {
           setGrblStatus(res.status);
           setJetsonTemperature(typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : null);
           setLimitSwitchState(res.limit_switch ?? 'N/A');
+          if (res.ram_usage) setJetsonRam(res.ram_usage);
+          if (res.rom_usage) setJetsonRom(res.rom_usage);
           if (res.position) {
             setLastEchoGCode(`X:${res.position.X.toFixed(2)} Y:${res.position.Y.toFixed(2)} Z:${res.position.Z}`);
           }
@@ -162,7 +170,18 @@ export default function App() {
         setGrblStatus('OFFLINE');
       }
     };
-  }, [cameraActive, isSystemHardwareEnabled]);
+  }, [isSystemHardwareEnabled]);
+
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (cameraActive) {
+        wsRef.current.send(JSON.stringify({ action: 'START_STREAM' }));
+      } else {
+        wsRef.current.send(JSON.stringify({ action: 'STOP_STREAM' }));
+        setVideoSrc(null);
+      }
+    }
+  }, [cameraActive]);
 
   const formatDate = (date: Date) => date.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
   const formatTime = (date: Date) => date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -237,9 +256,25 @@ export default function App() {
             <div className="w-px h-5 bg-gray-700 mx-0.5"></div>
             <img src={logoUndip} alt="UNDIP Logo" className="h-6 w-auto object-contain" />
           </div>
-          <div className={`flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${isSystemHardwareEnabled ? 'bg-green-500/10 border border-green-500/20 text-green-500' : 'bg-red-500/10 border border-red-500/20 text-red-500'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isSystemHardwareEnabled ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-            {isSystemHardwareEnabled ? 'CONNECTED' : 'MACHINE LOCKED'}
+          <div className={`flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+            !isSystemHardwareEnabled 
+              ? 'bg-red-500/10 border border-red-500/20 text-red-500' 
+              : grblStatus === 'OFFLINE'
+                ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                : 'bg-green-500/10 border border-green-500/20 text-green-500'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+              !isSystemHardwareEnabled 
+                ? 'bg-red-500' 
+                : grblStatus === 'OFFLINE'
+                  ? 'bg-amber-500'
+                  : 'bg-green-500 animate-pulse'
+            }`}></div>
+            {!isSystemHardwareEnabled 
+              ? 'MACHINE LOCKED' 
+              : grblStatus === 'OFFLINE'
+                ? 'DISCONNECTED'
+                : 'CONNECTED'}
           </div>
         </div>
 
@@ -296,9 +331,9 @@ export default function App() {
       <div className={`px-4 py-2 flex items-center justify-between text-[11px] font-bold border-b shrink-0 ${isDarkMode ? 'bg-gray-900/50 border-gray-800 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
         <div className="flex items-center space-x-6">
           <span className="flex items-center"><Server size={12} className="mr-1.5 text-blue-500" /> Jetson Orin Nano</span>
-          <span className={`flex items-center ${isSystemHardwareEnabled ? 'text-yellow-500' : 'text-red-500'}`}><Activity size={12} className="mr-1.5" /> {isSystemHardwareEnabled ? 'Idle' : 'Locked by Admin'}</span>
-          <span>RAM: 5/8 GB</span>
-          <span>ROM: 2/50 GB</span>
+          <span className={`flex items-center ${isSystemHardwareEnabled ? 'text-yellow-500' : 'text-red-500'}`}><Activity size={12} className="mr-1.5" /> {isSystemHardwareEnabled ? grblStatus : 'Locked by Admin'}</span>
+          <span>RAM: {jetsonRam}</span>
+          <span>ROM: {jetsonRom}</span>
         </div>
         <div className="flex items-center space-x-6">
           <span className="flex items-center"><Calendar size={12} className="mr-1.5" /> {formatDate(currentTime)}</span>

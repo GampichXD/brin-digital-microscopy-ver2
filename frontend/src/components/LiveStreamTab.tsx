@@ -45,8 +45,8 @@ export default function LiveStreamTab({
   const lastMoveDirectionRef = useRef<Record<'X' | 'Y' | 'Z', '+' | '-'> >({ X: '+', Y: '+', Z: '+' });
   
   const [xyStepUnit, setXyStepUnit] = useState<'mm' | 'inch'>('mm');
-  const [xyStepValue, setXyStepValue] = useState<string>("5");
-  const [zStepValue, setZStepValue] = useState<string>("100");
+  const [xyStepValue, setXyStepValue] = useState<string>("1");
+  const [zStepValue, setZStepValue] = useState<string>("1");
 
   const [feedRate, setFeedRate] = useState<string>("250");
   const [backlash, setBacklash] = useState<string>("0.05");
@@ -68,48 +68,27 @@ export default function LiveStreamTab({
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
   };
 
-  // ====================================================================
-  // 🟢 AMANKAN HANDSHAKE: HANYA BERTUGAS MEMICU TOMBOL START/STOP STREAM
-  // ====================================================================
+
+
   useEffect(() => {
-    // 1. Salin referensi ref ke variabel lokal untuk mengamankan fungsi cleanup linting
-    const currentWs = wsRef.current;
-
-    if (cameraActive && currentWs && currentWs.readyState === WebSocket.OPEN) {
-      console.log("[REACT TAB] Sirkuit WebSocket aktif. Mengirim sinyal akselerasi optik...");
-      currentWs.send(JSON.stringify({ action: "START_STREAM" }));
-    }
-
-    // 2. Gunakan setTimeout agar update state motorPos dijadwalkan secara asinkron
-    // Langkah ini memecah cascading render berantai yang dilarang linter
     if (lastEchoGCode && lastEchoGCode.startsWith("X:")) {
       const timer = setTimeout(() => {
         try {
           const parts = lastEchoGCode.split(" ");
           const xVal = parseFloat(parts[0].split(":")[1]);
           const yVal = parseFloat(parts[1].split(":")[1]);
-          const zVal = parseInt(parts[2].split(":")[1]);
+          const zVal = parseFloat(parts[2].split(":")[1]);
           setMotorPos({ x: xVal, y: yVal, z: zVal });
         } catch (e) {
           console.error("Gagal mem-parsing koordinat motor dari lastEchoGCode:", e);
-          // Abaikan format sisa inisial N/A
         }
       }, 0);
 
       return () => {
         clearTimeout(timer);
-        if (currentWs && currentWs.readyState === WebSocket.OPEN) {
-          currentWs.send(JSON.stringify({ action: "STOP_STREAM" }));
-        }
       };
     }
-
-    return () => {
-      if (currentWs && currentWs.readyState === WebSocket.OPEN) {
-        currentWs.send(JSON.stringify({ action: "STOP_STREAM" }));
-      }
-    };
-  }, [cameraActive, wsRef, lastEchoGCode]);
+  }, [lastEchoGCode]);
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
     if (!globalVirtualKeyboard) return; 
@@ -158,6 +137,11 @@ export default function LiveStreamTab({
       : `G1 ${axis}${adjustedValue.toFixed(3)} F${feedRate}`;
 
     lastMoveDirectionRef.current[axis] = direction;
+    
+    setMotorPos(prev => ({
+      ...prev,
+      [axis.toLowerCase()]: parseFloat((prev[axis.toLowerCase() as keyof typeof prev] + adjustedValue).toFixed(2))
+    }));
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setGrblStatus('MOVING...');
@@ -282,6 +266,7 @@ export default function LiveStreamTab({
                 disabled={!isSystemHardwareEnabled}
                 onClick={() => {
                   triggerToast('Perintah Homing Dikirim! Mengembalikan CNC ke (0,0,0)', 'INFO');
+                  setMotorPos({ x: 0, y: 0, z: 0 });
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ action: "HOMING" }));
                   } else {
@@ -376,9 +361,9 @@ export default function LiveStreamTab({
               )}
             </div>
 
-            <div className="w-20 flex flex-col">
+            <div className="w-28 sm:w-32 flex flex-col shrink-0">
               <div className="flex flex-col mb-2">
-                <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>FOKUS (Z)</span>
+                <span className={`text-[10px] font-bold mb-1 truncate ${themeClasses.textMuted}`}>FOKUS (Z)</span>
                 <div className="flex items-center">
                   <input
                     type="number"
@@ -386,9 +371,9 @@ export default function LiveStreamTab({
                     value={zStepValue}
                     onChange={(e) => setZStepValue(e.target.value)}
                     onClick={() => triggerKeypad('Step Z (Pulse)', zStepValue, setZStepValue)}
-                    className={`flex-1 h-6 px-1 text-center rounded border text-xs font-bold shadow-inner outline-none ${themeClasses.input}`}
+                    className={`w-full min-w-0 h-6 px-1.5 text-center rounded-l border text-xs font-bold shadow-inner outline-none ${themeClasses.input}`}
                   />
-                  <span className={`text-[10px] ml-1 font-bold ${themeClasses.textMuted}`}>stp</span>
+                  <span className={`h-6 px-2 flex items-center justify-center rounded-r border-y border-r text-[10px] font-bold shrink-0 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-gray-200 border-gray-300 text-gray-700'}`}>stp</span>
                 </div>
               </div>
               <div className="flex flex-col gap-2 flex-1">
@@ -407,7 +392,7 @@ export default function LiveStreamTab({
             </h3>
             <div className="flex space-x-2">
               <button onClick={handleDefaultCamera} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">DEFAULT</button>
-              <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> TERAPAN</button>
+              <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> TERAPKAN</button>
             </div>
           </div>
           
@@ -447,7 +432,7 @@ export default function LiveStreamTab({
                 onClick={sendCncSettings}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
               >
-                <Save size={14} className="mr-1" /> TERAPAN
+                <Save size={14} className="mr-1" /> TERAPKAN
               </button>
             </div>
           </div>

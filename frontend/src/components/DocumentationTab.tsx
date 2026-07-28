@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Clock, FileText, FileSpreadsheet, Presentation, Download, FilePlus, Search, ShieldAlert, CheckCircle, User } from 'lucide-react';
+import { logSystemAction } from '../utils/logger';
 
 interface DatasetFolder {
   id: string;
@@ -96,16 +97,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
       window.URL.revokeObjectURL(url);
       
       // Catat log aktivitas
-      try {
-        await axios.post('http://localhost:8000/api/logs', {
-          operator: selectedFolder?.operator || 'Abraham',
-          action: `Generate Dokumen ${type} - ${reportTitle}`,
-          status: 'SUCCESS'
-        });
-        fetchLogs();
-      } catch (logErr) {
-        console.error('Gagal mencatat log:', logErr);
-      }
+      await logSystemAction(`Generate Dokumen ${type} - ${reportTitle}`, 'SUCCESS');
+      fetchLogs();
     } catch (err: any) {
       // Decode pesan error sebenarnya dari blob (axios blob mode menyembunyikan pesan JSON)
       try {
@@ -123,14 +116,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
       console.error(err);
       
       // Catat log error
-      try {
-        await axios.post('http://localhost:8000/api/logs', {
-          operator: selectedFolder?.operator || 'Abraham',
-          action: `Gagal Generate ${type} - ${reportTitle}`,
-          status: 'ERROR'
-        });
-        fetchLogs();
-      } catch (logErr) {}
+      await logSystemAction(`Gagal Generate ${type} - ${reportTitle}`, 'ERROR');
+      fetchLogs();
     } finally {
       setIsGenerating(false);
     }
@@ -186,8 +173,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
       </div>
 
       {/* ==================== KANAN: GENERATOR DOKUMEN LAPORAN ==================== */}
-      <div className="w-[40%] h-full flex flex-col gap-3">
-        <div className={`p-4 rounded-2xl border flex flex-col gap-3 ${theme.panel}`}>
+      <div className="w-[40%] h-full flex flex-col gap-3 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className={`p-4 rounded-2xl border flex flex-col gap-3 shrink-0 ${theme.panel}`}>
           <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${theme.text}`}>
             <FilePlus size={16} className="mr-2 text-purple-400" /> Report Generator
           </h3>
@@ -205,7 +192,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
 
             <div>
               <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>Pilih Folder Sumber Data:</label>
-              <div className="grid gap-1.5 max-h-36 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
+              <div className="grid gap-1.5 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
                 {foldersToDisplay.map(folder => (
                   <div 
                     key={folder.id} 
@@ -224,16 +211,16 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
           </div>
         </div>
 
-        <div className={`p-4 rounded-2xl border flex-1 flex flex-col justify-between ${theme.panel}`}>
+        <div className={`p-4 rounded-2xl border flex flex-col gap-3 shrink-0 ${theme.panel}`}>
           <div>
             <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${theme.textMuted}`}>Pilih Format Ekspor Dokumen:</h4>
             <div className="flex flex-col gap-2">
               <button 
                 onClick={() => handleGenerateReport('WORD')}
-                className="w-full p-3.5 bg-blue-600/10 border border-blue-500/30 text-blue-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-blue-600 hover:text-white active:scale-95 transition-all shadow-sm"
+                className="w-full p-3 bg-blue-600/10 border border-blue-500/30 text-blue-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-blue-600 hover:text-white active:scale-95 transition-all shadow-sm"
               >
                 <div className="flex items-center">
-                  <FileText size={20} className="mr-3 shrink-0" />
+                  <FileText size={18} className="mr-3 shrink-0" />
                   <div className="flex flex-col text-left"><span className="leading-tight">Generate Microsoft Word</span><span className="text-[9px] opacity-70 font-normal">Format dokumen narasi laporan (.docx)</span></div>
                 </div>
                 <Download size={14} />
@@ -241,10 +228,10 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
 
               <button 
                 onClick={() => handleGenerateReport('EXCEL')}
-                className="w-full p-3.5 bg-green-600/10 border border-green-500/30 text-green-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-green-600 hover:text-white active:scale-95 transition-all shadow-sm"
+                className="w-full p-3 bg-green-600/10 border border-green-500/30 text-green-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-green-600 hover:text-white active:scale-95 transition-all shadow-sm"
               >
                 <div className="flex items-center">
-                  <FileSpreadsheet size={20} className="mr-3 shrink-0" />
+                  <FileSpreadsheet size={18} className="mr-3 shrink-0" />
                   <div className="flex flex-col text-left"><span className="leading-tight">Generate Microsoft Excel</span><span className="text-[9px] opacity-70 font-normal">Tabel koordinat matriks & data koloni (.xlsx)</span></div>
                 </div>
                 <Download size={14} />
@@ -252,10 +239,10 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
 
               <button 
                 onClick={() => handleGenerateReport('PPT')}
-                className="w-full p-3.5 bg-orange-600/10 border border-orange-500/30 text-orange-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-orange-600 hover:text-white active:scale-95 transition-all shadow-sm"
+                className="w-full p-3 bg-orange-600/10 border border-orange-500/30 text-orange-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-orange-600 hover:text-white active:scale-95 transition-all shadow-sm"
               >
                 <div className="flex items-center">
-                  <Presentation size={20} className="mr-3 shrink-0" />
+                  <Presentation size={18} className="mr-3 shrink-0" />
                   <div className="flex flex-col text-left"><span className="leading-tight">Generate Presentation Slide</span><span className="text-[9px] opacity-70 font-normal">Slide ringkas hasil deteksi objek AI (.pptx)</span></div>
                 </div>
                 <Download size={14} />
@@ -263,11 +250,10 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
             </div>
           </div>
 
-          <p className="text-[10px] text-gray-500 text-center leading-normal mt-4">
+          <p className="text-[10px] text-gray-500 text-center leading-normal mt-2">
             Dokumen disusun otomatis menggunakan library Python (python-docx, openpyxl, python-pptx) langsung dari penyimpanan lokal Jetson Orin.
           </p>
         </div>
-
       </div>
 
       {/* OVERLAY LOADING PROSES */}

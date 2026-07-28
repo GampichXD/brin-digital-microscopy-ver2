@@ -3,6 +3,7 @@ import type { ElementType } from 'react';
 import axios from 'axios';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, Image as ImageIcon, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
+import { logSystemAction } from '../utils/logger';
 
 interface DatabaseTabProps {
   isDarkMode: boolean;
@@ -88,7 +89,13 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   const [targetImageDelete, setTargetImageDelete] = useState<string[]>([]);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  const storageUsedPercentage = 85;
+  const [storageInfo, setStorageInfo] = useState<{ total_gb: number, used_gb: number, used_percentage: number }>({ total_gb: 50.0, used_gb: 10.0, used_percentage: 20 });
+
+  useEffect(() => {
+    axios.get('http://localhost:8000/api/dataset/storage-info')
+      .then(res => setStorageInfo(res.data))
+      .catch(err => console.error("Gagal memuat info storage:", err));
+  }, [availableFolders]);
 
   const [currentImages, setCurrentImages] = useState<{name: string, synced: boolean}[]>([]);
 
@@ -141,6 +148,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    logSystemAction(`Download File Dataset (${fileName})`, 'SUCCESS');
   };
 
   const openEditForm = (folder: DatasetFolder) => {
@@ -166,6 +174,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
           operator: formData.operator
         });
         triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`, 'SUCCESS');
+        logSystemAction(`Buat Folder Dataset (${formData.name})`, 'SUCCESS');
       } else {
         await axios.put(`http://localhost:8000/api/dataset/folders/${formData.id}`, {
           name: formData.name,
@@ -173,6 +182,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
           operator: formData.operator
         });
         triggerToast('Metadata folder berhasil diperbarui!', 'SUCCESS');
+        logSystemAction(`Update Metadata Folder (${formData.name})`, 'SUCCESS');
       }
       setIsFormOpen(false);
       setKeyboardState({ visible: false, targetField: '', title: '' });
@@ -180,6 +190,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     } catch (error) {
       console.error(error);
       triggerToast('Gagal menyimpan folder dataset', 'ERROR');
+      logSystemAction('Gagal Simpan Folder Dataset', 'ERROR');
     }
   };
 
@@ -194,9 +205,11 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       setTargetDelete(null);
       onRefreshFolders(); 
       triggerToast('Folder dataset telah dihapus permanen dari basis data.', 'SUCCESS');
+      logSystemAction(`Hapus Folder Dataset (ID: ${targetDelete})`, 'SUCCESS');
     } catch (error) {
       console.error(error);
       triggerToast('Gagal menghapus folder dari server.', 'ERROR');
+      logSystemAction('Gagal Hapus Folder Dataset', 'ERROR');
     }
   };
 
@@ -221,13 +234,29 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     setIsConfirmImageOpen(true);
   };
 
-  const executeDeleteImages = () => {
-    setIsConfirmImageOpen(false);
-    setTargetImageDelete([]);
-    setSelectedImages([]);
-    setIsSelectMode(false);
-    setPreviewIndex(null);
-    triggerToast('Simulasi penghapusan gambar sukses dilakukan.', 'INFO');
+  const executeDeleteImages = async () => {
+    if (!activeFolder || targetImageDelete.length === 0) return;
+    try {
+      await axios.delete(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`, {
+        data: { filenames: targetImageDelete }
+      });
+      triggerToast(`${targetImageDelete.length} gambar berhasil dihapus dari server.`, 'SUCCESS');
+      logSystemAction(`Hapus ${targetImageDelete.length} Gambar dari Folder ${activeFolder.name}`, 'SUCCESS');
+      
+      const res = await axios.get(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`);
+      setCurrentImages(res.data);
+      onRefreshFolders();
+    } catch (error) {
+      console.error("Gagal menghapus gambar:", error);
+      triggerToast("Gagal menghapus gambar dari server.", 'ERROR');
+      logSystemAction("Gagal Menghapus Gambar Dataset", 'ERROR');
+    } finally {
+      setIsConfirmImageOpen(false);
+      setTargetImageDelete([]);
+      setSelectedImages([]);
+      setIsSelectMode(false);
+      setPreviewIndex(null);
+    }
   };
 
   const handleBatchDownload = () => {
@@ -277,6 +306,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       triggerToast(`Berhasil mengunggah ${files.length} gambar!`, 'SUCCESS');
+      logSystemAction(`Upload ${files.length} Gambar ke Folder ${activeFolder.name}`, 'SUCCESS');
       setIsUploadOpen(false);
       onRefreshFolders();
       // Segarkan daftar gambar di view saat ini
@@ -322,15 +352,15 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                 />
               </div>
 
-              <div className={`hidden md:flex items-center px-4 py-2 rounded-xl border ${theme.input} shadow-inner`}>
-                <HardDrive size={18} className={`mr-3 ${storageUsedPercentage > 80 ? 'text-red-500' : 'text-green-500'}`} />
-                <div className="flex flex-col w-28">
+              <div className={`hidden md:flex items-center px-4 py-2 rounded-xl border ${theme.input} shadow-inner`} title={`Kapasitas: ${storageInfo.used_gb} / ${storageInfo.total_gb} GB`}>
+                <HardDrive size={18} className={`mr-3 ${storageInfo.used_percentage > 80 ? 'text-red-500' : 'text-green-500'}`} />
+                <div className="flex flex-col w-32">
                   <div className="flex justify-between text-[10px] font-bold mb-1">
-                    <span className={theme.textMuted}>Jetson NVMe</span>
-                    <span className={storageUsedPercentage > 80 ? 'text-red-500' : theme.text}>{storageUsedPercentage}%</span>
+                    <span className={theme.textMuted}>ROM Server Hosting</span>
+                    <span className={storageInfo.used_percentage > 80 ? 'text-red-500' : theme.text}>{storageInfo.used_percentage}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                    <div className={`h-full ${storageUsedPercentage > 80 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${storageUsedPercentage}%` }}></div>
+                    <div className={`h-full ${storageInfo.used_percentage > 80 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${storageInfo.used_percentage}%` }}></div>
                   </div>
                 </div>
               </div>
