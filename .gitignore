@@ -1,19 +1,25 @@
-# Abaikan folder virtual environment di dalam sub-folder backend
+# Abaikan folder virtual environment
 backend/venv/
 backend/env/
 backend/ENV/
 backend/.venv/
+venv/
+.venv/
 
 # Abaikan semua cache Python di seluruh sub-folder
 **/__pycache__/
 *.pyc
 *.pyo
 *.pyd
-backend/**/*.pyc
+*.py[cod]
+*$py.class
 
 # Abaikan file database lokal jika ada
 backend/*.db
 backend/*.sqlite3
+
+# Abaikan file log
+*.log
 
 # Abaikan environment variables rahasia
 .env
@@ -23,6 +29,13 @@ backend/.env
 .DS_Store
 Thumbs.db
 
-# Abaikan dataset gambar hasil capture & analisis (Heavy Files)
+# Abaikan dataset gambar & upload hasil capture & analisis (Heavy Files)
 backend/static/datasets/*
 !backend/static/datasets/.gitkeep
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
+
+# Node modules & build output
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
