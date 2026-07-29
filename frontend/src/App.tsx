@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut, Globe } from 'lucide-react';
+import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut, Globe, Menu } from 'lucide-react';
 import LiveStreamTab from './components/LiveStreamTab';
 import DatabaseTab from './components/DatabaseTab';
 import ImageGatheringTab from './components/ImageGatheringTab';
@@ -111,6 +111,7 @@ export default function App() {
   const [keypadPos, setKeypadPos] = useState({ x: 300, y: 150 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragRel, setDragRel] = useState({ x: 0, y: 0 });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -264,80 +265,163 @@ export default function App() {
     <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans transition-colors duration-300 ${isDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
 
       {/* HEADER UTAMA */}
-      <header className={`px-4 py-2 flex items-center justify-between border-b shrink-0 gap-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-        <div className="flex items-center space-x-3 shrink-0">
-          <div className="flex items-center gap-2 shrink-0 bg-white/5 p-1 rounded-xl border border-gray-700/30">
-            <img src={logoBrin} alt="BRIN Logo" className="h-6 w-auto object-contain bg-white rounded-md p-0.5" />
-            <div className="w-px h-5 bg-gray-700 mx-0.5"></div>
-            <img src={logoUndip} alt="UNDIP Logo" className="h-6 w-auto object-contain" />
-          </div>
-          <div className={`flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-            !isSystemHardwareEnabled 
-              ? 'bg-red-500/10 border border-red-500/20 text-red-500' 
-              : grblStatus === 'OFFLINE'
-                ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
-                : 'bg-green-500/10 border border-green-500/20 text-green-500'
-          }`}>
-            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-              !isSystemHardwareEnabled 
-                ? 'bg-red-500' 
-                : grblStatus === 'OFFLINE'
-                  ? 'bg-amber-500'
-                  : 'bg-green-500 animate-pulse'
-            }`}></div>
-            {!isSystemHardwareEnabled 
-              ? 'MACHINE LOCKED' 
-              : grblStatus === 'OFFLINE'
-                ? 'DISCONNECTED'
-                : 'CONNECTED'}
-          </div>
-        </div>
-
-        <div className="flex-1 text-center min-w-0">
+      <header className={`px-4 py-2 flex flex-col md:flex-row items-center justify-between border-b shrink-0 gap-3 md:gap-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+        
+        {/* ROW 1 (Mobile) / CENTER (Desktop) */}
+        <div className="flex-1 text-center min-w-0 w-full md:w-auto md:order-2">
           <h1 className="text-sm sm:text-base font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 truncate tracking-wider uppercase">
             Digital Microscopy {currentUserRole === 'ADMIN' && <span className="text-red-500 text-xs font-black ml-1">[ADMIN]</span>}
           </h1>
         </div>
 
-        <div className="flex items-center space-x-2 shrink-0">
+        {/* ROW 2 (Mobile) / LEFT & RIGHT (Desktop) */}
+        <div className="flex items-center justify-center flex-wrap gap-2 sm:gap-4 w-full md:w-auto md:contents mt-1 md:mt-0">
+          
+          <div className="flex items-center space-x-3 shrink-0 md:order-1">
+            <div className="flex items-center gap-2 shrink-0 bg-white/5 p-1 rounded-xl border border-gray-700/30">
+              <img src={logoBrin} alt="BRIN Logo" className="h-6 w-auto object-contain bg-white rounded-md p-0.5" />
+              <div className="w-px h-5 bg-gray-700 mx-0.5"></div>
+              <img src={logoUndip} alt="UNDIP Logo" className="h-6 w-auto object-contain" />
+            </div>
+            <div className={`flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              !isSystemHardwareEnabled 
+                ? 'bg-red-500/10 border border-red-500/20 text-red-500' 
+                : grblStatus === 'OFFLINE'
+                  ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                  : 'bg-green-500/10 border border-green-500/20 text-green-500'
+            }`}>
+              <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                !isSystemHardwareEnabled 
+                  ? 'bg-red-500' 
+                  : grblStatus === 'OFFLINE'
+                    ? 'bg-amber-500'
+                    : 'bg-green-500 animate-pulse'
+              }`}></div>
+              {!isSystemHardwareEnabled 
+                ? 'MACHINE LOCKED' 
+                : grblStatus === 'OFFLINE'
+                  ? 'DISCONNECTED'
+                  : 'CONNECTED'}
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0 md:order-3">
+            <span className={`text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border flex items-center gap-1.5 shadow-inner ${currentUserRole === 'ADMIN' ? 'border-red-500/30 text-red-400' : 'border-gray-700/60 text-blue-400'}`}>
+              <User size={13} />
+              <span className="text-gray-400 hidden xs:inline">User:</span>
+              <span className="max-w-[80px] truncate">{currentUser}</span>
+            </span>
+
+            {/* Desktop Buttons (Hidden on Mobile) */}
+            <div className="hidden md:flex items-center space-x-2">
+              <button 
+                onClick={() => {
+                  const nextState = !useVirtualKeyboard;
+                  setUseVirtualKeyboard(nextState);
+                  localStorage.setItem('useVirtualKeyboard', String(nextState));
+                }}
+                className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all ${
+                  isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'
+                } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
+              >
+                <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+                <span>Screen KB</span>
+                {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
+              </button>
+
+              <button 
+                onClick={() => {
+                  const nextLang: Language = language === 'ID' ? 'EN' : 'ID';
+                  setLanguage(nextLang);
+                  localStorage.setItem('language', nextLang);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  isDarkMode ? 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700' : 'bg-gray-100 border-gray-300 text-gray-800 hover:bg-gray-200'
+                }`}
+                title="Switch Language / Ganti Bahasa"
+              >
+                <span className="text-sm leading-none"><Globe size={14} /></span>
+                <span>{language}</span>
+              </button>
+
+              <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
+                {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
+              </button>
+
+              <button 
+                onClick={() => {
+                  localStorage.removeItem('token');
+                  localStorage.removeItem('role');
+                  localStorage.removeItem('username');
+                  setCurrentUser(null); 
+                  setActiveTab('Live Stream'); 
+                  setCameraActive(false);
+                }} 
+                className="p-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all active:scale-95 shadow-md"
+                title="Keluar dari Instrumen"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+
+            {/* Mobile Hamburger Button */}
+            <button 
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className={`md:hidden p-1.5 rounded-lg border flex items-center justify-center transition-all ${isDarkMode ? 'bg-gray-950 border-gray-800 text-gray-300 hover:text-white' : 'bg-gray-100 border-gray-300 text-gray-700 hover:text-black'}`}
+            >
+              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* MOBILE DROPDOWN MENU */}
+      {mobileMenuOpen && (
+        <div className={`md:hidden absolute top-[90px] right-4 z-[250] flex flex-col gap-2 p-3 rounded-2xl shadow-2xl border backdrop-blur-md animate-in fade-in slide-in-from-top-2 ${isDarkMode ? 'bg-gray-900/95 border-gray-800' : 'bg-white/95 border-gray-200'}`}>
           <button 
             onClick={() => {
               const nextState = !useVirtualKeyboard;
               setUseVirtualKeyboard(nextState);
               localStorage.setItem('useVirtualKeyboard', String(nextState));
+              setMobileMenuOpen(false);
             }}
-            className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all ${
-              isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'
-            } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
+            className={`px-3 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-2 transition-all w-full justify-between ${
+              isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-100/50 border-gray-300'
+            } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50' : 'text-gray-400'}`}
           >
-            <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
-            <span className="hidden sm:inline">Screen KB</span>
+            <div className="flex items-center gap-2">
+              <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+              <span>Screen KB</span>
+            </div>
             {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
           </button>
-
-          <span className={`text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border flex items-center gap-1.5 shadow-inner ${currentUserRole === 'ADMIN' ? 'border-red-500/30 text-red-400' : 'border-gray-700/60 text-blue-400'}`}>
-            <User size={13} />
-            <span className="text-gray-400 hidden xs:inline">User:</span>
-            <span className="max-w-[80px] truncate">{currentUser}</span>
-          </span>
 
           <button 
             onClick={() => {
               const nextLang: Language = language === 'ID' ? 'EN' : 'ID';
               setLanguage(nextLang);
               localStorage.setItem('language', nextLang);
+              setMobileMenuOpen(false);
             }}
-            className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all ${
-              isDarkMode ? 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700' : 'bg-gray-100 border-gray-300 text-gray-800 hover:bg-gray-200'
+            className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all w-full ${
+              isDarkMode ? 'bg-gray-800/50 border-gray-700 text-white' : 'bg-gray-100/50 border-gray-300 text-gray-800'
             }`}
-            title="Switch Language / Ganti Bahasa"
           >
-            <span className="text-sm leading-none"><Globe size={14} /></span>
-            <span>{language}</span>
+            <Globe size={14} />
+            <span>Language: {language}</span>
           </button>
 
-          <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
-            {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
+          <button 
+            onClick={() => {
+              setIsDarkMode(!isDarkMode);
+              setMobileMenuOpen(false);
+            }} 
+            className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all w-full ${
+              isDarkMode ? 'bg-gray-800/50 border-gray-700 text-white' : 'bg-gray-100/50 border-gray-300 text-gray-800'
+            }`}
+          >
+            {isDarkMode ? <Sun size={14} className="text-yellow-400" /> : <Moon size={14} className="text-slate-600" />}
+            <span>{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
           </button>
 
           <button 
@@ -348,32 +432,33 @@ export default function App() {
               setCurrentUser(null); 
               setActiveTab('Live Stream'); 
               setCameraActive(false);
+              setMobileMenuOpen(false);
             }} 
-            className="p-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all active:scale-95 shadow-md"
-            title="Keluar dari Instrumen"
+            className="px-3 py-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-xl font-bold transition-all w-full flex items-center gap-2 text-xs"
           >
-            <LogOut size={18} />
+            <LogOut size={14} />
+            <span>Logout</span>
           </button>
         </div>
-      </header>
+      )}
 
       {/* STATUS BAR MONITORS */}
-      <div className={`px-4 py-2 flex items-center justify-between text-[11px] font-bold border-b shrink-0 ${isDarkMode ? 'bg-gray-900/50 border-gray-800 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
-        <div className="flex items-center space-x-6">
-          <span className="flex items-center"><Server size={12} className="mr-1.5 text-blue-500" /> Jetson Orin Nano</span>
-          <span className={`flex items-center ${isSystemHardwareEnabled ? 'text-yellow-500' : 'text-red-500'}`}><Activity size={12} className="mr-1.5" /> {isSystemHardwareEnabled ? grblStatus : 'Locked by Admin'}</span>
+      <div className={`px-4 py-2 flex items-center text-[10px] sm:text-[11px] font-bold border-b shrink-0 overflow-x-auto whitespace-nowrap gap-4 sm:justify-between [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${isDarkMode ? 'bg-gray-900/50 border-gray-800 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+        <div className="flex items-center gap-4 sm:gap-6 shrink-0">
+          <span className="flex items-center"><Server size={12} className="mr-1.5 text-blue-500" /> Jetson</span>
+          <span className={`flex items-center ${isSystemHardwareEnabled ? 'text-yellow-500' : 'text-red-500'}`}><Activity size={12} className="mr-1.5" /> {isSystemHardwareEnabled ? grblStatus : 'Locked'}</span>
           <span>RAM: {jetsonRam}</span>
           <span>ROM: {jetsonRom}</span>
         </div>
-        <div className="flex items-center space-x-6">
-          <span className="flex items-center"><Calendar size={12} className="mr-1.5" /> {formatDate(currentTime)}</span>
-          <span className="flex items-center"><Clock size={12} className="mr-1.5" /> {formatTime(currentTime)}</span>
-          <span className="flex items-center text-red-500"><MapPin size={12} className="mr-1.5" /> Semarang</span>
+        <div className="flex items-center gap-4 sm:gap-6 shrink-0">
+          <span className="flex items-center"><Calendar size={12} className="mr-1.5 hidden sm:inline" /> {formatDate(currentTime)}</span>
+          <span className="flex items-center"><Clock size={12} className="mr-1.5 hidden sm:inline" /> {formatTime(currentTime)}</span>
+          <span className="flex items-center text-red-500"><MapPin size={12} className="mr-1.5 hidden sm:inline" /> Semarang</span>
         </div>
       </div>
 
-      {/* NAVIGATION BAR */}
-      <nav className={`px-2 pt-2 flex space-x-1 border-b shrink-0 ${isDarkMode ? 'border-gray-800 bg-gray-900/80' : 'border-gray-200 bg-white'}`}>
+      {/* NAVIGATION BAR (HIDDEN ON MOBILE) */}
+      <nav className={`hidden md:flex px-2 pt-2 space-x-1 border-b shrink-0 ${isDarkMode ? 'border-gray-800 bg-gray-900/80' : 'border-gray-200 bg-white'}`}>
         {availableTabs.map((tab) => {
           const getTabIcon = () => {
             switch (tab) {
@@ -390,13 +475,13 @@ export default function App() {
             <button 
               key={tab} 
               onClick={() => setActiveTab(tab)}
-              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 ${
+              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2.5 ${
                 activeTab === tab 
-                  ? (isDarkMode ? 'bg-gray-800 text-blue-400 border-blue-500' : 'bg-gray-100 text-blue-600 border-blue-600')
+                  ? (isDarkMode ? 'bg-gray-800 text-gray-100 border-blue-500' : 'bg-white text-gray-900 border-blue-600')
                   : (isDarkMode ? 'text-gray-500 hover:bg-gray-800/50 border-transparent' : 'text-gray-500 hover:bg-gray-100 border-transparent')
               }`}
             >
-              <span className={activeTab === tab ? (isDarkMode ? 'text-blue-400' : 'text-blue-600') : 'text-gray-500'}>
+              <span className={`p-1.5 rounded-lg transition-colors ${activeTab === tab ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20' : (isDarkMode ? 'text-gray-400' : 'text-gray-500')}`}>
                 {getTabIcon()}
               </span>
               <span>{tab}</span>
@@ -405,8 +490,40 @@ export default function App() {
         })}
       </nav>
 
+      {/* BOTTOM NAVIGATION BAR (VISIBLE ONLY ON MOBILE) */}
+      <nav className={`flex md:hidden fixed bottom-0 left-0 w-full z-50 border-t ${isDarkMode ? 'border-gray-800 bg-gray-900/95 backdrop-blur' : 'border-gray-200 bg-white/95 backdrop-blur'}`}>
+        {availableTabs.map((tab) => {
+          const getTabIcon = () => {
+            switch (tab) {
+              case 'Live Stream': return <Camera size={22} />;
+              case 'Database': return <Database size={22} />;
+              case 'Image Gathering': return <Grid3X3 size={22} />;
+              case 'Image Analysis': return <Scan size={22} />;
+              case 'Documentation': return <FileText size={22} />;
+              case 'Admin Control': return <ShieldAlert size={22} className="text-red-500" />;
+            }
+          };
+
+          return (
+            <button 
+              key={tab} 
+              onClick={() => setActiveTab(tab)}
+              className="flex-1 flex justify-center items-center py-2.5"
+            >
+              <div className={`flex items-center justify-center px-5 py-1.5 rounded-full transition-all duration-300 ${
+                activeTab === tab 
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                  : (isDarkMode ? 'text-gray-500 hover:text-gray-400' : 'text-gray-400 hover:text-gray-500')
+              }`}>
+                {getTabIcon()}
+              </div>
+            </button>
+          );
+        })}
+      </nav>
+
       {/* APPLICATION CONTENT CONTAINER */}
-      <main className="flex-1 min-h-0 p-3 relative">
+      <main className="flex-1 min-h-0 p-3 pb-20 md:pb-3 relative overflow-y-auto">
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
             isDarkMode={isDarkMode} 
@@ -516,7 +633,7 @@ export default function App() {
 
       {/* GLOBAL TOAST NOTIFICATION */}
       {toast.visible && (
-        <div className="fixed bottom-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-2xl border shadow-2xl backdrop-blur-md bg-gray-900/90 border-green-500/30 text-white min-w-[300px]">
+        <div className="fixed top-4 md:top-auto md:bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-2xl border shadow-2xl backdrop-blur-md bg-gray-900/90 border-green-500/30 text-white w-[90%] md:w-auto min-w-[300px] animate-in fade-in slide-in-from-top-5 md:slide-in-from-bottom-5 duration-300">
           <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500 flex items-center justify-center shrink-0">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-ping"></div>
           </div>

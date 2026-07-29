@@ -242,10 +242,10 @@ export default function LiveStreamTab({
   };
 
   return (
-    <div className="flex gap-3 h-full w-full select-none">
+    <div className="flex flex-col lg:flex-row gap-3 h-full w-full select-none overflow-y-auto lg:overflow-hidden pb-4 lg:pb-0">
       
       {/* KIRI: VIDEO & HUD LAYER */}
-      <div ref={videoContainerRef} className={`relative w-[60%] h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
+      <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[60%] h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {cameraActive ? (
           videoSrc ? (
             <img 
@@ -446,7 +446,7 @@ export default function LiveStreamTab({
       </div>
 
       {/* KANAN: PANEL KONTROL ASLI */}
-      <div className="w-[40%] h-full overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div className="w-full lg:w-[40%] lg:h-full overflow-y-visible lg:overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         
         {/* 1. KENDALI MOTOR */}
         <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>

@@ -128,9 +128,9 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
   };
 
   return (
-    <div className="flex gap-3 h-full relative">
+    <div className="flex flex-col lg:flex-row gap-4 h-full relative w-full overflow-y-auto lg:overflow-hidden pb-4 lg:pb-0 pr-1 lg:pr-0">
       
-      <div className={`w-[60%] h-full rounded-2xl border flex flex-col overflow-hidden shadow-sm ${theme.panel}`}>
+      <div className={`w-full lg:w-[60%] h-[350px] lg:h-full shrink-0 lg:shrink rounded-2xl border flex flex-col overflow-hidden shadow-sm ${theme.panel}`}>
         <div className="p-4 border-b border-gray-800 bg-black/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity size={18} className="text-blue-500" />
@@ -175,7 +175,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
         </div>
       </div>
 
-      <div className="w-[40%] h-full flex flex-col gap-3 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div className="w-full lg:w-[40%] h-auto lg:h-full shrink-0 lg:shrink flex flex-col gap-3 lg:overflow-y-auto pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         <div className={`p-4 rounded-2xl border flex flex-col gap-3 shrink-0 ${theme.panel}`}>
           <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${theme.text}`}>
             <FilePlus size={16} className="mr-2 text-purple-400" /> Report Generator

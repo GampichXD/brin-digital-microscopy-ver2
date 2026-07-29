@@ -401,34 +401,36 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
             </div>
 
             {!isSelectMode ? (
-              <div className="flex gap-2">
-                <button onClick={() => setIsSelectMode(true)} className={`px-4 py-2 rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform border ${isDarkMode ? 'bg-gray-800 text-white border-gray-600' : 'bg-gray-100 text-gray-900 border-gray-300'}`}>
-                  <ListChecks size={16} className="mr-2" /> PILIH
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setIsSelectMode(true)} className={`px-3 sm:px-4 py-2 rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform border ${isDarkMode ? 'bg-gray-800 text-white border-gray-600' : 'bg-gray-100 text-gray-900 border-gray-300'}`}>
+                  <ListChecks size={16} className="sm:mr-2" /> <span className="hidden sm:inline">PILIH</span>
                 </button>
                 <div className="w-px bg-gray-600/50 mx-1"></div>
-                <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_YOLO_Format.zip`)} className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
-                  <Box size={16} className="mr-2" /> YOLO
+                <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_YOLO_Format.zip`)} className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
+                  <Box size={16} className="sm:mr-2" /> <span className="hidden sm:inline">YOLO</span>
                 </button>
-                <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_Archive.zip`)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
-                  <FileArchive size={16} className="mr-2" /> ZIP
+                <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_Archive.zip`)} className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
+                  <FileArchive size={16} className="sm:mr-2" /> <span className="hidden sm:inline">ZIP</span>
                 </button>
-                <button onClick={() => setIsUploadOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
-                  <Plus size={16} className="mr-2" /> TAMBAH
+                <button onClick={() => setIsUploadOpen(true)} className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
+                  <Plus size={16} className="sm:mr-2" /> <span className="hidden sm:inline">TAMBAH</span>
                 </button>
               </div>
             ) : (
-              <div className="flex gap-2 bg-blue-500/10 p-1.5 rounded-xl border border-blue-500/20">
-                <button onClick={toggleSelectAll} className={`px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${selectedImages.length === currentImages.length ? 'bg-blue-600 text-white' : (isDarkMode ? 'text-blue-400 hover:bg-blue-900/50' : 'text-blue-600 hover:bg-blue-100')}`}>
-                  {selectedImages.length === currentImages.length ? <CheckSquare size={18} className="mr-2" /> : <Square size={18} className="mr-2" />}
-                  PILIH SEMUA
+              <div className="flex flex-wrap gap-2 bg-blue-500/10 p-1.5 rounded-xl border border-blue-500/20">
+                <button onClick={toggleSelectAll} className={`px-2.5 sm:px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${selectedImages.length === currentImages.length ? 'bg-blue-600 text-white' : (isDarkMode ? 'text-blue-400 hover:bg-blue-900/50' : 'text-blue-600 hover:bg-blue-100')}`}>
+                  {selectedImages.length === currentImages.length ? <CheckSquare size={18} className="sm:mr-2" /> : <Square size={18} className="sm:mr-2" />}
+                  <span className="hidden sm:inline">PILIH SEMUA</span>
                 </button>
-                <button onClick={() => setIsSelectMode(false)} className={`px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${theme.text}`}>{t.cancel}</button>
+                <button onClick={() => setIsSelectMode(false)} className={`px-2.5 sm:px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${theme.text}`}>
+                  <X size={16} className="sm:mr-2" /> <span className="hidden sm:inline">{t.cancel}</span>
+                </button>
                 <div className="w-px bg-gray-500/30 mx-1"></div>
-                <button onClick={() => confirmDeleteImages(selectedImages)} disabled={selectedImages.length === 0} className="px-4 py-2 bg-red-600 disabled:bg-red-900 disabled:text-red-400 hover:bg-red-700 text-white rounded-lg font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
-                  <Trash2 size={16} className="mr-2" /> HAPUS ({selectedImages.length})
+                <button onClick={() => confirmDeleteImages(selectedImages)} disabled={selectedImages.length === 0} className="px-3 sm:px-4 py-2 bg-red-600 disabled:bg-red-900 disabled:text-red-400 hover:bg-red-700 text-white rounded-lg font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
+                  <Trash2 size={16} className="sm:mr-2" /> <span className="hidden sm:inline">HAPUS ({selectedImages.length})</span>
                 </button>
-                <button onClick={handleBatchDownload} disabled={selectedImages.length === 0} className="px-4 py-2 bg-green-600 disabled:bg-green-900 disabled:text-green-400 hover:bg-green-700 text-white rounded-lg font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
-                  <Download size={16} className="mr-2" /> UNDUH ZIP
+                <button onClick={handleBatchDownload} disabled={selectedImages.length === 0} className="px-3 sm:px-4 py-2 bg-green-600 disabled:bg-green-900 disabled:text-green-400 hover:bg-green-700 text-white rounded-lg font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
+                  <Download size={16} className="sm:mr-2" /> <span className="hidden sm:inline">UNDUH ZIP</span>
                 </button>
               </div>
             )}
@@ -439,7 +441,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       {/* ================= KONTEN UTAMA ================= */}
       <div className="flex-1 overflow-y-auto pr-2 z-10" style={{ scrollbarWidth: 'none' }}>
         {viewMode === 'folders' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pt-2 pb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pt-2 pb-4">
             {filteredFolders.map((folder) => (
               <div
                 key={folder.id}
@@ -481,7 +483,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         )}
 
         {viewMode === 'images' && (
-          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-10">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-4">
             {currentImages.map((imgObj, i) => {
               const fileName = imgObj.name;
               const isSelected = selectedImages.includes(fileName);

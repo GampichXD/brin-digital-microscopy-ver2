@@ -348,9 +348,9 @@ export default function ImageGatheringTab({
   };
 
   return (
-    <div className="flex gap-3 h-full relative">
+    <div className="flex flex-col lg:flex-row gap-3 h-full relative pb-4 lg:pb-0 overflow-y-auto lg:overflow-hidden">
       
-      <div className={`relative w-[55%] h-full flex flex-col shrink-0 overflow-hidden rounded-2xl border-2 ${cameraActive && videoSrc ? 'border-purple-500 bg-black' : 'border-dashed border-gray-700 justify-center items-center ' + theme.panel}`}>
+      <div className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[55%] h-[300px] sm:h-[450px] lg:h-full flex flex-col shrink-0 overflow-hidden rounded-2xl border-2 ${cameraActive && videoSrc ? 'border-purple-500 bg-black' : 'border-dashed border-gray-700 justify-center items-center ' + theme.panel}`}>
         {isRetaking && <div className="absolute inset-0 bg-white z-50 animate-flash pointer-events-none"></div>}
 
         {cameraActive && videoSrc ? (
@@ -394,16 +394,16 @@ export default function ImageGatheringTab({
         )}
       </div>
 
-      <div className="w-[45%] h-full flex flex-col gap-3">
+      {/* PANEL KANAN */}
+      <div className="w-full lg:w-[45%] lg:h-full overflow-y-visible lg:overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         <div className={`flex rounded-xl border p-1 shrink-0 ${theme.panel}`}>
           <button onClick={() => setGatherMode('AUTO')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${gatherMode === 'AUTO' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t.autoGather}</button>
           <button onClick={() => setGatherMode('MANUAL')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${gatherMode === 'MANUAL' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t.manualGather}</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          <button onClick={handleHome} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
-            <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
-          </button>
+        <button onClick={handleHome} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
+          <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
+        </button>
 
           {gatherMode === 'AUTO' && (
             <>
@@ -585,7 +585,6 @@ export default function ImageGatheringTab({
               </div>
             </>
           )}
-        </div>
       </div>
 
       {isProcessing && (
@@ -629,9 +628,9 @@ export default function ImageGatheringTab({
               <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-6 bg-black/5">
+            <div className="flex-1 overflow-auto p-6 bg-black/5">
               <div 
-                className={`grid gap-3 p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-4 md:grid-cols-5' : ''}`}
+                className={`grid gap-3 p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5' : ''}`}
                 style={gatherMode === 'AUTO' ? { gridTemplateColumns: `repeat(${cols}, minmax(100px, 1fr))` } : {}}
               >
                 {capturedImages.map((img) => (
@@ -654,20 +653,22 @@ export default function ImageGatheringTab({
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-700 flex items-center bg-black/20 gap-4 shrink-0">
-              <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); triggerToast('Hasil akuisisi telah dibuang', 'INFO');}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
-                <Trash2 size={20} className="mr-2"/> {t.cancel}
-              </button>
-              <button onClick={() => setShowSaveModal(true)} disabled={validImageCount === 0} className={`px-6 py-4 rounded-xl font-bold flex items-center border border-transparent active:scale-95 ${theme.btnTouch} ${theme.text}`}>
-                <Save size={20} className="mr-2"/> {t.save}
-              </button>
+            <div className="p-4 sm:p-6 border-t border-gray-700 flex flex-col sm:flex-row items-stretch sm:items-center bg-black/20 gap-3 sm:gap-4 shrink-0">
+              <div className="flex gap-3 sm:gap-4 flex-row w-full sm:w-auto">
+                <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); triggerToast('Hasil akuisisi telah dibuang', 'INFO');}} className="flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
+                  <Trash2 size={20} className="mr-1 sm:mr-2 shrink-0"/> {t.cancel}
+                </button>
+                <button onClick={() => setShowSaveModal(true)} disabled={validImageCount === 0} className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-transparent active:scale-95 text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
+                  <Save size={20} className="mr-1 sm:mr-2 shrink-0"/> {t.save}
+                </button>
+              </div>
               {validImageCount === 1 ? (
-                <button onClick={() => handleSendToAnalysis(capturedImages.find(i => i.filename)?.filename || '')} className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20">
-                  <Scan size={20} className="mr-2"/> LANJUTKAN KE IMAGE ANALYSIS (1 Gambar)
+                <button onClick={() => handleSendToAnalysis(capturedImages.find(i => i.filename)?.filename || '')} className="flex-1 py-3 sm:py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20 text-xs sm:text-base px-2 text-center">
+                  <Scan size={20} className="mr-1 sm:mr-2 shrink-0"/> LANJUTKAN KE IMAGE ANALYSIS (1 Gambar)
                 </button>
               ) : (
-                <button onClick={() => executeStitching()} disabled={validImageCount === 0} className="flex-1 py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20">
-                  <Grid3X3 size={20} className="mr-2"/> LANJUTKAN KE TILE STITCHING ({validImageCount} Gambar)
+                <button onClick={() => executeStitching()} disabled={validImageCount === 0} className="flex-1 py-3 sm:py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20 text-[11px] xs:text-xs sm:text-base px-2 text-center">
+                  <Grid3X3 size={20} className="mr-1 sm:mr-2 shrink-0"/> LANJUTKAN KE TILE STITCHING ({validImageCount} Gambar)
                 </button>
               )}
             </div>
@@ -710,13 +711,17 @@ export default function ImageGatheringTab({
               </div>
             </div>
 
-            <div className="p-6 flex items-center gap-4 bg-black/20">
-              <button onClick={() => {setShowStitchModal(false); setCapturedImages([]); triggerToast('Hasil jahitan tile telah dibuang', 'INFO');}} className="px-6 py-4 rounded-xl font-bold flex items-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors">
-                <Trash2 size={20} className="mr-2"/> {t.cancel}
-              </button>
-              <button onClick={() => setShowSaveModal(true)} className={`px-6 py-4 rounded-xl font-bold flex items-center border ${theme.btnTouch} ${theme.text}`}><Save size={20} className="mr-2"/> {t.save}</button>
-              <button onClick={() => { setShowStitchModal(false); handleSendToAnalysis("stitched_ta_output.jpg"); }} className="flex-1 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20">
-                <Scan size={20} className="mr-2"/> LANJUTKAN KE IMAGE ANALYSIS
+            <div className="p-4 sm:p-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 bg-black/20 shrink-0">
+              <div className="flex gap-3 sm:gap-4 flex-row w-full sm:w-auto">
+                <button onClick={() => {setShowStitchModal(false); setCapturedImages([]); triggerToast('Hasil jahitan tile telah dibuang', 'INFO');}} className="flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
+                  <Trash2 size={20} className="mr-1 sm:mr-2 shrink-0"/> {t.cancel}
+                </button>
+                <button onClick={() => setShowSaveModal(true)} className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
+                  <Save size={20} className="mr-1 sm:mr-2 shrink-0"/> {t.save}
+                </button>
+              </div>
+              <button onClick={() => { setShowStitchModal(false); handleSendToAnalysis("stitched_ta_output.jpg"); }} className="flex-1 py-3 sm:py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20 text-xs sm:text-base px-2 text-center">
+                <Scan size={20} className="mr-1 sm:mr-2 shrink-0"/> LANJUTKAN KE IMAGE ANALYSIS
               </button>
             </div>
           </div>

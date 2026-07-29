@@ -371,17 +371,17 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const activeState = history[historyIndex];
 
   return (
-    <div className="flex h-full relative w-full">
-      
-      {!currentImage && (
-        <div className="w-full h-full p-2 flex flex-col md:flex-row gap-3">
+    <div className="flex flex-col flex-1 h-full relative w-full">
+       {!currentImage && (
+        <div className="flex flex-col md:flex-row gap-4 h-full flex-1 min-h-0 md:pb-0">
           <div 
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onDrop={(e) => {
               e.preventDefault(); e.stopPropagation();
               if (e.dataTransfer.files && e.dataTransfer.files[0]) processImageUpload(e.dataTransfer.files[0]);
             }}
-            className={`flex-1 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all p-6 ${
+            className={`flex-1 min-h-0 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all p-4 sm:p-6 ${
               isDarkMode ? 'border-gray-700 bg-gray-900/40 hover:border-blue-500/50 hover:bg-blue-500/5' : 'border-gray-300 bg-gray-50 hover:border-blue-500/50 hover:bg-blue-500/5'
             }`}
           >
@@ -400,7 +400,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </label>
           </div>
 
-          <div className={`w-full md:w-[40%] rounded-3xl border p-4 flex flex-col shadow-sm ${theme.panel}`}>
+          <div className={`flex-1 min-h-0 w-full md:w-[40%] rounded-3xl border p-4 flex flex-col shadow-sm ${theme.panel}`}>
             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-800">
               <Database size={16} className="text-blue-400" />
               <h3 className={`text-xs font-black uppercase tracking-wider ${theme.text}`}>{t.selectFromDb}</h3>
@@ -408,7 +408,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             <p className={`text-[10px] mb-3 leading-normal ${theme.textMuted}`}>
               Pilih folder sampel mikroba/bakteri yang telah terdaftar di database laboratorium untuk memuat citra mentahnya ke dalam kanvas analisis.
             </p>
-            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'none' }}>
+            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 md:pb-0" style={{ scrollbarWidth: 'none' }}>
               {!selectedDatabaseFolderId ? (
                 availableFolders.length === 0 ? (
                   <div className="text-center py-8 text-[11px] font-medium text-gray-500">
@@ -430,8 +430,11 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                 )
               ) : (
                 <>
-                  <button onClick={() => setSelectedDatabaseFolderId(null)} className={`mb-2 text-xs flex items-center gap-1 transition-colors ${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>
-                    <ArrowLeft size={12} /> Kembali ke Pustaka
+                  <button 
+                    onClick={() => setSelectedDatabaseFolderId(null)} 
+                    className={`sticky top-0 z-10 mb-3 text-xs font-bold flex items-center gap-1 p-2.5 rounded-xl border transition-colors shadow-sm backdrop-blur-xl ${isDarkMode ? 'bg-gray-900/90 border-gray-700 text-blue-400 hover:bg-gray-800' : 'bg-white/90 border-gray-300 text-blue-600 hover:bg-gray-50'}`}
+                  >
+                    <ArrowLeft size={14} /> Kembali ke Pustaka
                   </button>
                   <div className="grid grid-cols-3 gap-2 pb-2">
                     {folderImages.map(img => (
@@ -462,8 +465,8 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       )}
 
       {currentImage && (
-        <div className="flex w-full gap-3">
-          <div className="relative w-[70%] h-full flex flex-col gap-3 shrink-0">
+        <div className="flex flex-col lg:flex-row w-full gap-3 overflow-y-auto lg:overflow-hidden pb-4 lg:pb-0">
+          <div className="sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[70%] h-[350px] sm:h-[500px] lg:h-full flex flex-col gap-3 shrink-0">
             <div className={`p-3 rounded-2xl border flex items-center justify-between shrink-0 shadow-sm gap-2 overflow-hidden ${theme.panel}`}>
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <button onClick={closeImage} className="p-2.5 rounded-xl border border-red-500/50 text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white active:scale-95 transition-colors shrink-0">
@@ -565,7 +568,8 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             </div>
           </div>
 
-          <div className="w-[30%] h-full flex flex-col gap-3">
+          {/* PANEL KANAN: TOOLS & HISTORY */}
+          <div className="w-full lg:w-[30%] h-full flex flex-col gap-3">
             <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
               <h2 className={`font-bold text-lg mb-1 ${theme.text}`}>{t.analysisToolsTitle}</h2>
               <p className={`text-xs ${theme.textMuted}`}>{t.selectProcessingMethod}</p>
@@ -690,13 +694,13 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               </div>
             )}
 
-            <div className="flex gap-4">
-              <button onClick={() => { setShowSaveModal(false); setSaveResult(null); }} disabled={isSaving} className={`flex-1 py-3 rounded-xl font-bold border disabled:opacity-40 ${theme.textMuted} ${theme.btnTouch}`}>{t.cancel}</button>
-              <button onClick={handleSaveToFolder} disabled={isSaving || !!saveResult?.ok} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-60 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 shadow-lg transition-all">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-4">
+              <button onClick={() => { setShowSaveModal(false); setSaveResult(null); }} disabled={isSaving} className={`flex-1 py-3 sm:py-4 rounded-xl font-bold border disabled:opacity-40 flex items-center justify-center ${theme.textMuted} ${theme.btnTouch}`}>{t.cancel}</button>
+              <button onClick={handleSaveToFolder} disabled={isSaving || !!saveResult?.ok} className="flex-1 py-3 sm:py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-60 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 shadow-lg transition-all text-sm sm:text-base">
                 {isSaving ? (
-                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>{t.saving}</>
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2 shrink-0"></div>{t.saving}</>
                 ) : (
-                  <><Save size={18} className="mr-2"/> {t.confirmSave}</>
+                  <><Save size={18} className="mr-2 shrink-0"/> Konfirmasi Simpan</>
                 )}
               </button>
             </div>
