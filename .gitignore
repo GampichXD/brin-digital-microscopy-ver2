@@ -23,11 +23,16 @@ backend/*.sqlite3
 
 # Abaikan environment variables rahasia
 .env
+.env.*
 backend/.env
+frontend/.env
+frontend/.env.local
 
-# OS sampah
+# OS sampah & Editor
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
 
 # Abaikan dataset gambar & upload hasil capture & analisis (Heavy Files)
 backend/static/datasets/*

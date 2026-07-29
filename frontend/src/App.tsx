@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut } from 'lucide-react';
+import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut, Globe } from 'lucide-react';
 import LiveStreamTab from './components/LiveStreamTab';
 import DatabaseTab from './components/DatabaseTab';
 import ImageGatheringTab from './components/ImageGatheringTab';
@@ -10,6 +10,7 @@ import AuthPage from './components/AuthPage';
 import logoUndip from './assets/logo-undip.png';
 import logoBrin from './assets/logo-brin.png';
 import axios from 'axios';
+import type { Language } from './i18n';
 
 type TabName = 'Live Stream' | 'Database' | 'Image Gathering' | 'Image Analysis' | 'Documentation' | 'Admin Control';
 export type UserRole = 'ADMIN' | 'OPERATOR';
@@ -72,12 +73,26 @@ export default function App() {
   
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('username'));
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => (localStorage.getItem('role') as UserRole) || 'OPERATOR');
-  const [activeTab, setActiveTab] = useState<TabName>(() => {
+  const [activeTab, setActiveTabState] = useState<TabName>(() => {
+    const savedTab = localStorage.getItem('activeTab') as TabName | null;
+    if (savedTab) return savedTab;
     const savedRole = localStorage.getItem('role') as UserRole | null;
     return savedRole === 'ADMIN' ? 'Admin Control' : 'Live Stream';
   });
 
+  const setActiveTab = (tab: TabName) => {
+    setActiveTabState(tab);
+    localStorage.setItem('activeTab', tab);
+    if (['Database', 'Image Analysis', 'Documentation', 'Live Stream'].includes(tab)) {
+      fetchFolders();
+    }
+  };
+
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = localStorage.getItem('language') as Language | null;
+    return saved || 'ID';
+  });
   const [targetAnalysisImage, setTargetAnalysisImage] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState<boolean>(true); 
@@ -306,6 +321,21 @@ export default function App() {
             <span className="max-w-[80px] truncate">{currentUser}</span>
           </span>
 
+          <button 
+            onClick={() => {
+              const nextLang: Language = language === 'ID' ? 'EN' : 'ID';
+              setLanguage(nextLang);
+              localStorage.setItem('language', nextLang);
+            }}
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all ${
+              isDarkMode ? 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700' : 'bg-gray-100 border-gray-300 text-gray-800 hover:bg-gray-200'
+            }`}
+            title="Switch Language / Ganti Bahasa"
+          >
+            <span className="text-sm leading-none"><Globe size={14} /></span>
+            <span>{language}</span>
+          </button>
+
           <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
             {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
           </button>
@@ -390,10 +420,13 @@ export default function App() {
             setGrblStatus={setGrblStatus}
             lastEchoGCode={lastEchoGCode}
             setLastEchoGCode={setLastEchoGCode}
-            jetsonTemperature={jetsonTemperature}
+            jetsonTemperatures={{ cpu: jetsonTemperature, gpu: jetsonTemperature }}
             limitSwitchState={limitSwitchState}
             wsRef={wsRef}
             triggerToast={showNotification}
+            availableFolders={folders}
+            onRefreshFolders={fetchFolders}
+            language={language}
           />
         )}
         {activeTab === 'Database' && (
@@ -403,6 +436,7 @@ export default function App() {
             triggerToast={showNotification}
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
+            language={language}
           />
         )}
         {activeTab === 'Image Gathering' && (
@@ -420,6 +454,7 @@ export default function App() {
               setTargetAnalysisImage(imageName); 
               setActiveTab('Image Analysis'); 
             }}
+            language={language}
           />
         )}
         {activeTab === 'Image Analysis' && (
@@ -430,16 +465,23 @@ export default function App() {
             onClearTarget={() => setTargetAnalysisImage(null)}
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
+            language={language}
           />
         )}
         {activeTab === 'Documentation' &&
         <DocumentationTab
         isDarkMode={isDarkMode}
         availableFolders={folders}
+        language={language}
         />}
         
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
-          <AdminControlTab isDarkMode={isDarkMode} isSystemHardwareEnabled={isSystemHardwareEnabled} setIsSystemHardwareEnabled={setIsSystemHardwareEnabled} />
+          <AdminControlTab 
+            isDarkMode={isDarkMode} 
+            isSystemHardwareEnabled={isSystemHardwareEnabled} 
+            setIsSystemHardwareEnabled={setIsSystemHardwareEnabled}
+            language={language}
+          />
         )}
       </main>
 

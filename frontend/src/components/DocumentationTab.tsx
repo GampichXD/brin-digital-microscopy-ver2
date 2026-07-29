@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Clock, FileText, FileSpreadsheet, Presentation, Download, FilePlus, Search, ShieldAlert, CheckCircle, User } from 'lucide-react';
+import { FileText, FileSpreadsheet, Presentation, FilePlus, Search, ShieldAlert, CheckCircle, User, Activity } from 'lucide-react';
 import { logSystemAction } from '../utils/logger';
+import { translations } from '../i18n';
+import type { Language } from '../i18n';
 
 interface DatasetFolder {
   id: string;
@@ -14,6 +16,7 @@ interface DatasetFolder {
 interface DocumentationTabProps {
   isDarkMode: boolean;
   availableFolders?: DatasetFolder[];
+  language: Language;
 }
 
 interface ActivityLog {
@@ -24,7 +27,8 @@ interface ActivityLog {
   status: 'SUCCESS' | 'CANCELLED';
 }
 
-export default function DocumentationTab({ isDarkMode, availableFolders = [] }: DocumentationTabProps) {
+export default function DocumentationTab({ isDarkMode, availableFolders = [], language }: DocumentationTabProps) {
+  const t = translations[language];
   // === STATE LOG AKTIVITAS (AUDIT TRAIL) ===
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
@@ -57,8 +61,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
     overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4'
   };
 
-  const fallbackFolders = [
-    { id: '1', name: 'Riset_Coli_Tembalang_01', object_type: 'Bakteri E. Coli' },
+  const fallbackFolders: DatasetFolder[] = [
+    { id: '1', name: 'Riset_Coli_Tembalang_01', object_type: 'Bakteri E. Coli', date: '2026-07-28', operator: 'Operator Lab' },
   ];
 
   const foldersToDisplay = availableFolders.length > 0 ? availableFolders : fallbackFolders;
@@ -126,24 +130,23 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
   return (
     <div className="flex gap-3 h-full relative">
       
-      {/* ==================== KIRI: LOG AKTIVITAS ==================== */}
       <div className={`w-[60%] h-full rounded-2xl border flex flex-col overflow-hidden shadow-sm ${theme.panel}`}>
-        <div className="p-4 border-b border-gray-700/50 flex items-center justify-between shrink-0 bg-black/5">
-          <div className="flex items-center">
-            <Clock size={18} className="text-blue-500 mr-2" />
-            <h3 className={`font-bold text-sm uppercase tracking-wider ${theme.text}`}>Log Aktivitas Sistem</h3>
+        <div className="p-4 border-b border-gray-800 bg-black/10 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity size={18} className="text-blue-500" />
+            <h3 className={`font-bold text-sm uppercase tracking-wider ${theme.text}`}>{t.systemActivityLog}</h3>
           </div>
-          <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded text-[10px] font-bold">AUTOMATED LOG</span>
+          <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded text-[10px] font-bold">{t.automatedLog}</span>
         </div>
 
         <div className="flex-1 overflow-auto" style={{ scrollbarWidth: 'none' }}>
           <table className="w-full text-left border-collapse">
             <thead className={`sticky top-0 text-[10px] font-bold uppercase tracking-wider ${theme.tableHeader}`}>
               <tr>
-                <th className="p-3">Waktu</th>
-                <th className="p-3">Operator</th>
-                <th className="p-3">Aktivitas</th>
-                <th className="p-3 text-center">Status</th>
+                <th className="p-3">{t.time}</th>
+                <th className="p-3">{t.operator}</th>
+                <th className="p-3">{t.activity}</th>
+                <th className="p-3 text-center">{t.status}</th>
               </tr>
             </thead>
             <tbody className={`text-xs font-mono ${theme.text}`}>
@@ -172,7 +175,6 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
         </div>
       </div>
 
-      {/* ==================== KANAN: GENERATOR DOKUMEN LAPORAN ==================== */}
       <div className="w-[40%] h-full flex flex-col gap-3 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         <div className={`p-4 rounded-2xl border flex flex-col gap-3 shrink-0 ${theme.panel}`}>
           <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${theme.text}`}>
@@ -181,7 +183,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
 
           <div className="space-y-3">
             <div>
-              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>Judul Dokumen / Proyek:</label>
+              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t.documentTitle}</label>
               <input 
                 type="text"
                 value={reportTitle}
@@ -191,7 +193,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
             </div>
 
             <div>
-              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>Pilih Folder Sumber Data:</label>
+              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t.selectSourceFolder}</label>
               <div className="grid gap-1.5 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
                 {foldersToDisplay.map(folder => (
                   <div 
@@ -213,40 +215,37 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
 
         <div className={`p-4 rounded-2xl border flex flex-col gap-3 shrink-0 ${theme.panel}`}>
           <div>
-            <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${theme.textMuted}`}>Pilih Format Ekspor Dokumen:</h4>
+            <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${theme.textMuted}`}>{t.selectExportFormat}</h4>
             <div className="flex flex-col gap-2">
-              <button 
-                onClick={() => handleGenerateReport('WORD')}
-                className="w-full p-3 bg-blue-600/10 border border-blue-500/30 text-blue-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-blue-600 hover:text-white active:scale-95 transition-all shadow-sm"
-              >
-                <div className="flex items-center">
-                  <FileText size={18} className="mr-3 shrink-0" />
-                  <div className="flex flex-col text-left"><span className="leading-tight">Generate Microsoft Word</span><span className="text-[9px] opacity-70 font-normal">Format dokumen narasi laporan (.docx)</span></div>
-                </div>
-                <Download size={14} />
-              </button>
-
-              <button 
-                onClick={() => handleGenerateReport('EXCEL')}
-                className="w-full p-3 bg-green-600/10 border border-green-500/30 text-green-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-green-600 hover:text-white active:scale-95 transition-all shadow-sm"
-              >
-                <div className="flex items-center">
-                  <FileSpreadsheet size={18} className="mr-3 shrink-0" />
-                  <div className="flex flex-col text-left"><span className="leading-tight">Generate Microsoft Excel</span><span className="text-[9px] opacity-70 font-normal">Tabel koordinat matriks & data koloni (.xlsx)</span></div>
-                </div>
-                <Download size={14} />
-              </button>
-
-              <button 
-                onClick={() => handleGenerateReport('PPT')}
-                className="w-full p-3 bg-orange-600/10 border border-orange-500/30 text-orange-500 rounded-xl font-bold text-xs flex items-center justify-between hover:bg-orange-600 hover:text-white active:scale-95 transition-all shadow-sm"
-              >
-                <div className="flex items-center">
-                  <Presentation size={18} className="mr-3 shrink-0" />
-                  <div className="flex flex-col text-left"><span className="leading-tight">Generate Presentation Slide</span><span className="text-[9px] opacity-70 font-normal">Slide ringkas hasil deteksi objek AI (.pptx)</span></div>
-                </div>
-                <Download size={14} />
-              </button>
+                <button onClick={() => handleGenerateReport('WORD')} disabled={!selectedFolderId} className={`group flex items-center p-4 rounded-2xl border text-left transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-800/40 border-gray-700/50 hover:bg-blue-900/20 hover:border-blue-500/50 hover:shadow-[0_0_15px_rgba(59,130,246,0.15)]' : 'bg-white border-gray-200 hover:bg-blue-50/50 hover:border-blue-300 hover:shadow-lg'}`}>
+                  <div className={`p-3 rounded-xl mr-4 transition-transform duration-300 group-hover:scale-110 ${isDarkMode ? 'bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20' : 'bg-blue-50 text-blue-600'}`}>
+                    <FileText size={24} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-blue-400' : 'text-gray-800 group-hover:text-blue-700'}`}>{t.generateWord}</span>
+                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t.wordDesc}</span>
+                  </div>
+                </button>
+                
+                <button onClick={() => handleGenerateReport('EXCEL')} disabled={!selectedFolderId} className={`group flex items-center p-4 rounded-2xl border text-left transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-800/40 border-gray-700/50 hover:bg-green-900/20 hover:border-green-500/50 hover:shadow-[0_0_15px_rgba(34,197,94,0.15)]' : 'bg-white border-gray-200 hover:bg-green-50/50 hover:border-green-300 hover:shadow-lg'}`}>
+                  <div className={`p-3 rounded-xl mr-4 transition-transform duration-300 group-hover:scale-110 ${isDarkMode ? 'bg-green-500/10 text-green-400 group-hover:bg-green-500/20' : 'bg-green-50 text-green-600'}`}>
+                    <FileSpreadsheet size={24} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-green-400' : 'text-gray-800 group-hover:text-green-700'}`}>{t.generateExcel}</span>
+                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t.excelDesc}</span>
+                  </div>
+                </button>
+                
+                <button onClick={() => handleGenerateReport('PPT')} disabled={!selectedFolderId} className={`group flex items-center p-4 rounded-2xl border text-left transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-800/40 border-gray-700/50 hover:bg-orange-900/20 hover:border-orange-500/50 hover:shadow-[0_0_15px_rgba(249,115,22,0.15)]' : 'bg-white border-gray-200 hover:bg-orange-50/50 hover:border-orange-300 hover:shadow-lg'}`}>
+                  <div className={`p-3 rounded-xl mr-4 transition-transform duration-300 group-hover:scale-110 ${isDarkMode ? 'bg-orange-500/10 text-orange-400 group-hover:bg-orange-500/20' : 'bg-orange-50 text-orange-600'}`}>
+                    <Presentation size={24} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-orange-400' : 'text-gray-800 group-hover:text-orange-700'}`}>{t.generatePpt}</span>
+                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t.pptDesc}</span>
+                  </div>
+                </button>
             </div>
           </div>
 
@@ -261,8 +260,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [] }: 
         <div className={theme.overlay}>
           <div className="flex flex-col items-center text-white">
             <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-            <h2 className="text-2xl font-bold mb-2">Menyusun Berkas {generatedType}...</h2>
-            <p className="text-sm text-blue-300 font-mono">Backend Python sedang mengompilasi data ke format biner...</p>
+            <h2 className="text-2xl font-bold mb-2">{t.compilingFile.replace('{X}', generatedType || '')}</h2>
+            <p className="text-sm text-blue-300 font-mono">{t.backendCompiling}</p>
           </div>
         </div>
       )}

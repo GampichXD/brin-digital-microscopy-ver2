@@ -2,8 +2,8 @@ import uuid
 import os
 import shutil
 import zipfile
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
@@ -13,6 +13,7 @@ from .. import models
 # Skema Pydantic baru untuk payload penambahan gambar
 class ImageCountIncrement(BaseModel):
     count: int
+    filenames: list[str] = []
 
 DATASET_DIR = "./static/datasets"
 os.makedirs(DATASET_DIR, exist_ok=True)
@@ -41,6 +42,7 @@ class FolderResponse(BaseModel):
     date: str
     operator: str
     image_count: int
+    video_count: int = 0
 
     class Config:
         from_attributes = True
@@ -84,16 +86,86 @@ def get_all_folders(db: Session = Depends(get_db)):
         folder_path = os.path.join(DATASET_DIR, folder.id)
         if os.path.exists(folder_path):
             files = os.listdir(folder_path)
-            img_count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')))
+            img_count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')) and not f.startswith('_temp_') and os.path.getsize(os.path.join(DATASET_DIR, folder.id, f)) > 0)
+            vid_count = sum(1 for f in files if f.lower().endswith(('.mp4', '.webm', '.avi')) and not f.startswith('_temp_') and os.path.getsize(os.path.join(DATASET_DIR, folder.id, f)) > 0)
             if folder.image_count != img_count:
                 folder.image_count = img_count
                 dirty = True
+            setattr(folder, "video_count", vid_count)
+        else:
+            setattr(folder, "video_count", 0)
     if dirty:
         db.commit()
         
     return folders
 
-# --- ENDPOINT 2.1: DATA KAPASITAS HARD DISK SERVER HOSTING ---
+# --- ENDPOINT 2.2: STREAMING VIDEO WITH PROPER HTTP RANGE SUPPORT ---
+@router.get("/video/{folder_id}/{filename}")
+def stream_video(folder_id: str, filename: str, request: Request):
+    """Serve video with HTTP 206 Range support for browser video players."""
+    file_path = os.path.join(DATASET_DIR, folder_id, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Video tidak ditemukan")
+
+    file_size = os.path.getsize(file_path)
+    if file_size == 0:
+        raise HTTPException(status_code=404, detail="File video kosong atau belum selesai direkam")
+
+    # Determine correct media type
+    ext = filename.lower().rsplit('.', 1)[-1]
+    media_type_map = {'mp4': 'video/mp4', 'webm': 'video/webm', 'avi': 'video/x-msvideo'}
+    media_type = media_type_map.get(ext, 'video/mp4')
+
+    range_header = request.headers.get("Range")
+
+    def iterfile(start: int, end: int):
+        chunk_size = 1024 * 256  # 256 KB
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = f.read(min(chunk_size, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    if range_header:
+        try:
+            range_val = range_header.replace("bytes=", "")
+            start_str, end_str = range_val.split("-")
+            start = int(start_str)
+            end = int(end_str) if end_str else file_size - 1
+        except Exception:
+            start = 0
+            end = file_size - 1
+
+        end = min(end, file_size - 1)
+        content_length = end - start + 1
+
+        return StreamingResponse(
+            iterfile(start, end),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(content_length),
+            },
+        )
+    else:
+        return StreamingResponse(
+            iterfile(0, file_size - 1),
+            status_code=200,
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            },
+        )
+
+
 @router.get("/storage-info")
 def get_storage_info():
     try:
@@ -147,6 +219,20 @@ def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Sess
     folder.image_count += payload.count
     db.commit()
     db.refresh(folder)
+
+    # Move files from static/uploads to static/datasets/{folder_id}
+    folder_path = os.path.join(DATASET_DIR, folder_id)
+    os.makedirs(folder_path, exist_ok=True)
+    uploads_dir = os.path.join(DATASET_DIR, "..", "uploads")
+    
+    for filename in payload.filenames:
+        src = os.path.join(uploads_dir, filename)
+        dst = os.path.join(folder_path, filename)
+        if os.path.exists(src):
+            try:
+                shutil.copy2(src, dst)
+            except Exception as e:
+                print(f"[ERROR] Gagal menyalin file {filename}: {e}")
     return {"message": "Jumlah gambar berhasil dimutasi", "current_image_count": folder.image_count}
 
 class DeleteImagesPayload(BaseModel):
@@ -161,15 +247,21 @@ def get_folder_images(folder_id: str):
     images = []
     files = os.listdir(folder_path)
     for f in files:
-        if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.mp4', '.webm')):
+            # Skip temp files and 0-byte files
+            if f.startswith('_temp_'):
+                continue
+            full_path = os.path.join(folder_path, f)
+            if os.path.getsize(full_path) == 0:
+                continue
             is_synced = f"{f}.synced" in files
             images.append({"name": f, "synced": is_synced})
             
     images.sort(key=lambda x: x["name"])
     return images
 
-@router.post("/folders/{folder_id}/images")
-def upload_images(folder_id: str, files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
+@router.post("/folders/{folder_id}/files")
+def upload_files(folder_id: str, files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
@@ -188,10 +280,10 @@ def upload_images(folder_id: str, files: List[UploadFile] = File(...), db: Sessi
     folder.image_count += saved_count
     db.commit()
     db.refresh(folder)
-    return {"message": f"{saved_count} gambar berhasil diunggah", "current_image_count": folder.image_count}
+    return {"message": f"{saved_count} file berhasil diunggah", "current_image_count": folder.image_count}
 
-@router.get("/folders/{folder_id}/images/{filename}/download")
-def download_single_image(folder_id: str, filename: str):
+@router.get("/folders/{folder_id}/files/{filename}/download")
+def download_single_file(folder_id: str, filename: str):
     file_path = os.path.join(DATASET_DIR, folder_id, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Gambar tidak ditemukan")
@@ -248,7 +340,7 @@ def download_folder_zip(folder_id: str, db: Session = Depends(get_db)):
 # --- MOCK VPS ENDPOINT UNTUK PENGUJIAN HYBRID SYNCING ---
 @router.post("/vps-mock/sync")
 def mock_vps_sync(files: List[UploadFile] = File(...)):
-    # Dalam dunia nyata, VPS akan menyimpan file ini ke storage S3 atau direktori lokalnya
+    # Digantikan oleh endpoint per folder /folders/{folder_id}/files
     return {"message": f"Mock VPS berhasil menerima {len(files)} file dan menyimpannya ke Cloud.", "status": "success"}
 
 # --- ENDPOINT INDEX SINKRONISASI DUA ARAH (DOWNSTREAM MIRRORING) ---
@@ -258,14 +350,14 @@ def get_vps_sync_index(db: Session = Depends(get_db)):
     index = {}
     for folder in folders:
         folder_path = os.path.join(DATASET_DIR, folder.id)
-        images = []
+        files = []
         if os.path.exists(folder_path):
-            images = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.mp4', '.webm'))]
         index[folder.id] = {
             "name": folder.name,
             "object_type": folder.object_type,
             "operator": folder.operator,
             "date": folder.date,
-            "images": images
+            "files": files
         }
     return {"folders": index}

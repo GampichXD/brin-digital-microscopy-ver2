@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { UploadCloud, Undo2, Redo2, Save, X, Scan, Wand2, Contrast, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { UploadCloud, Undo2, Redo2, Save, X, Scan, Move, Ruler, Droplet, Maximize, FolderPlus, Layers, Activity, ZoomIn, ZoomOut, Database, ArrowLeft } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 import { logSystemAction } from '../utils/logger';
+import { translations } from '../i18n';
+import type { Language } from '../i18n';
 
 interface DatasetFolder {
   id: string;
@@ -17,6 +19,7 @@ interface ImageAnalysisTabProps {
   globalVirtualKeyboard: boolean;
   availableFolders?: DatasetFolder[];
   onRefreshFolders?: () => void;
+  language: Language;
 }
 
 interface ColonyPosition {
@@ -33,7 +36,8 @@ interface AnalysisState {
   imageSrc: string | null;
 }
 
-export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard, availableFolders = [], onRefreshFolders }: ImageAnalysisTabProps) {
+export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarget, globalVirtualKeyboard, availableFolders = [], onRefreshFolders, language }: ImageAnalysisTabProps) {
+  const t = translations[language];
   const [currentImage, setCurrentImage] = useState<string | null>(targetImage);
   const API_BASE_URL = 'http://localhost:8000';
   
@@ -82,7 +86,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
             processName: 'Original Image',
             cssFilter: 'brightness(1) contrast(1) blur(0px)',
             colonies: null,
-            imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}`
+            imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}?t=${new Date().getTime()}`
           }
         ]);
         setHistoryIndex(0);
@@ -285,7 +289,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       // 3. Upload gambar ke folder tujuan
       const formData = new FormData();
       formData.append('files', blob, outputFilename);
-      await axios.post(`${API_BASE_URL}/api/dataset/folders/${targetFolderId}/images`, formData, {
+      await axios.post(`${API_BASE_URL}/api/dataset/folders/${targetFolderId}/files`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -385,7 +389,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
                 <UploadCloud size={32} />
               </div>
-              <h2 className={`text-lg font-black mb-1 tracking-wide ${theme.text}`}>Seret Gambar / Ketuk</h2>
+              <h2 className={`text-lg font-black mb-1 tracking-wide ${theme.text}`}>{t.dragImageTap}</h2>
               <p className={`text-[11px] mb-4 max-w-xs text-center leading-relaxed ${theme.textMuted}`}>
                 Tarik file dari Device, atau sentuh untuk mengakses penyimpanan lokal perangkat Anda, atau terima transmisi otomatis dari Tab Image Gathering.
               </p>
@@ -399,7 +403,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
           <div className={`w-full md:w-[40%] rounded-3xl border p-4 flex flex-col shadow-sm ${theme.panel}`}>
             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-800">
               <Database size={16} className="text-blue-400" />
-              <h3 className={`text-xs font-black uppercase tracking-wider ${theme.text}`}>Pilih dari Pustaka Database</h3>
+              <h3 className={`text-xs font-black uppercase tracking-wider ${theme.text}`}>{t.selectFromDb}</h3>
             </div>
             <p className={`text-[10px] mb-3 leading-normal ${theme.textMuted}`}>
               Pilih folder sampel mikroba/bakteri yang telah terdaftar di database laboratorium untuk memuat citra mentahnya ke dalam kanvas analisis.
@@ -468,9 +472,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className={`text-sm font-bold font-mono truncate ${theme.text}`}>{currentImage}</span>
                   <span className={`text-[10px] font-bold text-blue-500 truncate flex gap-2`}>
-                    <span>STATUS: {activeState?.processName.toUpperCase()}</span>
-                    <span>•</span>
-                    <span>ZOOM: {Math.round(zoomLevel * 100)}%</span>
+                    <span>{t.statusLabel} {activeState?.processName.toUpperCase()}</span>
                   </span>
                 </div>
               </div>
@@ -492,6 +494,9 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                 <button onClick={handleZoomIn} disabled={zoomLevel >= 3} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomIn size={18}/></button>
                 <div className="w-full h-px bg-gray-600 my-0.5"></div>
                 <button onClick={handleZoomOut} disabled={zoomLevel <= 0.5} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomOut size={18}/></button>
+              </div>
+              <div className="absolute top-4 left-16 ml-1 z-20 px-3 py-2 rounded-xl bg-black/50 border border-gray-600 backdrop-blur-md text-white font-mono text-xs font-bold flex items-center shadow-md">
+                {t.zoomLabel} {Math.round(zoomLevel * 100)}%
               </div>
 
               <div 
@@ -525,7 +530,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                     className="absolute border-2 border-green-400 bg-green-400/20 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)] flex items-center justify-center"
                     style={{ left: `${colony.x}%`, top: `${colony.y}%`, width: '20px', height: '20px', transform: 'translate(-50%, -50%)' }}
                   >
-                    <span className="text-[6px] font-bold text-green-300 absolute -top-3">SEL</span>
+                    <span className="text-[6px] font-bold text-green-300 absolute -top-3">{t.cell}</span>
                   </div>
                 ))}
               </div>
@@ -534,7 +539,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                 <div className="absolute bottom-6 left-6 px-4 py-3 bg-green-900/80 border border-green-500 rounded-xl backdrop-blur-md flex items-center shadow-2xl">
                    <Activity size={24} className="text-green-400 mr-3" />
                    <div className="flex flex-col">
-                     <span className="text-xs text-green-300 font-bold uppercase">Hasil Deteksi Model</span>
+                     <span className="text-xs text-green-300 font-bold uppercase">{t.modelDetectionResults}</span>
                      <span className="text-xl font-black text-white">{activeState.colonies.length} Koloni Ditemukan</span>
                    </div>
                 </div>
@@ -542,18 +547,18 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
               {activeState?.stats && (
                 <div className="absolute bottom-6 right-6 px-4 py-3 bg-blue-900/80 border border-blue-500 rounded-xl backdrop-blur-md flex flex-col shadow-2xl min-w-[200px]">
-                   <span className="text-xs text-blue-300 font-bold uppercase mb-2 border-b border-blue-500/50 pb-1">Statistik Morfologi</span>
+                   <span className="text-xs text-blue-300 font-bold uppercase mb-2 border-b border-blue-500/50 pb-1">{t.morphologyStats}</span>
                    <div className="flex justify-between items-center mb-1">
-                     <span className="text-sm text-gray-300">Total Objek:</span>
-                     <span className="text-sm font-bold text-white">{activeState.stats.total_cells}</span>
+                     <span className="text-sm text-gray-300">{t.totalObjects}</span>
+                     <span className="text-lg font-bold text-white">{activeState.stats?.total_cells || activeState.colonies?.length || 0}</span>
                    </div>
                    <div className="flex justify-between items-center mb-1">
-                     <span className="text-sm text-gray-300">Rata-rata Luas:</span>
-                     <span className="text-sm font-bold text-white">{activeState.stats.avg_area} px²</span>
+                     <span className="text-sm text-gray-300">{t.avgArea}</span>
+                     <span className="text-sm font-bold text-white">{activeState.stats?.avg_area || 0} px²</span>
                    </div>
-                   <div className="flex justify-between items-center">
-                     <span className="text-sm text-gray-300">Rata-rata Keliling:</span>
-                     <span className="text-sm font-bold text-white">{activeState.stats.avg_perimeter} px</span>
+                   <div className="flex justify-between items-center mb-1">
+                     <span className="text-sm text-gray-300">{t.avgPerimeter}</span>
+                     <span className="text-sm font-bold text-white">{activeState.stats?.avg_perimeter || 0} px</span>
                    </div>
                 </div>
               )}
@@ -562,44 +567,44 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
           <div className="w-[30%] h-full flex flex-col gap-3">
             <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
-              <h2 className={`font-bold text-lg mb-1 ${theme.text}`}>Analysis Tools</h2>
-              <p className={`text-xs ${theme.textMuted}`}>Pilih metode pemrosesan gambar.</p>
+              <h2 className={`font-bold text-lg mb-1 ${theme.text}`}>{t.analysisToolsTitle}</h2>
+              <p className={`text-xs ${theme.textMuted}`}>{t.selectProcessingMethod}</p>
             </div>
 
             <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none' }}>
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
                 <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>1. Pemrosesan Kecerdasan Buatan</h3>
                 <button onClick={runColonyCounter} className="w-full p-3 rounded-xl border border-purple-500/50 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 active:scale-95 flex items-center transition-colors text-sm font-bold text-left">
-                  <Scan size={18} className="mr-3 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">AI YOLO Colony Counter</span><span className="text-[9px] opacity-70 font-normal">Deteksi & Hitung Otomatis</span></div>
+                  <Scan size={18} className="mr-3 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.yoloCounter}</span><span className="text-[9px] opacity-70 font-normal">{t.autoDetectCount}</span></div>
                 </button>
                 <button onClick={() => executeTool('Kalkulasi Morfologi', 'morphology')} className="w-full p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 text-blue-400 hover:bg-blue-500/10 active:scale-95 flex items-center transition-colors text-sm font-bold text-left">
-                  <Maximize size={18} className="mr-3 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Kalkulasi Morfologi</span><span className="text-[9px] opacity-70 font-normal">Hitung Area & Keliling Sel</span></div>
+                  <Maximize size={18} className="mr-3 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.morphologyCalc}</span><span className="text-[9px] opacity-70 font-normal">{t.calcAreaPerimeter}</span></div>
                 </button>
               </div>
 
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
                 <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>2. Image Enhancement</h3>
                 <button onClick={runDenoise} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Activity size={18} className="mr-3 text-orange-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Adaptive Thresholding</span><span className="text-[9px] font-normal text-gray-500">Binarisasi & Deteksi Objek</span></div>
+                  <Activity size={18} className="mr-3 text-orange-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.adaptiveThresholding}</span><span className="text-[9px] font-normal text-gray-500">{t.binarizationDetect}</span></div>
                 </button>
                 <button onClick={runCLAHE} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Layers size={18} className="mr-3 text-cyan-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Ekstraksi Kontur</span><span className="text-[9px] font-normal text-gray-500">Temukan Dinding Sel Geometri</span></div>
+                  <Layers size={18} className="mr-3 text-cyan-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.contourExtraction}</span><span className="text-[9px] font-normal text-gray-500">{t.findCellWalls}</span></div>
                 </button>
-                <button onClick={() => executeTool('Edge Detection (Sobel)', 'sobel')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Scan size={18} className="mr-3 text-yellow-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Edge Detection (Sobel)</span><span className="text-[9px] font-normal text-gray-500">Ekstraksi Garis Sobel (Baru)</span></div>
+                <button onClick={runEdgeDetection} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                  <Scan size={18} className="mr-3 text-yellow-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.edgeDetectionSobel}</span><span className="text-[9px] font-normal text-gray-500">{t.sobelLineExtraction}</span></div>
                 </button>
               </div>
 
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
-                <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>3. Utilitas & Kalibrasi</h3>
-                <button onClick={() => executeTool('ROI Selection', 'roi')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Move size={18} className="mr-3 text-green-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Region of Interest (ROI)</span><span className="text-[9px] font-normal text-gray-500">Potong/Pilih Area Spesifik</span></div>
+                <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>3. Utilitas Editor</h3>
+                <button className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                  <Move size={18} className="mr-3 text-green-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.roi}</span><span className="text-[9px] font-normal text-gray-500">{t.cropSelectArea}</span></div>
                 </button>
-                <button onClick={() => executeTool('Scale Calibration', 'calibrate')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Ruler size={18} className="mr-3 text-red-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Kalibrasi Skala (µm)</span><span className="text-[9px] font-normal text-gray-500">Set Rasio Pixel ke Mikrometer</span></div>
+                <button className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                  <Ruler size={18} className="mr-3 text-red-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.scaleCalibration}</span><span className="text-[9px] font-normal text-gray-500">{t.setPixelRatio}</span></div>
                 </button>
-                <button onClick={() => executeTool('Color Split', 'color-split')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
-                  <Droplet size={18} className="mr-3 text-pink-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">Color Channel Split</span><span className="text-[9px] font-normal text-gray-500">Pisahkan Warna Staining</span></div>
+                <button className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                  <Droplet size={18} className="mr-3 text-pink-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t.colorChannelSplit}</span><span className="text-[9px] font-normal text-gray-500">{t.splitStainColor}</span></div>
                 </button>
               </div>
             </div>
@@ -612,7 +617,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
           <div className="flex flex-col items-center text-white">
             <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
             <h2 className="text-2xl font-bold mb-2">{processTask}</h2>
-            <p className="text-sm text-blue-300 font-mono">Mohon tunggu, AI sedang memproses tensor...</p>
+            <p className="text-sm text-blue-300 font-mono">{t.aiProcessing}</p>
           </div>
         </div>
       )}
@@ -620,11 +625,10 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       {showSaveModal && (
         <div className={theme.modalBg}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
-            <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>Simpan Hasil Analisis</h2>
-            <div className="space-y-6 mb-8">
-              <div>
-                <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>Pilih Folder Destinasi:</label>
-                <div className="grid gap-2 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
+            <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{t.saveAnalysisResults}</h2>
+            <div className="mb-4">
+              <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>{t.selectDestFolder}</label>
+              <div className="grid gap-2 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
                   {availableFolders.map(folder => (
                     <div 
                       key={folder.id} 
@@ -639,12 +643,12 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               </div>
 
               <div className="flex items-center text-xs font-bold text-gray-500">
-                <div className="flex-1 border-t border-gray-600"></div><span className="px-3">ATAU BUAT BARU</span><div className="flex-1 border-t border-gray-600"></div>
+                <div className="flex-1 border-t border-gray-600"></div><span className="px-3">{t.orCreateNew}</span><div className="flex-1 border-t border-gray-600"></div>
               </div>
 
               <div className="space-y-3">
                 <div>
-                  <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Folder</label>
+                  <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.folderName}</label>
                   <input 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
@@ -656,7 +660,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                   />
                 </div>
                 <div>
-                  <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Jenis Objek (Label AI)</label>
+                  <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.objectType}</label>
                   <input 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
@@ -668,7 +672,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                   />
                 </div>
                 <div>
-                  <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Operator</label>
+                  <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.operatorName}</label>
                   <input 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
@@ -679,7 +683,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
                   />
                 </div>
               </div>
-            </div>
 
             {saveResult && (
               <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-bold text-center ${saveResult.ok ? 'bg-green-500/15 border border-green-500 text-green-400' : 'bg-red-500/15 border border-red-500 text-red-400'}`}>
@@ -687,13 +690,13 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
               </div>
             )}
 
-            <div className="flex gap-3">
-              <button onClick={() => { setShowSaveModal(false); setSaveResult(null); }} disabled={isSaving} className={`flex-1 py-3 rounded-xl font-bold border disabled:opacity-40 ${theme.textMuted} ${theme.btnTouch}`}>Batal</button>
+            <div className="flex gap-4">
+              <button onClick={() => { setShowSaveModal(false); setSaveResult(null); }} disabled={isSaving} className={`flex-1 py-3 rounded-xl font-bold border disabled:opacity-40 ${theme.textMuted} ${theme.btnTouch}`}>{t.cancel}</button>
               <button onClick={handleSaveToFolder} disabled={isSaving || !!saveResult?.ok} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-60 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 shadow-lg transition-all">
                 {isSaving ? (
-                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>Menyimpan...</>
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>{t.saving}</>
                 ) : (
-                  <><Save size={18} className="mr-2"/> Konfirmasi Simpan</>
+                  <><Save size={18} className="mr-2"/> {t.confirmSave}</>
                 )}
               </button>
             </div>

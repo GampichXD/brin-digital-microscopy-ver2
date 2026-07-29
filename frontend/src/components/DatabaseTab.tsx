@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import type { ElementType } from 'react';
 import axios from 'axios';
-import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, Image as ImageIcon, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight, Video, Camera, Activity } from 'lucide-react';
+import type { Language } from '../i18n';
+import { translations } from '../i18n';
 import VirtualKeyboard from './VirtualKeyboard';
 import { logSystemAction } from '../utils/logger';
 
@@ -10,7 +12,8 @@ interface DatabaseTabProps {
   globalVirtualKeyboard: boolean;
   triggerToast: (msg: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
   availableFolders: DatasetFolder[]; 
-  onRefreshFolders: () => void;      
+  onRefreshFolders: () => void;
+  language: Language;
 }
 
 interface DatasetFolder {
@@ -20,6 +23,7 @@ interface DatasetFolder {
   date: string;
   operator: string;
   image_count: number; 
+  video_count?: number;
 }
 
 interface TouchDropdownProps {
@@ -62,7 +66,8 @@ function TouchDropdown({ options, value, onChange, isDarkMode, icon: Icon }: Tou
   );
 }
 
-export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast, availableFolders, onRefreshFolders }: DatabaseTabProps) {
+export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast, availableFolders, onRefreshFolders, language }: DatabaseTabProps) {
+  const t = translations[language];
   const [searchQuery, setSearchQuery] = useState('');
   const [filterObject, setFilterObject] = useState('Semua Objek');
   const [filterOperator, setFilterOperator] = useState('Semua Operator');
@@ -141,7 +146,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     if (fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
       a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/download`;
     } else {
-      a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/images/${fileName}/download`;
+      a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/files/${fileName}/download`;
     }
     
     a.download = fileName;
@@ -175,6 +180,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         });
         triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`, 'SUCCESS');
         logSystemAction(`Buat Folder Dataset (${formData.name})`, 'SUCCESS');
+        onRefreshFolders();
       } else {
         await axios.put(`http://localhost:8000/api/dataset/folders/${formData.id}`, {
           name: formData.name,
@@ -183,6 +189,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         });
         triggerToast('Metadata folder berhasil diperbarui!', 'SUCCESS');
         logSystemAction(`Update Metadata Folder (${formData.name})`, 'SUCCESS');
+        onRefreshFolders();
       }
       setIsFormOpen(false);
       setKeyboardState({ visible: false, targetField: '', title: '' });
@@ -302,7 +309,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     }
 
     try {
-      await axios.post(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`, formDataObj, {
+      await axios.post(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/files`, formDataObj, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       triggerToast(`Berhasil mengunggah ${files.length} gambar!`, 'SUCCESS');
@@ -356,7 +363,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                 <HardDrive size={18} className={`mr-3 ${storageInfo.used_percentage > 80 ? 'text-red-500' : 'text-green-500'}`} />
                 <div className="flex flex-col w-32">
                   <div className="flex justify-between text-[10px] font-bold mb-1">
-                    <span className={theme.textMuted}>ROM Server Hosting</span>
+                    <span className={theme.textMuted}>{t.serverRom}</span>
                     <span className={storageInfo.used_percentage > 80 ? 'text-red-500' : theme.text}>{storageInfo.used_percentage}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
@@ -365,9 +372,15 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                 </div>
               </div>
 
-              <button onClick={openCreateForm} className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center shadow-lg active:scale-95 transition-transform text-sm whitespace-nowrap">
-                <Plus size={18} className="mr-2" /> BUAT FOLDER
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => openCreateForm()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center shadow-lg shadow-blue-500/30 transition-all active:scale-95"
+                >
+                  <Plus size={14} className="mr-1.5" />
+                  {t.createNew}
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap gap-3 pb-1 pt-1 z-20">
               <TouchDropdown options={dateOptions} value={filterDate} onChange={setFilterDate} isDarkMode={isDarkMode} icon={Filter} />
@@ -409,7 +422,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                   {selectedImages.length === currentImages.length ? <CheckSquare size={18} className="mr-2" /> : <Square size={18} className="mr-2" />}
                   PILIH SEMUA
                 </button>
-                <button onClick={() => setIsSelectMode(false)} className={`px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${theme.text}`}>BATAL</button>
+                <button onClick={() => setIsSelectMode(false)} className={`px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${theme.text}`}>{t.cancel}</button>
                 <div className="w-px bg-gray-500/30 mx-1"></div>
                 <button onClick={() => confirmDeleteImages(selectedImages)} disabled={selectedImages.length === 0} className="px-4 py-2 bg-red-600 disabled:bg-red-900 disabled:text-red-400 hover:bg-red-700 text-white rounded-lg font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
                   <Trash2 size={16} className="mr-2" /> HAPUS ({selectedImages.length})
@@ -439,14 +452,23 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                     <h3 className={`font-bold text-lg truncate ${theme.text}`}>{folder.name}</h3>
                     <p className={`text-xs font-bold text-blue-500 mb-1`}>{folder.object_type}</p>
                     <div className={`text-[10px] space-y-0.5 ${theme.textMuted}`}>
-                      <p>Diambil: {folder.date}</p>
-                      <p>Oleh: {folder.operator}</p>
+                      <p>{t.taken} {folder.date}</p>
+                      <p>{t.by} {folder.operator}</p>
                     </div>
                   </div>
                 </div>
                 <div className={`h-px w-full mb-3 ${isDarkMode ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-bold px-2 py-1 rounded bg-black/5 ${theme.textMuted}`}>{folder.image_count} Gambar</span>
+                  <div className="flex gap-2">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center ${isDarkMode ? 'bg-gray-900/50 border-gray-700 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+                      <Camera size={12} className="mr-1.5 text-blue-500" />
+                      {folder.image_count} {t.images}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center ${isDarkMode ? 'bg-gray-900/50 border-gray-700 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+                      <Video size={12} className="mr-1.5 text-red-500" />
+                      {folder.video_count || 0} {t.videos}
+                    </span>
+                  </div>
                   <div className="flex gap-2">
                     <button onClick={() => openEditForm(folder)} className={`p-2 rounded-lg border ${theme.btnHover} ${isDarkMode ? 'border-gray-700 text-yellow-500' : 'border-gray-300 text-yellow-600'} active:scale-95`}><Edit2 size={16} /></button>
                     <button onClick={() => confirmDelete(folder.id)} className={`p-2 rounded-lg border ${theme.btnHover} ${isDarkMode ? 'border-gray-700 text-red-400' : 'border-gray-300 text-red-500'} active:scale-95`}><Trash2 size={16} /></button>
@@ -469,7 +491,16 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                   onClick={() => isSelectMode ? toggleSelectImage(fileName) : setPreviewIndex(i)}
                   className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center relative group overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-blue-500 ring-2 ring-blue-500 ring-offset-2' : `border-transparent ${theme.panel}`}`}
                 >
-                  <img src={`http://localhost:8000/static/datasets/${activeFolder.id}/${fileName}`} alt={fileName} className="absolute inset-0 w-full h-full object-cover z-0" />
+                  {fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.webm') || fileName.toLowerCase().endsWith('.avi') ? (
+                    <>
+                      <video src={`http://localhost:8000/api/dataset/video/${activeFolder?.id}/${fileName}`} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
+                      <div className="absolute inset-0 flex items-center justify-center z-0 bg-black/20">
+                        <Video size={32} className="text-white/70" />
+                      </div>
+                    </>
+                  ) : (
+                    <img src={`http://localhost:8000/static/datasets/${activeFolder?.id}/${fileName}`} alt={fileName} className="absolute inset-0 w-full h-full object-cover z-0" />
+                  )}
                   
                   {isSelectMode && (
                     <div className={`absolute top-2 left-2 z-20 ${isSelected ? 'text-blue-500' : 'text-white drop-shadow-md'}`}>
@@ -496,68 +527,86 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
       {/* ================= MODALS & POPUPS ================= */}
       {previewIndex !== null && (
-        <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-4 backdrop-blur-md">
-            <div className={`p-4 border-b flex justify-between items-center ${isDarkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-white border-gray-200'}`}>
-              <span className="font-bold text-lg">{currentImages[previewIndex]?.name}</span>
-              <button onClick={() => setPreviewIndex(null)} className="p-2 hover:bg-red-500 hover:text-white rounded-lg transition-colors"><X size={20} /></button>
+        <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center backdrop-blur-xl">
+          {/* HEADER PADA PREVIEW */}
+          <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pointer-events-none">
+            <div className="flex flex-col">
+              <span className="font-mono text-gray-400 text-xs tracking-widest uppercase">PREVIEW</span>
+              <span className="font-bold text-xl text-white drop-shadow-md">{currentImages[previewIndex]?.name}</span>
             </div>
+            <button onClick={() => setPreviewIndex(null)} className="p-3 bg-white/10 hover:bg-red-500 text-white rounded-full transition-all pointer-events-auto backdrop-blur-md">
+              <X size={24} />
+            </button>
+          </div>
 
+          {/* TOMBOL NAVIGASI KIRI */}
           <button
             onClick={() => setPreviewIndex(prev => Math.max(0, prev! - 1))}
             disabled={previewIndex === 0}
-            className="absolute left-6 p-4 bg-gray-800/80 hover:bg-gray-700 text-white rounded-full active:scale-95 disabled:opacity-20 transition-all"
+            className="absolute left-6 p-4 bg-white/5 hover:bg-white/20 text-white rounded-full active:scale-95 disabled:opacity-10 transition-all z-10 backdrop-blur-md"
           >
-            <ChevronLeft size={32} />
+            <ChevronLeft size={36} />
           </button>
 
-          <div className="flex-1 flex items-center justify-center relative p-8">
-            <div className="w-full max-w-4xl aspect-video bg-black rounded-2xl flex flex-col items-center justify-center overflow-hidden shadow-2xl border border-gray-700 relative">
-              <img src={`http://localhost:8000/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="w-full h-full object-contain" />
+          {/* KONTEN UTAMA */}
+          <div className="w-full h-full max-w-[85vw] max-h-[80vh] flex items-center justify-center z-0">
+            <div className="w-full h-full flex items-center justify-center rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+              {currentImages[previewIndex]?.name.toLowerCase().endsWith('.mp4') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.webm') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.avi') ? (
+                <video src={`http://localhost:8000/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} controls autoPlay className="max-w-full max-h-full object-contain rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-xl mb-2">File video tidak dapat diputar.</p><p class="text-gray-400">File mungkin kosong atau belum selesai disinkronkan dari perangkat edge.</p></div>'); }} />
+              ) : (
+                <img src={`http://localhost:8000/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="max-w-full max-h-full object-contain rounded-2xl" />
+              )}
             </div>
           </div>
 
+          {/* TOMBOL NAVIGASI KANAN */}
           <button
             onClick={() => setPreviewIndex(prev => Math.min(currentImages.length - 1, prev! + 1))}
             disabled={previewIndex === currentImages.length - 1}
-            className="absolute right-6 p-4 bg-gray-800/80 hover:bg-gray-700 text-white rounded-full active:scale-95 disabled:opacity-20 transition-all"
+            className="absolute right-6 p-4 bg-white/5 hover:bg-white/20 text-white rounded-full active:scale-95 disabled:opacity-10 transition-all z-10 backdrop-blur-md"
           >
-            <ChevronRight size={32} />
+            <ChevronRight size={36} />
           </button>
 
-          <div className={`p-4 border-t flex justify-center gap-4 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
-            <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]?.name]); }} className="px-6 py-3 bg-red-600/80 hover:bg-red-600 text-white rounded-xl font-bold flex items-center active:scale-95 transition-colors border border-red-500/50">
-              <Trash2 size={18} className="mr-2" /> Hapus File
+          {/* FOOTER ACTION BUTTONS */}
+          <div className="absolute bottom-0 inset-x-0 p-8 flex justify-center gap-6 bg-gradient-to-t from-black/80 to-transparent z-10">
+            <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]?.name]); }} className="px-8 py-4 bg-red-600/80 hover:bg-red-600 text-white rounded-2xl font-bold flex items-center active:scale-95 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] backdrop-blur-md">
+              <Trash2 size={20} className="mr-3" /> Hapus Permanen
             </button>
-            <button onClick={() => handleSimulateDownload(currentImages[previewIndex]?.name)} className="px-6 py-3 bg-blue-600/80 hover:bg-blue-600 text-white rounded-xl font-bold flex items-center active:scale-95 transition-colors border border-blue-500/50">
-              <Download size={18} className="mr-2" /> Unduh Raw
+            <button onClick={() => handleSimulateDownload(currentImages[previewIndex]?.name)} className="px-8 py-4 bg-blue-600/80 hover:bg-blue-600 text-white rounded-2xl font-bold flex items-center active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] backdrop-blur-md">
+              <Download size={20} className="mr-3" /> Unduh Raw Dataset
             </button>
           </div>
         </div>
       )}
 
       {isConfirmImageOpen && (
-        <div className={theme.modalOverlay}>
-          <div className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
-            <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-4"><AlertTriangle size={32} /></div>
-            <div className={`text-xl font-bold mb-2 ${theme.text}`}>Yakin Hapus Gambar?</div>
-            <p className={`text-sm mb-6 ${theme.textMuted}`}>Kamu akan menghapus <strong>{targetImageDelete.length} gambar</strong> secara permanen.</p>
-            <div className="flex gap-3 w-full">
-              <button onClick={() => setIsConfirmImageOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>Batal</button>
-              <button onClick={executeDeleteImages} className="flex-1 py-3 rounded-xl font-bold bg-red-600 hover:bg-red-700 text-white flex items-center justify-center active:scale-95"><Trash2 size={18} className="mr-2" /> Hapus</button>
+        <div className={`${theme.modalOverlay} backdrop-blur-md`}>
+          <div className={`w-full max-w-sm rounded-3xl p-8 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
+            <div className="w-24 h-24 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse">
+              <AlertTriangle size={48} />
+            </div>
+            <div className={`text-2xl font-black mb-3 ${theme.text}`}>{t.sureDeleteImage}</div>
+            <p className={`text-sm mb-8 ${theme.textMuted} font-medium`}>{t.deleteImageConfirmMsg.replace('{X}', targetImageDelete.length.toString())}</p>
+            <div className="flex gap-4 w-full">
+              <button onClick={() => setIsConfirmImageOpen(false)} className={`flex-1 py-4 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover} active:scale-95 transition-all`}>{t.cancel}</button>
+              <button onClick={executeDeleteImages} className="flex-1 py-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-600/40 text-white flex items-center justify-center active:scale-95 transition-all"><Trash2 size={20} className="mr-2" /> {t.delete}</button>
             </div>
           </div>
         </div>
       )}
 
       {isConfirmOpen && (
-        <div className={theme.modalOverlay}>
-          <div className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
-            <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-4"><AlertTriangle size={32} /></div>
-            <h2 className={`text-xl font-bold mb-2 ${theme.text}`}>Yakin Hapus Folder?</h2>
-            <p className={`text-sm mb-6 ${theme.textMuted}`}>Semua dataset gambar di folder ini akan terhapus permanen.</p>
-            <div className="flex gap-3 w-full">
-              <button onClick={() => setIsConfirmOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>Batal</button>
-              <button onClick={executeDelete} className="flex-1 py-3 rounded-xl font-bold bg-red-600 hover:bg-red-700 text-white flex items-center justify-center active:scale-95"><Trash2 size={18} className="mr-2" /> Hapus Folder</button>
+        <div className={`${theme.modalOverlay} backdrop-blur-md`}>
+          <div className={`w-full max-w-sm rounded-3xl p-8 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
+            <div className="w-24 h-24 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse">
+              <AlertTriangle size={48} />
+            </div>
+            <h2 className={`text-2xl font-black mb-3 ${theme.text}`}>{t.sureDeleteFolder}</h2>
+            <p className={`text-sm mb-8 ${theme.textMuted} font-medium`}>{t.deleteFolderConfirmMsg}</p>
+            <div className="flex gap-4 w-full">
+              <button onClick={() => setIsConfirmOpen(false)} className={`flex-1 py-4 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover} active:scale-95 transition-all`}>{t.cancel}</button>
+              <button onClick={executeDelete} className="flex-1 py-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-600/40 text-white flex items-center justify-center active:scale-95 transition-all"><Trash2 size={20} className="mr-2" /> {t.deleteFolder}</button>
             </div>
           </div>
         </div>
@@ -566,48 +615,48 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       {isFormOpen && (
         <div className={theme.modalOverlay}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
-            <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{formMode === 'create' ? 'Buat Folder Dataset' : 'Edit Folder'}</h2>
+            <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{formMode === 'create' ? t.createFolder : t.editFolder}</h2>
             <div className="space-y-4 mb-6">
               <div>
-                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Folder</label>
+                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.folderName}</label>
                 <input
                   type="text"
                   readOnly={globalVirtualKeyboard}
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  onClick={() => triggerKeyboard('Input Nama Folder', 'name')}
-                  className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'name' ? 'ring-2 ring-blue-500' : ''}`}
-                  placeholder="Ketuk di sini..."
+                  onClick={() => triggerKeyboard(t.folderName, 'name')}
+                  className={`w-full p-3 rounded-xl border text-sm font-bold shadow-inner outline-none ${theme.input} ${keyboardState.targetField === 'name' ? 'ring-2 ring-blue-500' : ''}`}
+                  placeholder={t.folderName}
                 />
               </div>
               <div>
-                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Jenis Objek (Label AI)</label>
+                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.objectType}</label>
                 <input
                   type="text"
                   readOnly={globalVirtualKeyboard}
                   value={formData.object_type}
                   onChange={(e) => setFormData({ ...formData, object_type: e.target.value })}
-                  onClick={() => triggerKeyboard('Input Jenis Objek', 'object_type')}
-                  className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'object_type' ? 'ring-2 ring-blue-500' : ''}`}
-                  placeholder="Ketuk di sini..."
+                  onClick={() => triggerKeyboard(t.objectType, 'object_type')}
+                  className={`w-full p-3 rounded-xl border text-sm font-bold shadow-inner outline-none ${theme.input} ${keyboardState.targetField === 'object_type' ? 'ring-2 ring-blue-500' : ''}`}
+                  placeholder={t.objectType}
                 />
               </div>
               <div>
-                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>Nama Operator</label>
+                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.operatorName}</label>
                 <input
                   type="text"
                   readOnly={globalVirtualKeyboard}
                   value={formData.operator}
                   onChange={(e) => setFormData({ ...formData, operator: e.target.value })}
-                  onClick={() => triggerKeyboard('Input Nama Operator', 'operator')}
-                  className={`w-full px-4 py-3 rounded-xl border cursor-pointer font-mono font-bold ${theme.input} ${keyboardState.targetField === 'operator' ? 'ring-2 ring-blue-500' : ''}`}
-                  placeholder="Ketuk di sini..."
+                  onClick={() => triggerKeyboard(t.operatorName, 'operator')}
+                  className={`w-full p-3 rounded-xl border text-sm font-bold shadow-inner outline-none ${theme.input} ${keyboardState.targetField === 'operator' ? 'ring-2 ring-blue-500' : ''}`}
+                  placeholder={t.operatorName}
                 />
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setIsFormOpen(false); setKeyboardState({ visible: false, targetField: '', title: '' }); }} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>Batal</button>
-              <button onClick={saveForm} className="flex-1 py-3 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center active:scale-95"><Check size={18} className="mr-2" /> Simpan</button>
+              <button onClick={() => { setIsFormOpen(false); setKeyboardState({ visible: false, targetField: '', title: '' }); }} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>{t.cancel}</button>
+              <button onClick={saveForm} className="flex-1 py-3 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center active:scale-95"><Check size={18} className="mr-2" /> {t.save}</button>
             </div>
           </div>
         </div>
@@ -617,20 +666,24 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         <div className={theme.modalOverlay}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
             <div className="flex justify-between items-center mb-4">
-              <h2 className={`text-xl font-bold ${theme.text}`}>Unggah Gambar</h2>
-              <button onClick={() => setIsUploadOpen(false)} className={`p-1 rounded-md ${theme.btnHover} ${theme.textMuted}`}><X size={20} /></button>
+              <h2 className={`text-xl font-bold ${theme.text}`}>{t.uploadImage}</h2>
+              <button onClick={() => setIsUploadOpen(false)} className={`p-2 rounded-full ${theme.btnHover}`}>
+                <X size={24} className={theme.textMuted} />
+              </button>
             </div>
-            <label onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop} htmlFor="file-upload" className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${dragActive ? 'border-blue-500 bg-blue-500/10' : `${isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-gray-50'} ${theme.btnHover}`}`}>
-              <div className="flex flex-col items-center justify-center pt-5 pb-6 pointer-events-none">
-                <UploadCloud size={40} className={`mb-3 ${dragActive ? 'text-blue-500' : theme.textMuted}`} />
-                <p className={`mb-2 text-sm font-bold ${theme.text}`}>Sentuh untuk mengunggah</p>
-                <p className={`text-xs ${theme.textMuted}`}>atau drag & drop file di sini</p>
-                <p className={`text-[10px] mt-2 ${theme.textMuted}`}>Mendukung: JPG, PNG (Max 10MB)</p>
+            <label onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop} htmlFor="file-upload" className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors ${dragActive ? 'border-blue-500 bg-blue-500/10' : `${isDarkMode ? 'border-gray-700 hover:border-blue-500 bg-gray-800/50 hover:bg-gray-800' : 'border-gray-300 hover:border-blue-500 bg-gray-50 hover:bg-gray-100'}`}`}>
+              <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mb-4">
+                <UploadCloud size={32} className="text-blue-500" />
+              </div>
+              <div className="text-center">
+                <p className={`mb-2 text-sm font-bold ${theme.text}`}>{t.touchToUpload}</p>
+                <p className={`text-xs ${theme.textMuted}`}>{t.dragDrop}</p>
+                <p className={`text-[10px] mt-2 ${theme.textMuted}`}>{t.supportFormat}</p>
               </div>
               <input id="file-upload" type="file" className="hidden" multiple accept="image/*" onChange={handleFileChange} />
             </label>
-            <div className="mt-6 flex gap-3">
-              <button onClick={() => setIsUploadOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>Batal</button>
+            <div className="mt-6 flex gap-4">
+              <button onClick={() => setIsUploadOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>{t.cancel}</button>
             </div>
           </div>
         </div>
