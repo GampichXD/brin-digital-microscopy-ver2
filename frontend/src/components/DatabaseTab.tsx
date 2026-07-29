@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import type { ElementType } from 'react';
 import axios from 'axios';
-import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight, Video, Camera, Activity } from 'lucide-react';
+import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight, Video, Camera } from 'lucide-react';
 import type { Language } from '../i18n';
 import { translations } from '../i18n';
 import VirtualKeyboard from './VirtualKeyboard';
 import { logSystemAction } from '../utils/logger';
+import { showToast } from '../utils/toast';
 
 interface DatabaseTabProps {
   isDarkMode: boolean;
@@ -169,7 +170,11 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   };
 
   const saveForm = async () => {
-    if(!formData.name || !formData.object_type || !formData.operator) return alert("Semua kolom harus diisi!");
+    if(!formData.name || !formData.object_type || !formData.operator) {
+      showToast("Semua kolom harus diisi!", "warning");
+      // return alert("Semua kolom harus diisi!");
+      return;
+    }
     try {
       if (formMode === 'create') {
         await axios.post('http://localhost:8000/api/dataset/folders', {

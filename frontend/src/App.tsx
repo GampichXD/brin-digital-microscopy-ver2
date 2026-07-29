@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut, Globe, Menu } from 'lucide-react';
+import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut, Globe, Menu, Download, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import LiveStreamTab from './components/LiveStreamTab';
 import DatabaseTab from './components/DatabaseTab';
 import ImageGatheringTab from './components/ImageGatheringTab';
@@ -112,6 +112,37 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragRel, setDragRel] = useState({ x: 0, y: 0 });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  
+  const [globalToast, setGlobalToast] = useState<{message: string, type: string, id: number} | null>(null);
+
+  useEffect(() => {
+    const handleToast = (e: any) => {
+      setGlobalToast({ message: e.detail.message, type: e.detail.type, id: Date.now() });
+      setTimeout(() => setGlobalToast(null), 4000);
+    };
+    window.addEventListener('show-toast', handleToast);
+    return () => window.removeEventListener('show-toast', handleToast);
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    }
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -314,6 +345,16 @@ export default function App() {
 
             {/* Desktop Buttons (Hidden on Mobile) */}
             <div className="hidden md:flex items-center space-x-2">
+              {deferredPrompt && (
+                <button 
+                  onClick={handleInstallClick}
+                  className="px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all bg-green-600 text-white hover:bg-green-700 border-green-500 shadow-lg shadow-green-500/20 mr-2"
+                  title="Install Aplikasi PWA"
+                >
+                  <Download size={14} />
+                  <span>Install App</span>
+                </button>
+              )}
               <button 
                 onClick={() => {
                   const nextState = !useVirtualKeyboard;
@@ -378,6 +419,18 @@ export default function App() {
       {/* MOBILE DROPDOWN MENU */}
       {mobileMenuOpen && (
         <div className={`md:hidden absolute top-[90px] right-4 z-[250] flex flex-col gap-2 p-3 rounded-2xl shadow-2xl border backdrop-blur-md animate-in fade-in slide-in-from-top-2 ${isDarkMode ? 'bg-gray-900/95 border-gray-800' : 'bg-white/95 border-gray-200'}`}>
+          {deferredPrompt && (
+            <button 
+              onClick={() => {
+                handleInstallClick();
+                setMobileMenuOpen(false);
+              }}
+              className="px-3 py-2 bg-green-600 border border-green-500 text-white hover:bg-green-700 rounded-xl font-bold transition-all w-full flex items-center gap-2 text-xs mb-1"
+            >
+              <Download size={14} />
+              <span>Install App</span>
+            </button>
+          )}
           <button 
             onClick={() => {
               const nextState = !useVirtualKeyboard;
@@ -647,6 +700,27 @@ export default function App() {
         </div>
       )}
 
+      {/* NEW SYSTEM TOAST NOTIFICATION UI */}
+      {globalToast && (
+        <div 
+          key={globalToast.id}
+          className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-[9999] px-4 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 max-w-[90vw] w-max animate-in fade-in slide-in-from-bottom-8 duration-300 ${
+            globalToast.type === 'error' ? (isDarkMode ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-red-50 border-red-200 text-red-800') :
+            globalToast.type === 'success' ? (isDarkMode ? 'bg-green-950/90 border-green-900 text-green-200' : 'bg-green-50 border-green-200 text-green-800') :
+            (isDarkMode ? 'bg-blue-950/90 border-blue-900 text-blue-200' : 'bg-blue-50 border-blue-200 text-blue-800')
+          }`}
+        >
+          <div className="shrink-0">
+            {globalToast.type === 'error' ? <AlertCircle size={20} className="text-red-500" /> :
+             globalToast.type === 'success' ? <CheckCircle2 size={20} className="text-green-500" /> :
+             <Info size={20} className="text-blue-500" />}
+          </div>
+          <p className="text-[13px] font-medium leading-tight">{globalToast.message}</p>
+          <button onClick={() => setGlobalToast(null)} className="ml-2 p-1 hover:bg-black/10 rounded-full transition-colors shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

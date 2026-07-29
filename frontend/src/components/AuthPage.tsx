@@ -3,6 +3,7 @@ import { useState } from 'react';
 import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
 import { ShieldCheck, User, Lock, Eye, EyeOff, UserPlus, LogIn, Check, Keyboard, ToggleLeft, ToggleRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
+import { showToast } from '../utils/toast';
 import type { UserRole } from '../App';
 
 interface AuthPageProps {
@@ -58,11 +59,19 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
     e.preventDefault();
     setErrorMsg('');
 
-    if (!username || !password) return alert('Username dan password tidak boleh kosong!');
+    if (!username || !password) {
+      showToast('Username dan password tidak boleh kosong!', 'warning');
+      // return alert('Username dan password tidak boleh kosong!');
+      return;
+    }
     
     try {
       if (authMode === 'REGISTER') {
-        if (password !== confirmPassword) return alert('Konfirmasi password tidak cocok!');
+        if (password !== confirmPassword) {
+          showToast('Konfirmasi password tidak cocok!', 'warning');
+          // return alert('Konfirmasi password tidak cocok!');
+          return;
+        }
         
         // Tembak endpoint Registrasi Operator baru
         await axios.post('http://localhost:8000/api/auth/register', {
@@ -71,7 +80,8 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
           role: 'OPERATOR' // Default pendaftaran mandiri dari layar alat adalah OPERATOR
         });
 
-        alert('Registrasi Operator Berhasil! Silakan Login.');
+        showToast('Registrasi Operator Berhasil! Silakan Login.', 'success');
+        // alert('Registrasi Operator Berhasil! Silakan Login.');
         setAuthMode('LOGIN');
         setPassword('');
         setConfirmPassword('');

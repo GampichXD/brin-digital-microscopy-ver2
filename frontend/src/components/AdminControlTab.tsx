@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Cpu, ToggleLeft, ToggleRight, Users, Trash2, Power, HardDrive } from 'lucide-react';
 import { translations } from '../i18n';
 import type { Language } from '../i18n';
+import { showToast } from '../utils/toast';
 
 interface AdminControlTabProps {
   isDarkMode: boolean;
@@ -64,9 +65,11 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
       );
       
       fetchOperators(); // Segarkan tabel data
+      showToast("Otoritas akun berhasil diperbarui.", "success");
     } catch (error) {
       console.error("Gagal mengubah otoritas akun operator:", error);
-      alert("Gagal mengubah otoritas akun. Pastikan kamu memiliki hak akses root.");
+      showToast("Gagal mengubah otoritas akun. Pastikan kamu memiliki hak akses root.", "error");
+      // alert("Gagal mengubah otoritas akun. Pastikan kamu memiliki hak akses root.");
     }
   };
 
@@ -79,9 +82,11 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchOperators();
+      showToast("Operator berhasil dihapus secara permanen.", "success");
     } catch (error) {
       console.error("Gagal menghapus operator:", error);
-      alert("Gagal menghapus operator.");
+      showToast("Gagal menghapus operator.", "error");
+      // alert("Gagal menghapus operator.");
     }
   };
 
@@ -97,7 +102,8 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
       setIsSystemHardwareEnabled(targetStatus); // Perbarui saklar di header global App.tsx
     } catch (error) {
       console.error("Gagal mengirim sinyal interupsi ke bus daya:", error);
-      alert("Gagal mengirim sinyal interupsi ke bus daya.");
+      showToast("Gagal mengirim sinyal interupsi ke bus daya.", "error");
+      // alert("Gagal mengirim sinyal interupsi ke bus daya.");
     }
   };
 

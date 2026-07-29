@@ -4,6 +4,7 @@ import { FileText, FileSpreadsheet, Presentation, FilePlus, Search, ShieldAlert,
 import { logSystemAction } from '../utils/logger';
 import { translations } from '../i18n';
 import type { Language } from '../i18n';
+import { showToast } from '../utils/toast';
 
 interface DatasetFolder {
   id: string;
@@ -68,7 +69,11 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
   const foldersToDisplay = availableFolders.length > 0 ? availableFolders : fallbackFolders;
 
   const handleGenerateReport = async (type: 'WORD' | 'EXCEL' | 'PPT') => {
-    if (!selectedFolderId) return alert('Silakan pilih folder data terlebih dahulu!');
+    if (!selectedFolderId) {
+      showToast('Silakan pilih folder data terlebih dahulu!', 'warning');
+      // alert('Silakan pilih folder data terlebih dahulu!');
+      return;
+    }
     setIsGenerating(true);
     setGeneratedType(type);
 
@@ -110,12 +115,15 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
         if (errBlob instanceof Blob) {
           const text = await errBlob.text();
           const json = JSON.parse(text);
-          alert(`Gagal generate laporan: ${json.detail || text}`);
+          showToast(`Gagal generate laporan: ${json.detail || text}`, 'error');
+          // alert(`Gagal generate laporan: ${json.detail || text}`);
         } else {
-          alert(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`);
+          showToast(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`, 'error');
+          // alert(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`);
         }
       } catch {
-        alert(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`);
+        showToast(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`, 'error');
+        // alert(`Gagal generate laporan: ${err?.message || 'Error tidak diketahui'}`);
       }
       console.error(err);
       

@@ -5,6 +5,7 @@ import VirtualKeyboard from './VirtualKeyboard';
 import { logSystemAction } from '../utils/logger';
 import { translations } from '../i18n';
 import type { Language } from '../i18n';
+import { showToast } from '../utils/toast';
 
 interface DatasetFolder {
   id: string;
@@ -52,7 +53,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   const [isProcessing, setIsProcessing] = useState(false);
   const [processTask, setProcessTask] = useState('');
   
-  // State for navigating database folders -> images
   const [selectedDatabaseFolderId, setSelectedDatabaseFolderId] = useState<string | null>(null);
   const [selectedFolderName, setSelectedFolderName] = useState<string>('');
   const [folderImages, setFolderImages] = useState<{name: string, synced: boolean}[]>([]);
@@ -74,9 +74,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
     modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4'
   };
 
-  // 🟢 FIX UTAMA: Bungkus sinkronisasi operan gambar ke dalam useEffect untuk mencegah crash berantai
   useEffect(() => {
-    // Jalankan mutasi state di luar antrean makro sinkronisasi komponen
     const timer = setTimeout(() => {
       if (targetImage) {
         setCurrentImage(targetImage);
@@ -99,7 +97,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       }
     }, 0);
 
-    return () => clearTimeout(timer); // Bersihkan sirkuit timer jika tab ditutup mendadak
+    return () => clearTimeout(timer);
   }, [targetImage]);
 
   const handleSelectFromDatabaseFolder = async (folderId: string, folderName: string) => {
@@ -112,11 +110,13 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         setSelectedFolderName(folderName);
         setFolderImages(images);
       } else {
-        alert("Folder ini kosong, belum ada gambar untuk dianalisis.");
+        showToast("Folder ini kosong, belum ada gambar untuk dianalisis.", "warning");
+        // alert("Folder ini kosong, belum ada gambar untuk dianalisis.");
       }
     } catch (err) {
       console.error(err);
-      alert("Gagal memuat daftar gambar dari folder database.");
+      showToast("Gagal memuat daftar gambar dari folder database.", "error");
+      // alert("Gagal memuat daftar gambar dari folder database.");
     }
   };
 
@@ -144,7 +144,7 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1 || e.button === 0) { // Middle or Left click
+    if (e.button === 1 || e.button === 0) {
       isDragging.current = true;
       dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     }
@@ -225,7 +225,8 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       setZoomLevel(1);
     } catch (error) {
       console.error("Gagal mengunggah berkas gambar:", error);
-      alert('Gagal mengunggah berkas gambar ke Jetson Orin.');
+      showToast('Gagal mengunggah berkas gambar ke Jetson Orin.', 'error');
+      // alert('Gagal mengunggah berkas gambar ke Jetson Orin.');
     } finally {
       setIsProcessing(false);
     }
@@ -246,27 +247,32 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
   const handleSaveToFolder = async () => {
     const activeImageSrc = history[historyIndex]?.imageSrc;
-    if (!activeImageSrc) return alert('Tidak ada gambar aktif di kanvas untuk disimpan.');
+    if (!activeImageSrc) {
+      showToast('Tidak ada gambar aktif di kanvas untuk disimpan.', 'warning');
+      // alert('Tidak ada gambar aktif di kanvas untuk disimpan.');
+      return;
+    }
 
-    // Validasi: harus pilih folder lama atau isi form folder baru
     const isCreatingNew = !selectedFolderId && (saveForm.folderName.trim() !== '');
     const isSavingToExisting = !!selectedFolderId;
     if (!isCreatingNew && !isSavingToExisting) {
-      return alert('Pilih folder tujuan atau isi nama folder baru terlebih dahulu!');
+      showToast('Pilih folder tujuan atau isi nama folder baru terlebih dahulu!', 'warning');
+      // alert('Pilih folder tujuan atau isi nama folder baru terlebih dahulu!');
+      return;
     }
     if (isCreatingNew && !saveForm.objectType.trim()) {
-      return alert('Jenis objek harus diisi jika membuat folder baru!');
+      showToast('Jenis objek harus diisi jika membuat folder baru!', 'warning');
+      // alert('Jenis objek harus diisi jika membuat folder baru!');
+      return;
     }
 
     setIsSaving(true);
     setSaveResult(null);
 
     try {
-      // 1. Ambil data gambar dari URL kanvas sebagai Blob
       const imgResp = await fetch(activeImageSrc);
       const blob = await imgResp.blob();
 
-      // Tentukan nama file output yang bermakna
       const ext = blob.type.includes('png') ? 'png' : 'jpg';
       const processLabel = (history[historyIndex]?.processName || 'analysis').replace(/\s+/g, '_').toLowerCase();
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -274,7 +280,6 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
 
       let targetFolderId = selectedFolderId;
 
-      // 2. Buat folder baru jika diperlukan
       if (isCreatingNew) {
         const today = new Date().toISOString().slice(0, 10);
         const createResp = await axios.post(`${API_BASE_URL}/api/dataset/folders`, {
@@ -286,20 +291,16 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
         targetFolderId = createResp.data.id;
       }
 
-      // 3. Upload gambar ke folder tujuan
       const formData = new FormData();
       formData.append('files', blob, outputFilename);
       await axios.post(`${API_BASE_URL}/api/dataset/folders/${targetFolderId}/files`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      // 4. Catat log aktivitas (Audit Trail)
       await logSystemAction(`Simpan Hasil Analisis ke Database (${outputFilename})`, 'SUCCESS');
 
       setSaveResult({ ok: true, msg: `✓ Berhasil disimpan sebagai "${outputFilename}"` });
-      // Picu refresh folder di DatabaseTab secara langsung, tanpa menunggu manual refresh
       onRefreshFolders?.();
-      // Tutup modal setelah jeda singkat
       setTimeout(() => {
         setShowSaveModal(false);
         setSaveResult(null);
@@ -356,7 +357,8 @@ export default function ImageAnalysisTab({ isDarkMode, targetImage, onClearTarge
       logSystemAction(`Analisis Citra (${toolName}) Selesai`, 'SUCCESS');
     } catch (error) {
       console.error(error);
-      alert(`Gagal memproses metode ${toolName}. Periksa log tensor server.`);
+      showToast(`Gagal memproses metode ${toolName}. Periksa log tensor server.`, "error");
+      // alert(`Gagal memproses metode ${toolName}. Periksa log tensor server.`);
       logSystemAction(`Analisis Citra (${toolName}) Gagal`, 'ERROR');
     } finally {
       setIsProcessing(false);
