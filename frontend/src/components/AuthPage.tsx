@@ -1,16 +1,15 @@
 import { useState } from 'react';
 // import type { ElementType } from 'react';
-import axios from 'axios'; // <--- 1. TAMBAHKAN IMPORT AXIOS
+import axios from 'axios';
+import api from '../utils/api';
 import { ShieldCheck, User, Lock, Eye, EyeOff, UserPlus, LogIn, Check, Keyboard, ToggleLeft, ToggleRight } from 'lucide-react';
 import VirtualKeyboard from './VirtualKeyboard';
 import { showToast } from '../utils/toast';
 import type { UserRole } from '../App';
+import { useGlobalContext } from '../context/GlobalContext';
 
 interface AuthPageProps {
-  isDarkMode: boolean;
   onLoginSuccess: (username: string, role: UserRole) => void;
-  globalVirtualKeyboard: boolean;
-  setGlobalVirtualKeyboard: (val: boolean) => void;
 }
 
 // Definisikan bentuk tipe respons JWT backend kita
@@ -21,7 +20,8 @@ interface BackendLoginResponse {
   role: UserRole;
 }
 
-export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyboard, setGlobalVirtualKeyboard }: AuthPageProps) {
+export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
+  const { isDarkMode, globalVirtualKeyboard, setGlobalVirtualKeyboard } = useGlobalContext();
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   
   const [username, setUsername] = useState('');
@@ -74,7 +74,7 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
         }
         
         // Tembak endpoint Registrasi Operator baru
-        await axios.post('http://localhost:8000/api/auth/register', {
+        await api.post('/api/auth/register', {
           username,
           password,
           role: 'OPERATOR' // Default pendaftaran mandiri dari layar alat adalah OPERATOR
@@ -87,7 +87,7 @@ export default function AuthPage({ isDarkMode, onLoginSuccess, globalVirtualKeyb
         setConfirmPassword('');
       } else {
         // Tembak endpoint Login untuk mendapatkan Token JWT asli
-        const response = await axios.post<BackendLoginResponse>('http://localhost:8000/api/auth/login', {
+        const response = await api.post<BackendLoginResponse>('/api/auth/login', {
           username,
           password
         });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Moon, Sun, Activity, Server, MapPin, Calendar, Clock, X, Delete, User, Keyboard, ToggleLeft, ToggleRight, Camera, Database, Grid3X3, Scan, FileText, ShieldAlert, LogOut, Globe, Menu, Download, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { useGlobalContext } from './context/GlobalContext';
 import LiveStreamTab from './components/LiveStreamTab';
 import DatabaseTab from './components/DatabaseTab';
 import ImageGatheringTab from './components/ImageGatheringTab';
@@ -10,8 +11,6 @@ import AuthPage from './components/AuthPage';
 import logoUndip from './assets/logo-undip.png';
 import logoBrin from './assets/logo-brin.png';
 import axios from 'axios';
-import type { Language } from './i18n';
-
 type TabName = 'Live Stream' | 'Database' | 'Image Gathering' | 'Image Analysis' | 'Documentation' | 'Admin Control';
 export type UserRole = 'ADMIN' | 'OPERATOR';
 
@@ -32,6 +31,7 @@ interface DatasetFolder {
 }
 
 export default function App() {
+  const { isDarkMode, globalVirtualKeyboard, setGlobalVirtualKeyboard, language, setLanguage, isSystemHardwareEnabled, setIsDarkMode, setTargetAnalysisImage } = useGlobalContext();
   const [folders, setFolders] = useState<DatasetFolder[]>([]);
   
   // === GLOBAL HARDWARE STREAM PIPELINE ===
@@ -88,19 +88,6 @@ export default function App() {
     }
   };
 
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
-  const [language, setLanguage] = useState<Language>(() => {
-    const saved = localStorage.getItem('language') as Language | null;
-    return saved || 'ID';
-  });
-  const [targetAnalysisImage, setTargetAnalysisImage] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState<boolean>(true); 
-  const [useVirtualKeyboard, setUseVirtualKeyboard] = useState<boolean>(() => {
-    const savedKB = localStorage.getItem('useVirtualKeyboard');
-    return savedKB !== null ? savedKB === 'true' : true;
-  });
-
   const [keypad, setKeypad] = useState<KeypadConfig>({
     visible: false,
     title: '',
@@ -134,13 +121,12 @@ export default function App() {
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
-  const handleInstallClick = async () => {
+  const handleInstallClick = () => {
+    if (Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
     if (deferredPrompt) {
       deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-      }
     }
   };
 
@@ -232,6 +218,7 @@ export default function App() {
 
   const formatDate = (date: Date) => date.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
   const formatTime = (date: Date) => date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     setIsDragging(true);
@@ -258,7 +245,7 @@ export default function App() {
   };
 
   const handleOpenKeypadGlobal = (config: KeypadConfig) => {
-    if (!useVirtualKeyboard) return; 
+    if (!globalVirtualKeyboard) return; 
     setKeypad(config);
   };
 
@@ -272,22 +259,15 @@ export default function App() {
     type: 'SUCCESS'
   });
 
-  const showNotification = (message: string, type: 'SUCCESS' | 'ERROR' | 'INFO' = 'SUCCESS') => {
-    setToast({ visible: true, message, type });
-    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 3000);
-  };
-
   if (!currentUser) {
     return (
       <AuthPage 
-        isDarkMode={isDarkMode} 
         onLoginSuccess={(username, role) => {
           setCurrentUser(username);
           setCurrentUserRole(role);
           if (role === 'ADMIN') setActiveTab('Admin Control');
+          else setActiveTab('Live Stream');
         }}
-        globalVirtualKeyboard={useVirtualKeyboard}
-        setGlobalVirtualKeyboard={setUseVirtualKeyboard}
       />
     );
   }
@@ -356,26 +336,18 @@ export default function App() {
                 </button>
               )}
               <button 
-                onClick={() => {
-                  const nextState = !useVirtualKeyboard;
-                  setUseVirtualKeyboard(nextState);
-                  localStorage.setItem('useVirtualKeyboard', String(nextState));
-                }}
+                onClick={() => setGlobalVirtualKeyboard(!globalVirtualKeyboard)}
                 className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all ${
                   isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-gray-100 border-gray-300'
-                } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
+                } ${globalVirtualKeyboard ? 'text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'text-gray-400'}`}
               >
-                <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+                <Keyboard size={14} className={globalVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
                 <span>Screen KB</span>
-                {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
+                {globalVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
               </button>
 
               <button 
-                onClick={() => {
-                  const nextLang: Language = language === 'ID' ? 'EN' : 'ID';
-                  setLanguage(nextLang);
-                  localStorage.setItem('language', nextLang);
-                }}
+                onClick={() => setLanguage(language === 'ID' ? 'EN' : 'ID')}
                 className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all ${
                   isDarkMode ? 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700' : 'bg-gray-100 border-gray-300 text-gray-800 hover:bg-gray-200'
                 }`}
@@ -433,27 +405,23 @@ export default function App() {
           )}
           <button 
             onClick={() => {
-              const nextState = !useVirtualKeyboard;
-              setUseVirtualKeyboard(nextState);
-              localStorage.setItem('useVirtualKeyboard', String(nextState));
+              setGlobalVirtualKeyboard(!globalVirtualKeyboard);
               setMobileMenuOpen(false);
             }}
             className={`px-3 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-2 transition-all w-full justify-between ${
               isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-100/50 border-gray-300'
-            } ${useVirtualKeyboard ? 'text-blue-400 border-blue-500/50' : 'text-gray-400'}`}
+            } ${globalVirtualKeyboard ? 'text-blue-400 border-blue-500/50' : 'text-gray-400'}`}
           >
             <div className="flex items-center gap-2">
-              <Keyboard size={14} className={useVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
+              <Keyboard size={14} className={globalVirtualKeyboard ? 'text-blue-400' : 'text-gray-400'} />
               <span>Screen KB</span>
             </div>
-            {useVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
+            {globalVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
           </button>
 
           <button 
             onClick={() => {
-              const nextLang: Language = language === 'ID' ? 'EN' : 'ID';
-              setLanguage(nextLang);
-              localStorage.setItem('language', nextLang);
+              setLanguage(language === 'ID' ? 'EN' : 'ID');
               setMobileMenuOpen(false);
             }}
             className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all w-full ${
@@ -579,10 +547,7 @@ export default function App() {
       <main className="flex-1 min-h-0 p-3 pb-20 md:pb-3 relative overflow-y-auto">
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
-            isDarkMode={isDarkMode} 
             openKeypad={handleOpenKeypadGlobal} 
-            globalVirtualKeyboard={useVirtualKeyboard} 
-            isSystemHardwareEnabled={isSystemHardwareEnabled}
             cameraActive={cameraActive}
             setCameraActive={setCameraActive}
             videoSrc={videoSrc}
@@ -593,70 +558,49 @@ export default function App() {
             jetsonTemperatures={{ cpu: jetsonTemperature, gpu: jetsonTemperature }}
             limitSwitchState={limitSwitchState}
             wsRef={wsRef}
-            triggerToast={showNotification}
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
-            language={language}
           />
         )}
         {activeTab === 'Database' && (
-          <DatabaseTab 
-            isDarkMode={isDarkMode} 
-            globalVirtualKeyboard={useVirtualKeyboard} 
-            triggerToast={showNotification}
+          <DatabaseTab
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
-            language={language}
           />
         )}
         {activeTab === 'Image Gathering' && (
           <ImageGatheringTab 
-            isDarkMode={isDarkMode} 
             openKeypad={handleOpenKeypadGlobal}
-            globalVirtualKeyboard={useVirtualKeyboard}
             videoSrc={videoSrc}
             cameraActive={cameraActive}
             wsRef={wsRef}
-            triggerToast={showNotification}
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
             onNavigateToAnalysis={(imageName) => {
               setTargetAnalysisImage(imageName); 
               setActiveTab('Image Analysis'); 
             }}
-            language={language}
           />
         )}
         {activeTab === 'Image Analysis' && (
           <ImageAnalysisTab 
-            isDarkMode={isDarkMode} 
-            targetImage={targetAnalysisImage} 
-            globalVirtualKeyboard={useVirtualKeyboard}
             onClearTarget={() => setTargetAnalysisImage(null)}
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
-            language={language}
           />
         )}
         {activeTab === 'Documentation' &&
         <DocumentationTab
-        isDarkMode={isDarkMode}
         availableFolders={folders}
-        language={language}
         />}
         
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
-          <AdminControlTab 
-            isDarkMode={isDarkMode} 
-            isSystemHardwareEnabled={isSystemHardwareEnabled} 
-            setIsSystemHardwareEnabled={setIsSystemHardwareEnabled}
-            language={language}
-          />
+          <AdminControlTab />
         )}
       </main>
 
       {/* GLOBAL VIRTUAL NUMPAD MELAYANG */}
-      {keypad.visible && useVirtualKeyboard && (
+      {keypad.visible && globalVirtualKeyboard && (
         <div className={`absolute z-50 rounded-xl shadow-2xl border-2 flex flex-col touch-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`} style={{ left: keypadPos.x, top: keypadPos.y, width: '260px' }}>
           <div className={`p-3 border-b flex justify-between items-center cursor-move select-none rounded-t-xl ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-100 border-gray-200 text-black'}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
             <span className="text-xs font-bold">{keypad.title}</span>
@@ -724,3 +668,8 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+

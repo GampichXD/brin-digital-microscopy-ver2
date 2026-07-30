@@ -1,15 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon, Maximize, Video, Square, Folder, ChevronDown } from 'lucide-react';
 import type { KeypadConfig } from '../App';
-import type { Language } from '../i18n';
-import { translations } from '../i18n';
+import { useTranslation } from '../hooks/useTranslation';
+import { useGlobalContext } from '../context/GlobalContext';
+import { showToast } from '../utils/toast';
 
 interface LiveStreamTabProps {
-  isDarkMode: boolean;
   openKeypad: (config: KeypadConfig) => void;
-  globalVirtualKeyboard: boolean;
-  isSystemHardwareEnabled: boolean;
   cameraActive: boolean;
   setCameraActive: (val: boolean) => void;
   videoSrc: string | null;
@@ -20,17 +18,12 @@ interface LiveStreamTabProps {
   jetsonTemperatures: { cpu: number | null, gpu: number | null };
   limitSwitchState: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
-  triggerToast: (message: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
   availableFolders: {id: string, name: string}[];
   onRefreshFolders: () => void;
-  language: Language;
 }
 
 export default function LiveStreamTab({ 
-  isDarkMode, 
   openKeypad, 
-  globalVirtualKeyboard, 
-  isSystemHardwareEnabled,
   cameraActive,
   setCameraActive,
   videoSrc,
@@ -41,13 +34,11 @@ export default function LiveStreamTab({
   jetsonTemperatures,
   limitSwitchState,
   wsRef,
-  triggerToast,
   availableFolders,
-  onRefreshFolders,
-  language
+  onRefreshFolders
 }: LiveStreamTabProps) {
-  
-  const t = translations[language];
+  const { isDarkMode, globalVirtualKeyboard, isSystemHardwareEnabled } = useGlobalContext();
+  const { t } = useTranslation();
   
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
   const joystickVectorRef = useRef({ x: 0, y: 0 });
@@ -160,16 +151,16 @@ export default function LiveStreamTab({
 
   const sendCncSettings = async () => {
     try {
-      await axios.post('http://localhost:8000/api/hardware/cnc/settings', {
+      await api.post('/api/hardware/cnc/settings', {
         feed_rate: parseFloat(feedRate),
         backlash: parseFloat(backlash),
         acceleration: parseFloat(acceleration),
         settle_time: parseInt(settleTime, 10),
       });
-      triggerToast('Parameter CNC berhasil diterapkan ke controller.', 'SUCCESS');
+      showToast('Parameter CNC berhasil diterapkan ke controller.', 'success');
     } catch (error) {
       console.error('Gagal menerapkan parameter CNC:', error);
-      triggerToast('Gagal menerapkan parameter CNC.', 'ERROR');
+      showToast('Gagal menerapkan parameter CNC.', 'error');
     }
   };
 
@@ -203,7 +194,7 @@ export default function LiveStreamTab({
         gcode: gcodeStr
       }));
     } else {
-      await axios.post('http://localhost:8000/api/hardware/motor/move', {
+      await api.post('/api/hardware/motor/move', {
         axis,
         value: adjustedValue,
         feed_rate: parseFloat(feedRate),
@@ -219,13 +210,13 @@ export default function LiveStreamTab({
 
   const handleApplyCameraSettings = async () => {
     try {
-      await axios.post('http://localhost:8000/api/hardware/camera/settings', {
+      await api.post('/api/hardware/camera/settings', {
         shutter_speed: parseInt(shutterSpeed), iso: parseInt(iso)
       });
-      triggerToast('Konfigurasi Pengaturan Sensor IMX477 Berhasil Diterapkan!', 'SUCCESS');
+      showToast('Konfigurasi Pengaturan Sensor IMX477 Berhasil Diterapkan!', 'success');
     } catch (error) {
       console.error("Gagal menerapkan konfigurasi kamera:", error);
-      triggerToast('Gagal menerapkan konfigurasi kamera ke Jetson Orin', 'ERROR');
+      showToast('Gagal menerapkan konfigurasi kamera ke Jetson Orin', 'error');
     }
   };
 
@@ -322,7 +313,7 @@ export default function LiveStreamTab({
                       onChange={(e) => setSelectedFolderId(e.target.value)}
                       className="bg-transparent text-sm text-white font-bold outline-none appearance-none pr-6 cursor-pointer w-[150px] text-ellipsis overflow-hidden whitespace-nowrap"
                     >
-                      <option value="" className={isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'}>{t.autoCreate}</option>
+                      <option value="" className={isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'}>{t('autoCreate')}</option>
                       {availableFolders.map(f => (
                         <option key={f.id} value={f.id} className={isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'}>{f.name}</option>
                       ))}
@@ -340,7 +331,7 @@ export default function LiveStreamTab({
                       const pad = (n: number) => n.toString().padStart(2, '0');
                       const folderName = `Live Video ${pad(now.getDate())}-${pad(now.getMonth()+1)}-${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
                       const currentUser = localStorage.getItem('username') || "Unknown User";
-                      const res = await axios.post('http://localhost:8000/api/dataset/folders', {
+                      const res = await api.post('/api/dataset/folders', {
                         name: folderName,
                         object_type: "Video",
                         date: now.toISOString().split('T')[0],
@@ -350,7 +341,7 @@ export default function LiveStreamTab({
                       setSelectedFolderId(folderIdToUse);
                       onRefreshFolders();
                     } catch (e) {
-                      triggerToast("Gagal membuat folder otomatis", "ERROR");
+                      showToast("Gagal membuat folder otomatis", 'error');
                       return;
                     }
                   }
@@ -380,7 +371,7 @@ export default function LiveStreamTab({
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ action: "STOP_RECORDING" }));
                   }
-                  triggerToast("Menyimpan video... Estimasi upload: ~15 detik.", "INFO");
+                  showToast("Menyimpan video... Estimasi upload: ~15 detik.", 'info');
                   
                   // Polling backend untuk memeriksa apakah video_count bertambah (upload selesai)
                   if (checkVideoIntervalRef.current) clearInterval(checkVideoIntervalRef.current);
@@ -391,14 +382,14 @@ export default function LiveStreamTab({
                     // 60 attempts * 1000ms = 60s timeout
                     if (attempts > 60) {
                       if (checkVideoIntervalRef.current) clearInterval(checkVideoIntervalRef.current);
-                      triggerToast("Waktu sinkronisasi video habis. Periksa koneksi VPS.", "ERROR");
+                      showToast("Waktu sinkronisasi video habis. Periksa koneksi VPS.", 'error');
                       return;
                     }
                     try {
-                      const res = await axios.get('http://localhost:8000/api/dataset/folders');
+                      const res = await api.get('/api/dataset/folders');
                       const updatedFolder = res.data.find((f: any) => f.id === targetFolder);
                       if (updatedFolder && (updatedFolder.video_count || 0) > videoCountRef.current) {
-                        triggerToast("Video berhasil diunggah ke Database!", "SUCCESS");
+                        showToast("Video berhasil diunggah ke Database!", 'success');
                         onRefreshFolders();
                         if (checkVideoIntervalRef.current) clearInterval(checkVideoIntervalRef.current);
                       }
@@ -425,9 +416,9 @@ export default function LiveStreamTab({
           onClick={() => {
             const nextState = !cameraActive;
             setCameraActive(nextState);
-            triggerToast(
+            showToast(
               nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Stream Kamera Dinonaktifkan.',
-              nextState ? 'SUCCESS' : 'INFO'
+              nextState ? 'success' : 'info'
             );
           }} 
           className={`absolute bottom-6 right-6 p-4 rounded-full text-lg font-bold flex items-center shadow-2xl z-10 overflow-hidden group transition-all duration-300 max-w-[60px] hover:max-w-[200px] ${
@@ -456,12 +447,12 @@ export default function LiveStreamTab({
               <button 
                 disabled={!isSystemHardwareEnabled}
                 onClick={() => {
-                  triggerToast('Perintah Homing Dikirim! Mengembalikan CNC ke (0,0,0)', 'INFO');
+                  showToast('Perintah Homing Dikirim! Mengembalikan CNC ke (0,0,0)', 'info');
                   setMotorPos({ x: 0, y: 0, z: 0 });
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ action: "HOMING" }));
                   } else {
-                    axios.post('http://localhost:8000/api/hardware/motor/home');
+                    api.post('/api/hardware/motor/home');
                   }
                 }}
                 className="px-3 py-1.5 bg-red-500/10 text-red-500 border border-red-500/30 rounded-lg flex items-center text-xs font-bold hover:bg-red-500 hover:text-white transition-all disabled:opacity-30 active:scale-95"
@@ -500,7 +491,7 @@ export default function LiveStreamTab({
                   <button onClick={() => sendMotorCommand('Y', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24}/></button>
                   <div />
                   <button onClick={() => sendMotorCommand('X', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24}/></button>
-                  <button onClick={() => axios.post('http://localhost:8000/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer"><Crosshair size={20}/></button>
+                  <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer"><Crosshair size={20}/></button>
                   <button onClick={() => sendMotorCommand('X', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24}/></button>
                   <div />
                   <button onClick={() => sendMotorCommand('Y', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24}/></button>
@@ -551,8 +542,8 @@ export default function LiveStreamTab({
                   
                   <div className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 text-xs font-bold ${isSystemHardwareEnabled ? (joystickActiveRef.current ? 'text-blue-400' : themeClasses.textMuted) : 'text-red-400'}`}>
                       {isSystemHardwareEnabled 
-                        ? (joystickActiveRef.current ? t.cameraMoving : t.dragToMove)
-                        : t.panTiltLocked}
+                        ? (joystickActiveRef.current ? t('cameraMoving') : t('dragToMove'))
+                        : t('panTiltLocked')}
                   </div>
                 </div>
               )}
@@ -585,11 +576,11 @@ export default function LiveStreamTab({
         <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${themeClasses.text}`}>
-              <Aperture size={16} className="mr-2 text-purple-400" /> {t.cameraParams}
+              <Aperture size={16} className="mr-2 text-purple-400" /> {t('cameraParams')}
             </h3>
             <div className="flex space-x-2">
-              <button onClick={handleDefaultCamera} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t.default}</button>
-              <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> {t.apply}</button>
+              <button onClick={handleDefaultCamera} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t('default')}</button>
+              <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> {t('apply')}</button>
             </div>
           </div>
           
@@ -638,14 +629,14 @@ export default function LiveStreamTab({
         {/* 3. PARAMETER CNC */}
         <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t.cncParams}</h3>
+            <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t('cncParams')}</h3>
             <div className="flex space-x-2">
-              <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t.default}</button>
+              <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t('default')}</button>
               <button 
                 onClick={sendCncSettings}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
               >
-                <Save size={14} className="mr-1" /> {t.apply}
+                <Save size={14} className="mr-1" /> {t('apply')}
               </button>
             </div>
           </div>
@@ -701,7 +692,7 @@ export default function LiveStreamTab({
         {/* 4. STATUS HARDWARE BAR */}
         <div className={`p-4 rounded-2xl border shrink-0 mb-4 ${themeClasses.panel}`}>
            <div className="flex items-center justify-between mb-3">
-             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t.systemStatus}</h3>
+             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t('systemStatus')}</h3>
              <button onClick={() => setShowFpsGraph(!showFpsGraph)} className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center shadow-sm active:scale-95 transition-colors ${showFpsGraph ? 'bg-blue-600 text-white' : 'bg-gray-600 hover:bg-gray-700 text-white'}`}>
                <Activity size={12} className="mr-1" /> FPS GRAPH
              </button>
@@ -764,3 +755,8 @@ export default function LiveStreamTab({
     </div>
   );
 }
+
+
+
+
+

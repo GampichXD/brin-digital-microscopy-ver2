@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { FileText, FileSpreadsheet, Presentation, FilePlus, Search, ShieldAlert, CheckCircle, User, Activity } from 'lucide-react';
 import { logSystemAction } from '../utils/logger';
-import { translations } from '../i18n';
-import type { Language } from '../i18n';
 import { showToast } from '../utils/toast';
+import { useGlobalContext } from '../context/GlobalContext';
+import { useTranslation } from '../hooks/useTranslation';
 
 interface DatasetFolder {
   id: string;
@@ -15,9 +15,7 @@ interface DatasetFolder {
 }
 
 interface DocumentationTabProps {
-  isDarkMode: boolean;
   availableFolders?: DatasetFolder[];
-  language: Language;
 }
 
 interface ActivityLog {
@@ -28,14 +26,15 @@ interface ActivityLog {
   status: 'SUCCESS' | 'CANCELLED';
 }
 
-export default function DocumentationTab({ isDarkMode, availableFolders = [], language }: DocumentationTabProps) {
-  const t = translations[language];
+export default function DocumentationTab({ availableFolders = [] }: DocumentationTabProps) {
+  const { isDarkMode } = useGlobalContext();
+  const { t } = useTranslation();
   // === STATE LOG AKTIVITAS (AUDIT TRAIL) ===
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
   const fetchLogs = async () => {
     try {
-      const res = await axios.get('http://localhost:8000/api/logs');
+      const res = await api.get('/api/logs');
       setLogs(res.data);
     } catch (err) {
       console.error('Gagal mengambil log aktivitas:', err);
@@ -74,15 +73,16 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
       // alert('Silakan pilih folder data terlebih dahulu!');
       return;
     }
-    setIsGenerating(true);
-    setGeneratedType(type);
-
+    
     // Ambil metadata folder yang dipilih untuk dikirim ke API
     const selectedFolder = foldersToDisplay.find(f => f.id === selectedFolderId);
 
+    setIsGenerating(true);
+    setGeneratedType(type);
+
     try {
-      const response = await axios.post(
-        `http://localhost:8000/api/documentation/generate?format=${type}`,
+      const response = await api.post(
+        `/api/documentation/generate?format=${type}`,
         {
           folder_id: selectedFolderId,
           title: reportTitle,
@@ -109,7 +109,9 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
       await logSystemAction(`Generate Dokumen ${type} - ${reportTitle}`, 'SUCCESS');
       fetchLogs();
     } catch (err: any) {
-      // Decode pesan error sebenarnya dari blob (axios blob mode menyembunyikan pesan JSON)
+      console.error(err);
+      
+      // Decode pesan error sebenarnya dari blob (axios/api blob mode menyembunyikan pesan JSON)
       try {
         const errBlob: Blob = err?.response?.data;
         if (errBlob instanceof Blob) {
@@ -142,19 +144,19 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
         <div className="p-4 border-b border-gray-800 bg-black/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity size={18} className="text-blue-500" />
-            <h3 className={`font-bold text-sm uppercase tracking-wider ${theme.text}`}>{t.systemActivityLog}</h3>
+            <h3 className={`font-bold text-sm uppercase tracking-wider ${theme.text}`}>{t('systemActivityLog')}</h3>
           </div>
-          <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded text-[10px] font-bold">{t.automatedLog}</span>
+          <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded text-[10px] font-bold">{t('automatedLog')}</span>
         </div>
 
         <div className="flex-1 overflow-auto" style={{ scrollbarWidth: 'none' }}>
           <table className="w-full text-left border-collapse">
             <thead className={`sticky top-0 text-[10px] font-bold uppercase tracking-wider ${theme.tableHeader}`}>
               <tr>
-                <th className="p-3">{t.time}</th>
-                <th className="p-3">{t.operator}</th>
-                <th className="p-3">{t.activity}</th>
-                <th className="p-3 text-center">{t.status}</th>
+                <th className="p-3">{t('time')}</th>
+                <th className="p-3">{t('operator')}</th>
+                <th className="p-3">{t('activity')}</th>
+                <th className="p-3 text-center">{t('status')}</th>
               </tr>
             </thead>
             <tbody className={`text-xs font-mono ${theme.text}`}>
@@ -191,7 +193,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
 
           <div className="space-y-3">
             <div>
-              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t.documentTitle}</label>
+              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('documentTitle')}</label>
               <input 
                 type="text"
                 value={reportTitle}
@@ -201,7 +203,7 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
             </div>
 
             <div>
-              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t.selectSourceFolder}</label>
+              <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('selectSourceFolder')}</label>
               <div className="grid gap-1.5 max-h-32 overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
                 {foldersToDisplay.map(folder => (
                   <div 
@@ -223,15 +225,15 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
 
         <div className={`p-4 rounded-2xl border flex flex-col gap-3 shrink-0 ${theme.panel}`}>
           <div>
-            <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${theme.textMuted}`}>{t.selectExportFormat}</h4>
+            <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${theme.textMuted}`}>{t('selectExportFormat')}</h4>
             <div className="flex flex-col gap-2">
                 <button onClick={() => handleGenerateReport('WORD')} disabled={!selectedFolderId} className={`group flex items-center p-4 rounded-2xl border text-left transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-800/40 border-gray-700/50 hover:bg-blue-900/20 hover:border-blue-500/50 hover:shadow-[0_0_15px_rgba(59,130,246,0.15)]' : 'bg-white border-gray-200 hover:bg-blue-50/50 hover:border-blue-300 hover:shadow-lg'}`}>
                   <div className={`p-3 rounded-xl mr-4 transition-transform duration-300 group-hover:scale-110 ${isDarkMode ? 'bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20' : 'bg-blue-50 text-blue-600'}`}>
                     <FileText size={24} />
                   </div>
                   <div className="flex flex-col">
-                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-blue-400' : 'text-gray-800 group-hover:text-blue-700'}`}>{t.generateWord}</span>
-                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t.wordDesc}</span>
+                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-blue-400' : 'text-gray-800 group-hover:text-blue-700'}`}>{t('generateWord')}</span>
+                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t('wordDesc')}</span>
                   </div>
                 </button>
                 
@@ -240,8 +242,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
                     <FileSpreadsheet size={24} />
                   </div>
                   <div className="flex flex-col">
-                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-green-400' : 'text-gray-800 group-hover:text-green-700'}`}>{t.generateExcel}</span>
-                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t.excelDesc}</span>
+                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-green-400' : 'text-gray-800 group-hover:text-green-700'}`}>{t('generateExcel')}</span>
+                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t('excelDesc')}</span>
                   </div>
                 </button>
                 
@@ -250,8 +252,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
                     <Presentation size={24} />
                   </div>
                   <div className="flex flex-col">
-                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-orange-400' : 'text-gray-800 group-hover:text-orange-700'}`}>{t.generatePpt}</span>
-                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t.pptDesc}</span>
+                    <span className={`font-bold transition-colors ${isDarkMode ? 'text-gray-200 group-hover:text-orange-400' : 'text-gray-800 group-hover:text-orange-700'}`}>{t('generatePpt')}</span>
+                    <span className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{t('pptDesc')}</span>
                   </div>
                 </button>
             </div>
@@ -268,8 +270,8 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
         <div className={theme.overlay}>
           <div className="flex flex-col items-center text-white">
             <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-            <h2 className="text-2xl font-bold mb-2">{t.compilingFile.replace('{X}', generatedType || '')}</h2>
-            <p className="text-sm text-blue-300 font-mono">{t.backendCompiling}</p>
+            <h2 className="text-2xl font-bold mb-2">{t('compilingFile').replace('{X}', generatedType || '')}</h2>
+            <p className="text-sm text-blue-300 font-mono">{t('backendCompiling')}</p>
           </div>
         </div>
       )}
@@ -277,3 +279,5 @@ export default function DocumentationTab({ isDarkMode, availableFolders = [], la
     </div>
   );
 }
+
+

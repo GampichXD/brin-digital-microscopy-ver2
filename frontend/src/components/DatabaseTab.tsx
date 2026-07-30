@@ -1,20 +1,16 @@
 import { useState, useEffect } from 'react';
 import type { ElementType } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight, Video, Camera } from 'lucide-react';
-import type { Language } from '../i18n';
-import { translations } from '../i18n';
+import { useTranslation } from '../hooks/useTranslation';
+import { useGlobalContext } from '../context/GlobalContext';
 import VirtualKeyboard from './VirtualKeyboard';
 import { logSystemAction } from '../utils/logger';
 import { showToast } from '../utils/toast';
 
 interface DatabaseTabProps {
-  isDarkMode: boolean;
-  globalVirtualKeyboard: boolean;
-  triggerToast: (msg: string, type?: 'SUCCESS' | 'ERROR' | 'INFO') => void;
   availableFolders: DatasetFolder[]; 
   onRefreshFolders: () => void;
-  language: Language;
 }
 
 interface DatasetFolder {
@@ -67,8 +63,9 @@ function TouchDropdown({ options, value, onChange, isDarkMode, icon: Icon }: Tou
   );
 }
 
-export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, triggerToast, availableFolders, onRefreshFolders, language }: DatabaseTabProps) {
-  const t = translations[language];
+export default function DatabaseTab({ availableFolders, onRefreshFolders }: DatabaseTabProps) {
+  const { isDarkMode, globalVirtualKeyboard } = useGlobalContext();
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterObject, setFilterObject] = useState('Semua Objek');
   const [filterOperator, setFilterOperator] = useState('Semua Operator');
@@ -98,7 +95,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   const [storageInfo, setStorageInfo] = useState<{ total_gb: number, used_gb: number, used_percentage: number }>({ total_gb: 50.0, used_gb: 10.0, used_percentage: 20 });
 
   useEffect(() => {
-    axios.get('http://localhost:8000/api/dataset/storage-info')
+    api.get('/api/dataset/storage-info')
       .then(res => setStorageInfo(res.data))
       .catch(err => console.error("Gagal memuat info storage:", err));
   }, [availableFolders]);
@@ -107,7 +104,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   useEffect(() => {
     if (activeFolder && viewMode === 'images') {
-      axios.get(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`)
+      api.get(`/api/dataset/folders/${activeFolder.id}/images`)
         .then(res => setCurrentImages(res.data))
         .catch(err => console.error("Gagal memuat gambar dari folder:", err));
     }
@@ -141,13 +138,13 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   const handleSimulateDownload = (fileName: string) => {
     if (!activeFolder) return;
     
-    triggerToast(`Mempersiapkan unduhan ${fileName}...`, 'INFO');
+    showToast(`Mempersiapkan unduhan ${fileName}...`, 'info');
     
     const a = document.createElement('a');
     if (fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
-      a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/download`;
+      a.href = `/api/dataset/folders/${activeFolder.id}/download`;
     } else {
-      a.href = `http://localhost:8000/api/dataset/folders/${activeFolder.id}/files/${fileName}/download`;
+      a.href = `/api/dataset/folders/${activeFolder.id}/files/${fileName}/download`;
     }
     
     a.download = fileName;
@@ -177,22 +174,22 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     }
     try {
       if (formMode === 'create') {
-        await axios.post('http://localhost:8000/api/dataset/folders', {
+        await api.post('/api/dataset/folders', {
           name: formData.name,
           object_type: formData.object_type,
           date: new Date().toISOString().split('T')[0],
           operator: formData.operator
         });
-        triggerToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`, 'SUCCESS');
+        showToast(`Folder "${formData.name}" berhasil diciptakan di PostgreSQL!`, 'success');
         logSystemAction(`Buat Folder Dataset (${formData.name})`, 'SUCCESS');
         onRefreshFolders();
       } else {
-        await axios.put(`http://localhost:8000/api/dataset/folders/${formData.id}`, {
+        await api.put(`/api/dataset/folders/${formData.id}`, {
           name: formData.name,
           object_type: formData.object_type,
           operator: formData.operator
         });
-        triggerToast('Metadata folder berhasil diperbarui!', 'SUCCESS');
+        showToast('Metadata folder berhasil diperbarui!', 'success');
         logSystemAction(`Update Metadata Folder (${formData.name})`, 'SUCCESS');
         onRefreshFolders();
       }
@@ -201,7 +198,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       onRefreshFolders(); 
     } catch (error) {
       console.error(error);
-      triggerToast('Gagal menyimpan folder dataset', 'ERROR');
+      showToast('Gagal menyimpan folder dataset', 'error');
       logSystemAction('Gagal Simpan Folder Dataset', 'ERROR');
     }
   };
@@ -211,16 +208,16 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   const executeDelete = async () => {
     if (!targetDelete) return;
     try {
-      await axios.delete(`http://localhost:8000/api/dataset/folders/${targetDelete}`);
+      await api.delete(`/api/dataset/folders/${targetDelete}`);
       if (activeFolder?.id === targetDelete) setActiveFolder(null);
       setIsConfirmOpen(false);
       setTargetDelete(null);
       onRefreshFolders(); 
-      triggerToast('Folder dataset telah dihapus permanen dari basis data.', 'SUCCESS');
+      showToast('Folder dataset telah dihapus permanen dari basis data.', 'success');
       logSystemAction(`Hapus Folder Dataset (ID: ${targetDelete})`, 'SUCCESS');
     } catch (error) {
       console.error(error);
-      triggerToast('Gagal menghapus folder dari server.', 'ERROR');
+      showToast('Gagal menghapus folder dari server.', 'error');
       logSystemAction('Gagal Hapus Folder Dataset', 'ERROR');
     }
   };
@@ -249,18 +246,18 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
   const executeDeleteImages = async () => {
     if (!activeFolder || targetImageDelete.length === 0) return;
     try {
-      await axios.delete(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`, {
+      await api.delete(`/api/dataset/folders/${activeFolder.id}/images`, {
         data: { filenames: targetImageDelete }
       });
-      triggerToast(`${targetImageDelete.length} gambar berhasil dihapus dari server.`, 'SUCCESS');
+      showToast(`${targetImageDelete.length} gambar berhasil dihapus dari server.`, 'success');
       logSystemAction(`Hapus ${targetImageDelete.length} Gambar dari Folder ${activeFolder.name}`, 'SUCCESS');
       
-      const res = await axios.get(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`);
+      const res = await api.get(`/api/dataset/folders/${activeFolder.id}/images`);
       setCurrentImages(res.data);
       onRefreshFolders();
     } catch (error) {
       console.error("Gagal menghapus gambar:", error);
-      triggerToast("Gagal menghapus gambar dari server.", 'ERROR');
+      showToast("Gagal menghapus gambar dari server.", 'error');
       logSystemAction("Gagal Menghapus Gambar Dataset", 'ERROR');
     } finally {
       setIsConfirmImageOpen(false);
@@ -306,7 +303,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
 
   const uploadFiles = async (files: FileList | File[]) => {
     if (!activeFolder || files.length === 0) return;
-    triggerToast(`Mengunggah ${files.length} file...`, 'INFO');
+    showToast(`Mengunggah ${files.length} file...`, 'info');
     
     const formDataObj = new FormData();
     for (let i = 0; i < files.length; i++) {
@@ -314,19 +311,19 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     }
 
     try {
-      await axios.post(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/files`, formDataObj, {
+      await api.post(`/api/dataset/folders/${activeFolder.id}/files`, formDataObj, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      triggerToast(`Berhasil mengunggah ${files.length} gambar!`, 'SUCCESS');
+      showToast(`Berhasil mengunggah ${files.length} gambar!`, 'success');
       logSystemAction(`Upload ${files.length} Gambar ke Folder ${activeFolder.name}`, 'SUCCESS');
       setIsUploadOpen(false);
       onRefreshFolders();
       // Segarkan daftar gambar di view saat ini
-      axios.get(`http://localhost:8000/api/dataset/folders/${activeFolder.id}/images`)
+      api.get(`/api/dataset/folders/${activeFolder.id}/images`)
         .then(res => setCurrentImages(res.data));
     } catch (err) {
       console.error(err);
-      triggerToast("Gagal mengunggah gambar", 'ERROR');
+      showToast("Gagal mengunggah gambar", 'error');
     }
   };
 
@@ -368,7 +365,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                 <HardDrive size={18} className={`mr-3 ${storageInfo.used_percentage > 80 ? 'text-red-500' : 'text-green-500'}`} />
                 <div className="flex flex-col w-32">
                   <div className="flex justify-between text-[10px] font-bold mb-1">
-                    <span className={theme.textMuted}>{t.serverRom}</span>
+                    <span className={theme.textMuted}>{t('serverRom')}</span>
                     <span className={storageInfo.used_percentage > 80 ? 'text-red-500' : theme.text}>{storageInfo.used_percentage}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
@@ -383,7 +380,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center shadow-lg shadow-blue-500/30 transition-all active:scale-95"
                 >
                   <Plus size={14} className="mr-1.5" />
-                  {t.createNew}
+                  {t('createNew')}
                 </button>
               </div>
             </div>
@@ -428,7 +425,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                   <span className="hidden sm:inline">PILIH SEMUA</span>
                 </button>
                 <button onClick={() => setIsSelectMode(false)} className={`px-2.5 sm:px-3 py-2 rounded-lg font-bold flex items-center active:scale-95 text-sm transition-transform ${theme.text}`}>
-                  <X size={16} className="sm:mr-2" /> <span className="hidden sm:inline">{t.cancel}</span>
+                  <X size={16} className="sm:mr-2" /> <span className="hidden sm:inline">{t('cancel')}</span>
                 </button>
                 <div className="w-px bg-gray-500/30 mx-1"></div>
                 <button onClick={() => confirmDeleteImages(selectedImages)} disabled={selectedImages.length === 0} className="px-3 sm:px-4 py-2 bg-red-600 disabled:bg-red-900 disabled:text-red-400 hover:bg-red-700 text-white rounded-lg font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
@@ -459,8 +456,8 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                     <h3 className={`font-bold text-lg truncate ${theme.text}`}>{folder.name}</h3>
                     <p className={`text-xs font-bold text-blue-500 mb-1`}>{folder.object_type}</p>
                     <div className={`text-[10px] space-y-0.5 ${theme.textMuted}`}>
-                      <p>{t.taken} {folder.date}</p>
-                      <p>{t.by} {folder.operator}</p>
+                      <p>{t('taken')} {folder.date}</p>
+                      <p>{t('by')} {folder.operator}</p>
                     </div>
                   </div>
                 </div>
@@ -469,11 +466,11 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                   <div className="flex gap-2">
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center ${isDarkMode ? 'bg-gray-900/50 border-gray-700 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
                       <Camera size={12} className="mr-1.5 text-blue-500" />
-                      {folder.image_count} {t.images}
+                      {folder.image_count} {t('images')}
                     </span>
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center ${isDarkMode ? 'bg-gray-900/50 border-gray-700 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
                       <Video size={12} className="mr-1.5 text-red-500" />
-                      {folder.video_count || 0} {t.videos}
+                      {folder.video_count || 0} {t('videos')}
                     </span>
                   </div>
                   <div className="flex gap-2">
@@ -500,13 +497,13 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                 >
                   {fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.webm') || fileName.toLowerCase().endsWith('.avi') ? (
                     <>
-                      <video src={`http://localhost:8000/api/dataset/video/${activeFolder?.id}/${fileName}`} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
+                      <video src={`/api/dataset/video/${activeFolder?.id}/${fileName}`} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
                       <div className="absolute inset-0 flex items-center justify-center z-0 bg-black/20">
                         <Video size={32} className="text-white/70" />
                       </div>
                     </>
                   ) : (
-                    <img src={`http://localhost:8000/static/datasets/${activeFolder?.id}/${fileName}`} alt={fileName} className="absolute inset-0 w-full h-full object-cover z-0" />
+                    <img src={`${api.defaults.baseURL}/static/datasets/${activeFolder?.id}/${fileName}`} alt={fileName} className="absolute inset-0 w-full h-full object-cover z-0" />
                   )}
                   
                   {isSelectMode && (
@@ -559,9 +556,9 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
           <div className="w-full h-full max-w-[85vw] max-h-[80vh] flex items-center justify-center z-0">
             <div className="w-full h-full flex items-center justify-center rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
               {currentImages[previewIndex]?.name.toLowerCase().endsWith('.mp4') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.webm') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.avi') ? (
-                <video src={`http://localhost:8000/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} controls autoPlay className="max-w-full max-h-full object-contain rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-xl mb-2">File video tidak dapat diputar.</p><p class="text-gray-400">File mungkin kosong atau belum selesai disinkronkan dari perangkat edge.</p></div>'); }} />
+                <video src={`/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} controls autoPlay className="max-w-full max-h-full object-contain rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-xl mb-2">File video tidak dapat diputar.</p><p class="text-gray-400">File mungkin kosong atau belum selesai disinkronkan dari perangkat edge.</p></div>'); }} />
               ) : (
-                <img src={`http://localhost:8000/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="max-w-full max-h-full object-contain rounded-2xl" />
+                <img src={`${api.defaults.baseURL}/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="max-w-full max-h-full object-contain rounded-2xl" />
               )}
             </div>
           </div>
@@ -593,11 +590,11 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
             <div className="w-24 h-24 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse">
               <AlertTriangle size={48} />
             </div>
-            <div className={`text-2xl font-black mb-3 ${theme.text}`}>{t.sureDeleteImage}</div>
-            <p className={`text-sm mb-8 ${theme.textMuted} font-medium`}>{t.deleteImageConfirmMsg.replace('{X}', targetImageDelete.length.toString())}</p>
+            <div className={`text-2xl font-black mb-3 ${theme.text}`}>{t('sureDeleteImage')}</div>
+            <p className={`text-sm mb-8 ${theme.textMuted} font-medium`}>{t('deleteImageConfirmMsg').replace('{X}', targetImageDelete.length.toString())}</p>
             <div className="flex gap-4 w-full">
-              <button onClick={() => setIsConfirmImageOpen(false)} className={`flex-1 py-4 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover} active:scale-95 transition-all`}>{t.cancel}</button>
-              <button onClick={executeDeleteImages} className="flex-1 py-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-600/40 text-white flex items-center justify-center active:scale-95 transition-all"><Trash2 size={20} className="mr-2" /> {t.delete}</button>
+              <button onClick={() => setIsConfirmImageOpen(false)} className={`flex-1 py-4 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover} active:scale-95 transition-all`}>{t('cancel')}</button>
+              <button onClick={executeDeleteImages} className="flex-1 py-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-600/40 text-white flex items-center justify-center active:scale-95 transition-all"><Trash2 size={20} className="mr-2" /> {t('delete')}</button>
             </div>
           </div>
         </div>
@@ -609,11 +606,11 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
             <div className="w-24 h-24 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse">
               <AlertTriangle size={48} />
             </div>
-            <h2 className={`text-2xl font-black mb-3 ${theme.text}`}>{t.sureDeleteFolder}</h2>
-            <p className={`text-sm mb-8 ${theme.textMuted} font-medium`}>{t.deleteFolderConfirmMsg}</p>
+            <h2 className={`text-2xl font-black mb-3 ${theme.text}`}>{t('sureDeleteFolder')}</h2>
+            <p className={`text-sm mb-8 ${theme.textMuted} font-medium`}>{t('deleteFolderConfirmMsg')}</p>
             <div className="flex gap-4 w-full">
-              <button onClick={() => setIsConfirmOpen(false)} className={`flex-1 py-4 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover} active:scale-95 transition-all`}>{t.cancel}</button>
-              <button onClick={executeDelete} className="flex-1 py-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-600/40 text-white flex items-center justify-center active:scale-95 transition-all"><Trash2 size={20} className="mr-2" /> {t.deleteFolder}</button>
+              <button onClick={() => setIsConfirmOpen(false)} className={`flex-1 py-4 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover} active:scale-95 transition-all`}>{t('cancel')}</button>
+              <button onClick={executeDelete} className="flex-1 py-4 rounded-xl font-bold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 shadow-lg shadow-red-600/40 text-white flex items-center justify-center active:scale-95 transition-all"><Trash2 size={20} className="mr-2" /> {t('deleteFolder')}</button>
             </div>
           </div>
         </div>
@@ -622,48 +619,48 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
       {isFormOpen && (
         <div className={theme.modalOverlay}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
-            <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{formMode === 'create' ? t.createFolder : t.editFolder}</h2>
+            <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{formMode === 'create' ? t('createFolder') : t('editFolder')}</h2>
             <div className="space-y-4 mb-6">
               <div>
-                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.folderName}</label>
+                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('folderName')}</label>
                 <input
                   type="text"
                   readOnly={globalVirtualKeyboard}
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  onClick={() => triggerKeyboard(t.folderName, 'name')}
+                  onClick={() => triggerKeyboard(t('folderName'), 'name')}
                   className={`w-full p-3 rounded-xl border text-sm font-bold shadow-inner outline-none ${theme.input} ${keyboardState.targetField === 'name' ? 'ring-2 ring-blue-500' : ''}`}
-                  placeholder={t.folderName}
+                  placeholder={t('folderName')}
                 />
               </div>
               <div>
-                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.objectType}</label>
+                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('objectType')}</label>
                 <input
                   type="text"
                   readOnly={globalVirtualKeyboard}
                   value={formData.object_type}
                   onChange={(e) => setFormData({ ...formData, object_type: e.target.value })}
-                  onClick={() => triggerKeyboard(t.objectType, 'object_type')}
+                  onClick={() => triggerKeyboard(t('objectType'), 'object_type')}
                   className={`w-full p-3 rounded-xl border text-sm font-bold shadow-inner outline-none ${theme.input} ${keyboardState.targetField === 'object_type' ? 'ring-2 ring-blue-500' : ''}`}
-                  placeholder={t.objectType}
+                  placeholder={t('objectType')}
                 />
               </div>
               <div>
-                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t.operatorName}</label>
+                <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('operatorName')}</label>
                 <input
                   type="text"
                   readOnly={globalVirtualKeyboard}
                   value={formData.operator}
                   onChange={(e) => setFormData({ ...formData, operator: e.target.value })}
-                  onClick={() => triggerKeyboard(t.operatorName, 'operator')}
+                  onClick={() => triggerKeyboard(t('operatorName'), 'operator')}
                   className={`w-full p-3 rounded-xl border text-sm font-bold shadow-inner outline-none ${theme.input} ${keyboardState.targetField === 'operator' ? 'ring-2 ring-blue-500' : ''}`}
-                  placeholder={t.operatorName}
+                  placeholder={t('operatorName')}
                 />
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setIsFormOpen(false); setKeyboardState({ visible: false, targetField: '', title: '' }); }} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>{t.cancel}</button>
-              <button onClick={saveForm} className="flex-1 py-3 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center active:scale-95"><Check size={18} className="mr-2" /> {t.save}</button>
+              <button onClick={() => { setIsFormOpen(false); setKeyboardState({ visible: false, targetField: '', title: '' }); }} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>{t('cancel')}</button>
+              <button onClick={saveForm} className="flex-1 py-3 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center active:scale-95"><Check size={18} className="mr-2" /> {t('save')}</button>
             </div>
           </div>
         </div>
@@ -673,7 +670,7 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
         <div className={theme.modalOverlay}>
           <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
             <div className="flex justify-between items-center mb-4">
-              <h2 className={`text-xl font-bold ${theme.text}`}>{t.uploadImage}</h2>
+              <h2 className={`text-xl font-bold ${theme.text}`}>{t('uploadImage')}</h2>
               <button onClick={() => setIsUploadOpen(false)} className={`p-2 rounded-full ${theme.btnHover}`}>
                 <X size={24} className={theme.textMuted} />
               </button>
@@ -683,14 +680,14 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
                 <UploadCloud size={32} className="text-blue-500" />
               </div>
               <div className="text-center">
-                <p className={`mb-2 text-sm font-bold ${theme.text}`}>{t.touchToUpload}</p>
-                <p className={`text-xs ${theme.textMuted}`}>{t.dragDrop}</p>
-                <p className={`text-[10px] mt-2 ${theme.textMuted}`}>{t.supportFormat}</p>
+                <p className={`mb-2 text-sm font-bold ${theme.text}`}>{t('touchToUpload')}</p>
+                <p className={`text-xs ${theme.textMuted}`}>{t('dragDrop')}</p>
+                <p className={`text-[10px] mt-2 ${theme.textMuted}`}>{t('supportFormat')}</p>
               </div>
               <input id="file-upload" type="file" className="hidden" multiple accept="image/*" onChange={handleFileChange} />
             </label>
             <div className="mt-6 flex gap-4">
-              <button onClick={() => setIsUploadOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>{t.cancel}</button>
+              <button onClick={() => setIsUploadOpen(false)} className={`flex-1 py-3 rounded-xl font-bold border ${theme.textMuted} ${theme.btnHover}`}>{t('cancel')}</button>
             </div>
           </div>
         </div>
@@ -707,3 +704,5 @@ export default function DatabaseTab({ isDarkMode, globalVirtualKeyboard, trigger
     </div>
   );
 }
+
+

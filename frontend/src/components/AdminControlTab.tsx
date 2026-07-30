@@ -1,16 +1,9 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { Cpu, ToggleLeft, ToggleRight, Users, Trash2, Power, HardDrive } from 'lucide-react';
-import { translations } from '../i18n';
-import type { Language } from '../i18n';
 import { showToast } from '../utils/toast';
-
-interface AdminControlTabProps {
-  isDarkMode: boolean;
-  isSystemHardwareEnabled: boolean;
-  setIsSystemHardwareEnabled: (val: boolean) => void;
-  language: Language;
-}
+import { useGlobalContext } from '../context/GlobalContext';
+import { useTranslation } from '../hooks/useTranslation';
 
 interface LabOperator {
   id: number;
@@ -20,8 +13,9 @@ interface LabOperator {
   last_login: string | null;
 }
 
-export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, setIsSystemHardwareEnabled, language }: AdminControlTabProps) {
-  const t = translations[language];
+export default function AdminControlTab() {
+  const { isDarkMode, isSystemHardwareEnabled, setIsSystemHardwareEnabled } = useGlobalContext();
+  const { t } = useTranslation();
   // === 2. UBAH STATE MENJADI DINAMIS DARI DATABASE BACKEND ===
   const [userList, setUserList] = useState<LabOperator[]>([]);
 
@@ -36,10 +30,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
   // === 3. FUNGSI AMBIL DATA OPERATOR DARI POSTGRESQL ===
   const fetchOperators = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get<LabOperator[]>('http://localhost:8000/api/auth/operators', {
-        headers: { Authorization: `Bearer ${token}` } // Amankan dengan token JWT Admin
-      });
+      const response = await api.get<LabOperator[]>('/api/auth/operators');
       setUserList(response.data);
     } catch (error) {
       console.error("Gagal memuat daftar operator lab:", error);
@@ -47,21 +38,19 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
   };
 
   useEffect(() => {
-  const delayFetch = setTimeout(() => {
-    fetchOperators();
-  }, 0);
-  return () => clearTimeout(delayFetch);
-}, []);
+    const delayFetch = setTimeout(() => {
+      fetchOperators();
+    }, 0);
+    return () => clearTimeout(delayFetch);
+  }, []);
 
   // === 4. MUTASI ROLE NYATA (ADMIN <=> OPERATOR) KERS SERVER ===
   const toggleUserRole = async (id: number, currentRole: 'ADMIN' | 'OPERATOR') => {
     try {
-      const token = localStorage.getItem('token');
       const targetRole = currentRole === 'ADMIN' ? 'OPERATOR' : 'ADMIN';
       
-      await axios.put(`http://localhost:8000/api/auth/operators/${id}/role`, 
-        { role: targetRole },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.put(`/api/auth/operators/${id}/role`, 
+        { role: targetRole }
       );
       
       fetchOperators(); // Segarkan tabel data
@@ -69,7 +58,6 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
     } catch (error) {
       console.error("Gagal mengubah otoritas akun operator:", error);
       showToast("Gagal mengubah otoritas akun. Pastikan kamu memiliki hak akses root.", "error");
-      // alert("Gagal mengubah otoritas akun. Pastikan kamu memiliki hak akses root.");
     }
   };
 
@@ -77,33 +65,27 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
   const handleDeleteOperator = async (id: number) => {
     if (!confirm("Yakin ingin menghapus akun operator ini dari sistem?")) return;
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:8000/api/auth/operators/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/api/auth/operators/${id}`);
       fetchOperators();
       showToast("Operator berhasil dihapus secara permanen.", "success");
     } catch (error) {
       console.error("Gagal menghapus operator:", error);
       showToast("Gagal menghapus operator.", "error");
-      // alert("Gagal menghapus operator.");
     }
   };
 
   // === 6. INTERUPSI RELAY GLOBAL KELUARAN PERANGKAT UTAMA ===
   const handleToggleHardwareBus = async () => {
-    const targetStatus = !isSystemHardwareEnabled;
     try {
-      const token = localStorage.getItem('token');
-      await axios.post('http://localhost:8000/api/hardware/bus/toggle', 
-        { enabled: targetStatus },
-        { headers: { Authorization: `Bearer ${token}` } }
+      const targetStatus = !isSystemHardwareEnabled;
+      
+      await api.post('/api/hardware/bus/toggle', 
+        { enabled: targetStatus }
       );
       setIsSystemHardwareEnabled(targetStatus); // Perbarui saklar di header global App.tsx
     } catch (error) {
       console.error("Gagal mengirim sinyal interupsi ke bus daya:", error);
       showToast("Gagal mengirim sinyal interupsi ke bus daya.", "error");
-      // alert("Gagal mengirim sinyal interupsi ke bus daya.");
     }
   };
 
@@ -121,15 +103,15 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
                 <Power size={24} />
               </div>
               <div>
-                <h3 className={`font-black text-sm tracking-wide ${theme.text}`}>{t.powerBus}</h3>
-                <p className="text-[10px] text-gray-500 font-bold uppercase">{t.relayCnc}</p>
+                <h3 className={`font-black text-sm tracking-wide ${theme.text}`}>{t('powerBus')}</h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase">{t('relayCnc')}</p>
               </div>
             </div>
           </div>
           
           <div className="mt-6 flex items-center justify-between p-3 bg-black/20 rounded-xl border border-gray-800">
             <span className="text-xs font-bold flex items-center gap-2">
-              {t.busStatus} {isSystemHardwareEnabled ? <span className="text-green-500 font-black">{t.onlineNormal}</span> : <span className="text-red-500 font-black">{t.interruptLocked}</span>}
+              {t('busStatus')} {isSystemHardwareEnabled ? <span className="text-green-500 font-black">{t('onlineNormal')}</span> : <span className="text-red-500 font-black">{t('interruptLocked')}</span>}
             </span>
             <button onClick={handleToggleHardwareBus} className={`p-0.5 rounded-lg transition-colors ${isSystemHardwareEnabled ? 'text-green-500' : 'text-red-500'}`}>
               {isSystemHardwareEnabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
@@ -142,7 +124,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
           <div className="flex items-center gap-3 mb-2">
             <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl"><Cpu size={24} /></div>
             <div className="w-full">
-              <div className="flex justify-between text-xs font-bold"><span className={theme.text}>{t.jetsonCpuLoad}</span><span className="text-blue-400">42%</span></div>
+              <div className="flex justify-between text-xs font-bold"><span className={theme.text}>{t('jetsonCpuLoad')}</span><span className="text-blue-400">42%</span></div>
               <div className="w-full h-2 bg-gray-700/50 rounded-full overflow-hidden mt-1 mb-2">
                 <div className="h-full bg-blue-500 rounded-full" style={{ width: '42%' }}></div>
               </div>
@@ -152,7 +134,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
               </div>
             </div>
           </div>
-          <span className="text-[9px] font-mono text-gray-500 mt-2 block">{t.tegraClock}</span>
+          <span className="text-[9px] font-mono text-gray-500 mt-2 block">{t('tegraClock')}</span>
         </div>
 
         {/* MONITOR PERIFERAL STORAGE LOGS */}
@@ -160,7 +142,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
           <div className="flex items-center gap-3 mb-2">
             <div className="p-3 bg-purple-500/10 text-purple-500 rounded-xl"><HardDrive size={24} /></div>
             <div className="w-full">
-              <div className="flex justify-between text-xs font-bold"><span className={theme.text}>{t.dbDiskIops}</span><span className="text-purple-400">85% full</span></div>
+              <div className="flex justify-between text-xs font-bold"><span className={theme.text}>{t('dbDiskIops')}</span><span className="text-purple-400">85% full</span></div>
               <div className="w-full h-2 bg-gray-700/50 rounded-full overflow-hidden mt-1 mb-2">
                 <div className="h-full bg-purple-500 rounded-full" style={{ width: '85%' }}></div>
               </div>
@@ -170,7 +152,7 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
               </div>
             </div>
           </div>
-          <span className="text-[9px] font-mono text-gray-500 mt-2 block">{t.autocleanLogs}</span>
+          <span className="text-[9px] font-mono text-gray-500 mt-2 block">{t('autocleanLogs')}</span>
         </div>
 
       </div>
@@ -180,8 +162,8 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
         <div className="p-4 border-b border-gray-800 bg-black/10 flex items-center gap-2">
           <Users size={18} className="text-blue-500" />
           <div>
-            <h3 className={`font-black text-sm ${theme.text}`}>{t.rbac}</h3>
-            <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">{t.labOperatorAuth}</p>
+            <h3 className={`font-black text-sm ${theme.text}`}>{t('rbac')}</h3>
+            <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">{t('labOperatorAuth')}</p>
           </div>
         </div>
 
@@ -189,11 +171,11 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
           <table className="w-full text-left">
             <thead className={`sticky top-0 text-[10px] uppercase font-bold tracking-wider ${theme.tableHeader}`}>
               <tr>
-                <th className="p-4">{t.operatorId}</th>
-                <th className="p-4">{t.accessLevel}</th>
-                <th className="p-4">{t.tokenStatus}</th>
-                <th className="p-4">{t.loginHistory}</th>
-                <th className="p-4 text-right">{t.changeAuth}</th>
+                <th className="p-4">{t('operatorId')}</th>
+                <th className="p-4">{t('accessLevel')}</th>
+                <th className="p-4">{t('tokenStatus')}</th>
+                <th className="p-4">{t('loginHistory')}</th>
+                <th className="p-4 text-right">{t('changeAuth')}</th>
               </tr>
             </thead>
             <tbody className={`text-xs font-bold ${theme.text}`}>
@@ -228,3 +210,5 @@ export default function AdminControlTab({ isDarkMode, isSystemHardwareEnabled, s
     </div>
   );
 }
+
+
