@@ -99,100 +99,113 @@ async def generate_report(
 #  GENERATOR 1: Microsoft Word (.docx)
 # ──────────────────────────────────────────────
 def _generate_word(title, folder, images, folder_path):
-    if not DOCX_AVAILABLE:
-        raise HTTPException(status_code=500, detail="python-docx tidak terinstall di server.")
+    try:
+        if not DOCX_AVAILABLE:
+            raise HTTPException(status_code=500, detail="python-docx tidak terinstall di server.")
 
-    doc = Document()
-    for section in doc.sections:
-        section.top_margin = Inches(1)
-        section.bottom_margin = Inches(1)
-        section.left_margin = Inches(1.2)
-        section.right_margin = Inches(1.2)
+        doc = Document()
+        for section in doc.sections:
+            section.top_margin = Inches(1)
+            section.bottom_margin = Inches(1)
+            section.left_margin = Inches(1.2)
+            section.right_margin = Inches(1.2)
 
-    h = doc.add_heading(title, level=0)
-    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    h.runs[0].font.color.rgb = RGBColor(0x1a, 0x56, 0xdb)
+        h = doc.add_heading(title, level=0)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        h.runs[0].font.color.rgb = RGBColor(0x1a, 0x56, 0xdb)
 
-    doc.add_paragraph("\u2500" * 68)
+        doc.add_paragraph("\u2500" * 68)
 
-    meta = doc.add_paragraph()
-    rows = [
-        ("Nama Folder",       folder.name),
-        ("Jenis Objek",       folder.object_type),
-        ("Operator",          folder.operator),
-        ("Tanggal Pengambilan", folder.date),
-        ("Jumlah Citra",      str(len(images))),
-        ("Waktu Pembuatan",   datetime.now().strftime("%d %B %Y, %H:%M:%S")),
-    ]
-    for label, val in rows:
-        run = meta.add_run(f"{label:<32}: {val}\n")
-        run.font.size = Pt(10)
-        run.font.name = "Courier New"
+        meta = doc.add_paragraph()
+        rows = [
+            ("Nama Folder",       folder.name),
+            ("Jenis Objek",       folder.object_type),
+            ("Operator",          folder.operator),
+            ("Tanggal Pengambilan", folder.date),
+            ("Jumlah Citra",      str(len(images))),
+            ("Waktu Pembuatan",   datetime.now().strftime("%d %B %Y, %H:%M:%S")),
+        ]
+        for label, val in rows:
+            run = meta.add_run(f"{label:<32}: {val}\n")
+            run.font.size = Pt(10)
+            run.font.name = "Courier New"
 
-    doc.add_paragraph()
-    doc.add_heading("1. Deskripsi Penelitian", level=1)
-    p = doc.add_paragraph(
-        f'Dokumen ini dikompilasi otomatis oleh sistem Digital Microscopy BRIN/UNDIP. '
-        f'Folder dataset "{folder.name}" berisi citra mikroskopik objek biologi '
-        f'bertipe "{folder.object_type}" yang diambil oleh operator "{folder.operator}" '
-        f'pada tanggal {folder.date}. Citra telah diproses menggunakan algoritma Computer '
-        f'Vision berbasis OpenCV dan inferensi YOLO pada perangkat Edge Computing Jetson Orin Nano.'
-    )
-    p.runs[0].font.size = Pt(11)
+        doc.add_paragraph()
+        doc.add_heading("1. Deskripsi Penelitian", level=1)
+        p = doc.add_paragraph(
+            f'Dokumen ini dikompilasi otomatis oleh sistem Digital Microscopy BRIN/UNDIP. '
+            f'Folder dataset "{folder.name}" berisi citra mikroskopik objek biologi '
+            f'bertipe "{folder.object_type}" yang diambil oleh operator "{folder.operator}" '
+            f'pada tanggal {folder.date}. Citra telah diproses menggunakan algoritma Computer '
+            f'Vision berbasis OpenCV dan inferensi YOLO pada perangkat Edge Computing Jetson Orin Nano.'
+        )
+        p.runs[0].font.size = Pt(11)
 
-    if images:
-        doc.add_heading("2. Galeri Citra Mikroskopik", level=1)
-        doc.add_paragraph(f"Total {len(images)} berkas gambar terdokumentasi dalam folder ini.")
-        for i, img_name in enumerate(images):
-            img_path = os.path.join(folder_path, img_name)
-            if not os.path.exists(img_path):
-                continue
-            if PIL_AVAILABLE:
-                with PILImage.open(img_path) as pil_img:
-                    pil_img.thumbnail((800, 600))
-                    # Konversi RGBA/P ke RGB agar bisa disimpan sebagai JPEG
-                    if pil_img.mode in ('RGBA', 'P', 'LA'):
-                        pil_img = pil_img.convert('RGB')
-                    buf = io.BytesIO()
-                    pil_img.save(buf, format="JPEG", quality=75)
-                    buf.seek(0)
+        if images:
+            doc.add_heading("2. Galeri Citra Mikroskopik", level=1)
+            doc.add_paragraph(f"Total {len(images)} berkas gambar terdokumentasi dalam folder ini.")
+            for i, img_name in enumerate(images):
+                img_path = os.path.join(folder_path, img_name)
+                if not os.path.exists(img_path):
+                    continue
+                if PIL_AVAILABLE:
                     try:
-                        doc.add_picture(buf, width=Inches(4.5))
+                        with PILImage.open(img_path) as pil_img:
+                            pil_img.thumbnail((800, 600))
+                            # Konversi RGBA/P ke RGB agar bisa disimpan sebagai JPEG
+                            if pil_img.mode in ('RGBA', 'P', 'LA'):
+                                pil_img = pil_img.convert('RGB')
+                            buf = io.BytesIO()
+                            pil_img.save(buf, format="JPEG", quality=75)
+                            buf.seek(0)
+                            try:
+                                doc.add_picture(buf, width=Inches(4.5))
+                            except Exception:
+                                pass
+                    except Exception:
+                        # Fallback jika PIL gagal open (misal corrupted / 0 byte / dummy)
+                        try:
+                            doc.add_picture(img_path, width=Inches(4.5))
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        doc.add_picture(img_path, width=Inches(4.5))
                     except Exception:
                         pass
-            else:
-                try:
-                    doc.add_picture(img_path, width=Inches(4.5))
-                except Exception:
-                    pass
-            cap = doc.add_paragraph(f"Gambar {i+1}: {img_name}")
-            cap.runs[0].font.size = Pt(9)
-            cap.runs[0].font.italic = True
-            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cap = doc.add_paragraph(f"Gambar {i+1}: {img_name}")
+                cap.runs[0].font.size = Pt(9)
+                cap.runs[0].font.italic = True
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    doc.add_heading("3. Kesimpulan", level=1)
-    doc.add_paragraph(
-        f"Sistem berhasil mendokumentasikan {len(images)} citra mikroskopik dari eksperimen "
-        f"yang dilakukan. Dokumen ini dapat digunakan sebagai lampiran resmi laporan penelitian "
-        f"atau tugas akhir."
-    )
-    doc.add_paragraph()
-    footer = doc.add_paragraph(
-        f"Digenerate otomatis oleh Digital Microscopy System \u2014 {datetime.now().year}"
-    )
-    footer.runs[0].font.size = Pt(8)
-    footer.runs[0].font.color.rgb = RGBColor(0x9c, 0xa3, 0xaf)
-    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.add_heading("3. Kesimpulan", level=1)
+        doc.add_paragraph(
+            f"Sistem berhasil mendokumentasikan {len(images)} citra mikroskopik dari eksperimen "
+            f"yang dilakukan. Dokumen ini dapat digunakan sebagai lampiran resmi laporan penelitian "
+            f"atau tugas akhir."
+        )
+        doc.add_paragraph()
+        footer = doc.add_paragraph(
+            f"Digenerate otomatis oleh Digital Microscopy System \u2014 {datetime.now().year}"
+        )
+        footer.runs[0].font.size = Pt(8)
+        footer.runs[0].font.color.rgb = RGBColor(0x9c, 0xa3, 0xaf)
+        footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    buf = io.BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    safe = title.replace(" ", "_")
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{safe}.docx"'}
-    )
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        safe = title.replace(" ", "_")
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe}.docx"'}
+        )
+    except Exception as e:
+        import traceback
+        print(f"ERROR IN _generate_word: {e}", flush=True)
+        traceback.print_exc()
+        raise
 
 
 # ──────────────────────────────────────────────

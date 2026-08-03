@@ -1,5 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import api from '../utils/api';
 import type { Language } from '../i18n';
+
+export interface TelemetryData {
+  time: string;
+  serverCpu: number;
+  serverRam: number;
+  serverBandwidth: number;
+  edgeCpu: number;
+  edgeRam: number;
+  edgeTemp: number;
+}
 
 interface GlobalContextProps {
   isDarkMode: boolean;
@@ -12,6 +23,7 @@ interface GlobalContextProps {
   setTargetAnalysisImage: (val: string | null) => void;
   globalVirtualKeyboard: boolean;
   setGlobalVirtualKeyboard: (val: boolean) => void;
+  telemetryData: TelemetryData[];
 }
 
 const GlobalContext = createContext<GlobalContextProps | undefined>(undefined);
@@ -23,7 +35,7 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const [language, setLanguage] = useState<Language>(() => {
-    return (localStorage.getItem('language') as Language) || 'id';
+    return (localStorage.getItem('language')?.toUpperCase() as Language) || 'ID';
   });
 
   const [isSystemHardwareEnabled, setIsSystemHardwareEnabled] = useState(false);
@@ -31,6 +43,43 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [globalVirtualKeyboard, setGlobalVirtualKeyboard] = useState(() => {
     return localStorage.getItem('virtualKeyboard') === 'true';
   });
+
+  const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([]);
+
+  useEffect(() => {
+    const fetchTelemetry = async () => {
+      try {
+        const response = await api.get('/api/hardware/telemetry/stats');
+        const data = response.data;
+        const d = new Date();
+        const newEntry: TelemetryData = {
+          time: d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          serverCpu: data.serverCpu || 0,
+          serverRam: data.serverRam || 0,
+          serverBandwidth: data.serverBandwidth || 0,
+          edgeCpu: data.edgeCpu || 0,
+          edgeRam: data.edgeRam || 0,
+          edgeTemp: data.edgeTemp || 0,
+        };
+        
+        if (data.hardwareBus !== undefined) {
+          setIsSystemHardwareEnabled(data.hardwareBus);
+        }
+        
+        setTelemetryData(prev => {
+          const newData = [...prev, newEntry];
+          if (newData.length > 20) return newData.slice(newData.length - 20);
+          return newData;
+        });
+      } catch (err) {
+        // Silently fail if backend is unreachable
+      }
+    };
+
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
@@ -62,6 +111,7 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setTargetAnalysisImage,
         globalVirtualKeyboard,
         setGlobalVirtualKeyboard,
+        telemetryData,
       }}
     >
       {children}

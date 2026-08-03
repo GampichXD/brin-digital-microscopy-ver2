@@ -135,16 +135,17 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
     return matchSearch && matchObj && matchOp && matchDate;
   });
 
-  const handleSimulateDownload = (fileName: string) => {
-    if (!activeFolder) return;
+  const handleSimulateDownload = (fileName: string, folderId?: string) => {
+    const targetFolderId = folderId || activeFolder?.id;
+    if (!targetFolderId) return;
     
     showToast(`Mempersiapkan unduhan ${fileName}...`, 'info');
     
     const a = document.createElement('a');
     if (fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
-      a.href = `/api/dataset/folders/${activeFolder.id}/download`;
+      a.href = `${api.defaults.baseURL}/api/dataset/folders/${targetFolderId}/download`;
     } else {
-      a.href = `/api/dataset/folders/${activeFolder.id}/files/${fileName}/download`;
+      a.href = `${api.defaults.baseURL}/api/dataset/folders/${targetFolderId}/files/${fileName}/download`;
     }
     
     a.download = fileName;
@@ -347,7 +348,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
       <div className={`flex flex-col gap-3 p-4 rounded-2xl border shrink-0 mb-4 ${theme.panel}`}>
         {viewMode === 'folders' ? (
           <>
-            <div className="flex gap-2 w-full">
+            <div className="flex flex-wrap md:flex-nowrap gap-2 w-full">
               <div className="flex-1 relative min-w-[200px]">
                 <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme.textMuted}`} size={18} />
                 <input
@@ -361,9 +362,9 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
                 />
               </div>
 
-              <div className={`hidden md:flex items-center px-4 py-2 rounded-xl border ${theme.input} shadow-inner`} title={`Kapasitas: ${storageInfo.used_gb} / ${storageInfo.total_gb} GB`}>
+              <div className={`flex items-center justify-center md:justify-start flex-1 md:flex-none min-w-[180px] px-4 py-2 rounded-xl border ${theme.input} shadow-inner`} title={`Kapasitas: ${storageInfo.used_gb} / ${storageInfo.total_gb} GB`}>
                 <HardDrive size={18} className={`mr-3 ${storageInfo.used_percentage > 80 ? 'text-red-500' : 'text-green-500'}`} />
-                <div className="flex flex-col w-32">
+                <div className="flex flex-col w-full md:w-32">
                   <div className="flex justify-between text-[10px] font-bold mb-1">
                     <span className={theme.textMuted}>{t('serverRom')}</span>
                     <span className={storageInfo.used_percentage > 80 ? 'text-red-500' : theme.text}>{storageInfo.used_percentage}%</span>
@@ -377,7 +378,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
               <div className="flex gap-2">
                 <button 
                   onClick={() => openCreateForm()}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center shadow-lg shadow-blue-500/30 transition-all active:scale-95"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center min-w-[120px] md:min-w-0 shadow-lg shadow-blue-500/30 transition-all active:scale-95"
                 >
                   <Plus size={14} className="mr-1.5" />
                   {t('createNew')}
@@ -476,7 +477,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
                   <div className="flex gap-2">
                     <button onClick={() => openEditForm(folder)} className={`p-2 rounded-lg border ${theme.btnHover} ${isDarkMode ? 'border-gray-700 text-yellow-500' : 'border-gray-300 text-yellow-600'} active:scale-95`}><Edit2 size={16} /></button>
                     <button onClick={() => confirmDelete(folder.id)} className={`p-2 rounded-lg border ${theme.btnHover} ${isDarkMode ? 'border-gray-700 text-red-400' : 'border-gray-300 text-red-500'} active:scale-95`}><Trash2 size={16} /></button>
-                    <button onClick={() => handleSimulateDownload(`${folder.name}_Report.csv`)} className={`p-2 rounded-lg border ${theme.btnHover} ${isDarkMode ? 'border-gray-700 text-green-400' : 'border-gray-300 text-green-600'} active:scale-95`}><Download size={16} /></button>
+                    <button onClick={() => handleSimulateDownload(`${folder.name}.zip`, folder.id)} className={`p-2 rounded-lg border ${theme.btnHover} ${isDarkMode ? 'border-gray-700 text-green-400' : 'border-gray-300 text-green-600'} active:scale-95`}><Download size={16} /></button>
                   </div>
                 </div>
               </div>
@@ -497,7 +498,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
                 >
                   {fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.webm') || fileName.toLowerCase().endsWith('.avi') ? (
                     <>
-                      <video src={`/api/dataset/video/${activeFolder?.id}/${fileName}`} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
+                      <video src={`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${fileName}`} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
                       <div className="absolute inset-0 flex items-center justify-center z-0 bg-black/20">
                         <Video size={32} className="text-white/70" />
                       </div>
@@ -533,32 +534,34 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
       {previewIndex !== null && (
         <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center backdrop-blur-xl">
           {/* HEADER PADA PREVIEW */}
-          <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pointer-events-none">
-            <div className="flex flex-col">
-              <span className="font-mono text-gray-400 text-xs tracking-widest uppercase">PREVIEW</span>
-              <span className="font-bold text-xl text-white drop-shadow-md">{currentImages[previewIndex]?.name}</span>
+          <div className="absolute top-0 inset-x-0 p-4 md:p-6 flex flex-col justify-start items-start bg-gradient-to-b from-black/80 to-transparent z-20 pointer-events-none">
+            <div className="flex flex-col max-w-[80%] pr-4">
+              <span className="font-mono text-gray-400 text-[10px] md:text-xs tracking-widest uppercase mb-1">PREVIEW</span>
+              <span className="font-bold text-sm md:text-xl text-white drop-shadow-md break-all line-clamp-2 md:line-clamp-none">{currentImages[previewIndex]?.name}</span>
             </div>
-            <button onClick={() => setPreviewIndex(null)} className="p-3 bg-white/10 hover:bg-red-500 text-white rounded-full transition-all pointer-events-auto backdrop-blur-md">
-              <X size={24} />
-            </button>
           </div>
+          
+          {/* CLOSE BUTTON */}
+          <button onClick={() => setPreviewIndex(null)} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 md:p-3 bg-black/40 hover:bg-red-500 text-white rounded-full transition-all z-50 backdrop-blur-md border border-white/20">
+            <X size={24} />
+          </button>
 
           {/* TOMBOL NAVIGASI KIRI */}
           <button
             onClick={() => setPreviewIndex(prev => Math.max(0, prev! - 1))}
             disabled={previewIndex === 0}
-            className="absolute left-6 p-4 bg-white/5 hover:bg-white/20 text-white rounded-full active:scale-95 disabled:opacity-10 transition-all z-10 backdrop-blur-md"
+            className="absolute left-2 md:left-6 p-2 md:p-4 bg-white/10 hover:bg-white/20 text-white rounded-full active:scale-95 disabled:opacity-10 transition-all z-20 backdrop-blur-md"
           >
-            <ChevronLeft size={36} />
+            <ChevronLeft size={24} className="md:w-9 md:h-9" />
           </button>
 
           {/* KONTEN UTAMA */}
-          <div className="w-full h-full max-w-[85vw] max-h-[80vh] flex items-center justify-center z-0">
-            <div className="w-full h-full flex items-center justify-center rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+          <div className="w-full h-full max-w-[100vw] md:max-w-[85vw] max-h-[100vh] md:max-h-[80vh] flex items-center justify-center z-0 p-0 md:p-8">
+            <div className="w-full h-full flex items-center justify-center md:rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-black/50">
               {currentImages[previewIndex]?.name.toLowerCase().endsWith('.mp4') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.webm') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.avi') ? (
-                <video src={`/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} controls autoPlay className="max-w-full max-h-full object-contain rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-xl mb-2">File video tidak dapat diputar.</p><p class="text-gray-400">File mungkin kosong atau belum selesai disinkronkan dari perangkat edge.</p></div>'); }} />
+                <video src={`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} controls autoPlay className="max-w-full max-h-full object-contain md:rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-4 md:p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-lg md:text-xl mb-2">File video tidak dapat diputar.</p><p class="text-xs md:text-sm text-gray-400">File mungkin kosong atau belum selesai disinkronkan.</p></div>'); }} />
               ) : (
-                <img src={`${api.defaults.baseURL}/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="max-w-full max-h-full object-contain rounded-2xl" />
+                <img src={`${api.defaults.baseURL}/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="max-w-full max-h-full object-contain md:rounded-2xl" />
               )}
             </div>
           </div>
@@ -567,18 +570,18 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
           <button
             onClick={() => setPreviewIndex(prev => Math.min(currentImages.length - 1, prev! + 1))}
             disabled={previewIndex === currentImages.length - 1}
-            className="absolute right-6 p-4 bg-white/5 hover:bg-white/20 text-white rounded-full active:scale-95 disabled:opacity-10 transition-all z-10 backdrop-blur-md"
+            className="absolute right-2 md:right-6 p-2 md:p-4 bg-white/10 hover:bg-white/20 text-white rounded-full active:scale-95 disabled:opacity-10 transition-all z-20 backdrop-blur-md"
           >
-            <ChevronRight size={36} />
+            <ChevronRight size={24} className="md:w-9 md:h-9" />
           </button>
 
           {/* FOOTER ACTION BUTTONS */}
-          <div className="absolute bottom-0 inset-x-0 p-8 flex justify-center gap-6 bg-gradient-to-t from-black/80 to-transparent z-10">
-            <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]?.name]); }} className="px-8 py-4 bg-red-600/80 hover:bg-red-600 text-white rounded-2xl font-bold flex items-center active:scale-95 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] backdrop-blur-md">
-              <Trash2 size={20} className="mr-3" /> Hapus Permanen
+          <div className="absolute bottom-0 inset-x-0 p-4 md:p-8 flex flex-row justify-center gap-3 md:gap-6 bg-gradient-to-t from-black/80 to-transparent z-20">
+            <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]?.name]); }} className="flex-1 md:flex-none px-4 md:px-8 py-3 md:py-4 bg-red-600/80 hover:bg-red-600 text-white rounded-xl md:rounded-2xl font-bold flex flex-col md:flex-row items-center justify-center active:scale-95 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] backdrop-blur-md text-xs md:text-base text-center">
+              <Trash2 size={20} className="mb-1 md:mb-0 md:mr-3" /> Hapus Permanen
             </button>
-            <button onClick={() => handleSimulateDownload(currentImages[previewIndex]?.name)} className="px-8 py-4 bg-blue-600/80 hover:bg-blue-600 text-white rounded-2xl font-bold flex items-center active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] backdrop-blur-md">
-              <Download size={20} className="mr-3" /> Unduh Raw Dataset
+            <button onClick={() => handleSimulateDownload(currentImages[previewIndex]?.name)} className="flex-1 md:flex-none px-4 md:px-8 py-3 md:py-4 bg-blue-600/80 hover:bg-blue-600 text-white rounded-xl md:rounded-2xl font-bold flex flex-col md:flex-row items-center justify-center active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] backdrop-blur-md text-xs md:text-base text-center">
+              <Download size={20} className="mb-1 md:mb-0 md:mr-3" /> Unduh Dataset
             </button>
           </div>
         </div>
