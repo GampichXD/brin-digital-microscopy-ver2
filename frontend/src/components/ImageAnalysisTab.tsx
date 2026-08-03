@@ -140,7 +140,7 @@ export default function ImageAnalysisTab({
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.5));
   
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
+    // e.preventDefault() dihapus karena onWheel bersifat passive di React 17+
     if (e.deltaY < 0) setZoomLevel(prev => Math.min(prev + 0.1, 3));
     else setZoomLevel(prev => Math.max(prev - 0.1, 0.5));
   };
@@ -370,7 +370,7 @@ export default function ImageAnalysisTab({
 
   const runDenoise = () => executeTool('Adaptive Thresholding', 'adaptive-thresh');
   const runCLAHE = () => executeTool('Ekstraksi Kontur Geometri', 'contour');
-  const runEdgeDetection = () => { /* Nanti ditambahkan */ };
+  const runEdgeDetection = () => executeTool('Deteksi Tepi Sobel', 'sobel');
   const runColonyCounter = () => executeTool('AI YOLO Colony Counter', 'colony-count', {}, true);
   
   const activeState = history[historyIndex];
@@ -606,13 +606,13 @@ export default function ImageAnalysisTab({
 
               <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme.panel}`}>
                 <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>3. Utilitas Editor</h3>
-                <button className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                <button onClick={() => executeTool('Pemotongan ROI', 'roi')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
                   <Move size={18} className="mr-3 text-green-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t('roi')}</span><span className="text-[9px] font-normal text-gray-500">{t('cropSelectArea')}</span></div>
                 </button>
-                <button className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                <button onClick={() => executeTool('Kalibrasi Skala', 'calibrate')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
                   <Ruler size={18} className="mr-3 text-red-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t('scaleCalibration')}</span><span className="text-[9px] font-normal text-gray-500">{t('setPixelRatio')}</span></div>
                 </button>
-                <button className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
+                <button onClick={() => executeTool('Pemisahan Warna', 'color-split')} className={`w-full p-3 rounded-xl border flex items-center transition-all text-sm font-bold text-left ${theme.btnHover} ${theme.text}`}>
                   <Droplet size={18} className="mr-3 text-pink-500 shrink-0" /> <div className="flex flex-col"><span className="leading-tight">{t('colorChannelSplit')}</span><span className="text-[9px] font-normal text-gray-500">{t('splitStainColor')}</span></div>
                 </button>
               </div>

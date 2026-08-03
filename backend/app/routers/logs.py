@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from typing import List
@@ -45,3 +45,10 @@ def create_log(payload: LogCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_log)
     return db_log
+
+@router.delete("", status_code=200)
+def clear_logs(db: Session = Depends(get_db)):
+    """Menghapus seluruh riwayat log dari sistem (hanya Admin)."""
+    deleted_count = db.query(models.SystemLog).delete()
+    db.commit()
+    return {"message": f"{deleted_count} log berhasil dihapus."}

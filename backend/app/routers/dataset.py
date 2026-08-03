@@ -4,6 +4,7 @@ import shutil
 import zipfile
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from fastapi.responses import FileResponse, StreamingResponse, Response
+from datetime import datetime
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
@@ -225,9 +226,15 @@ def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Sess
     os.makedirs(folder_path, exist_ok=True)
     uploads_dir = os.path.join(DATASET_DIR, "..", "uploads")
     
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     for filename in payload.filenames:
         src = os.path.join(uploads_dir, filename)
-        dst = os.path.join(folder_path, filename)
+        
+        base_name, ext = os.path.splitext(filename)
+        new_filename = f"{base_name}_{timestamp}{ext}"
+        
+        dst = os.path.join(folder_path, new_filename)
         if os.path.exists(src):
             try:
                 shutil.copy2(src, dst)
@@ -361,3 +368,56 @@ def get_vps_sync_index(db: Session = Depends(get_db)):
             "files": files
         }
     return {"folders": index}
+
+# --- ENDPOINT 13: EXPORT ALL STORAGE ---
+@router.get("/storage/export")
+def export_all_dataset():
+    zip_filename = "all_datasets_export.zip"
+    zip_path = os.path.join(DATASET_DIR, zip_filename)
+    
+    # Create zip containing all folders
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(DATASET_DIR):
+            for file in files:
+                if file != zip_filename:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, DATASET_DIR)
+                    zipf.write(file_path, arcname)
+                    
+    return FileResponse(path=zip_path, filename=zip_filename, media_type="application/zip")
+
+# --- ENDPOINT 14: PURGE TEMPORARY CACHE ---
+import json
+import redis.asyncio as redis
+
+@router.delete("/storage/purge-cache")
+async def purge_temporary_cache():
+    cleared_bytes = 0
+    
+    # 1. Bersihkan file _temp_ di DATASET_DIR
+    for root, dirs, files in os.walk(DATASET_DIR):
+        for file in files:
+            if file.startswith("_temp_"):
+                file_path = os.path.join(root, file)
+                cleared_bytes += os.path.getsize(file_path)
+                os.remove(file_path)
+                
+    # 2. Bersihkan seluruh file gambar di UPLOAD_DIR
+    UPLOAD_DIR = "./static/uploads"
+    if os.path.exists(UPLOAD_DIR):
+        for file in os.listdir(UPLOAD_DIR):
+            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                file_path = os.path.join(UPLOAD_DIR, file)
+                cleared_bytes += os.path.getsize(file_path)
+                os.remove(file_path)
+                
+    # 3. Kirim perintah PURGE_CACHE ke Edge Device via Redis
+    try:
+        from ..redis_mock import get_redis_client
+        redis_client = await get_redis_client(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+        await redis_client.publish("hardware_commands", json.dumps({"action": "PURGE_CACHE"}))
+        # Do not close the shared redis client if it's mock
+    except Exception as e:
+        print("Failed to publish PURGE_CACHE:", e)
+        
+    return {"message": f"Cache purged. {cleared_bytes} bytes freed."}

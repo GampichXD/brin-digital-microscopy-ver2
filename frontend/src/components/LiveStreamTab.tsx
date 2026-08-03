@@ -1,10 +1,48 @@
 import { useState, useEffect, useRef } from 'react';
+import { Settings, Square, Video, Crosshair, CameraOff, Maximize, Save, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon, Folder, ChevronDown, Camera } from 'lucide-react';
 import api from '../utils/api';
-import { Camera, CameraOff, Crosshair, Settings, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon, Maximize, Video, Square, Folder, ChevronDown } from 'lucide-react';
 import type { KeypadConfig } from '../App';
 import { useTranslation } from '../hooks/useTranslation';
 import { useGlobalContext } from '../context/GlobalContext';
 import { showToast } from '../utils/toast';
+
+const StreamCanvas = ({ videoSrc, themeClasses }: { videoSrc: string | null, themeClasses: any }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  useEffect(() => {
+    if (!videoSrc || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      // Set canvas internal resolution only once or if it doesn't match the image's aspect ratio
+      // It's better to just set it to the native image resolution and let CSS handle the scaling
+      if (canvas.width !== img.width || canvas.height !== img.height) {
+        canvas.width = img.width;
+        canvas.height = img.height;
+      }
+      
+      // Draw image directly. Since the canvas matches the image resolution exactly, 
+      // we don't need complex centerShift calculations. CSS object-cover will handle the display.
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+    };
+    img.src = videoSrc;
+  }, [videoSrc]);
+
+  if (!videoSrc) {
+    return (
+      <div className="flex flex-col items-center">
+        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+        <p className={`text-sm font-bold ${themeClasses.textMuted}`}>Menghubungkan Aliran Citra Global...</p>
+      </div>
+    );
+  }
+
+  // Use object-cover in CSS to handle aspect ratio scaling
+  return <canvas ref={canvasRef} className="w-full h-full object-cover rounded-2xl" />;
+};
 
 interface LiveStreamTabProps {
   openKeypad: (config: KeypadConfig) => void;
@@ -117,11 +155,7 @@ export default function LiveStreamTab({
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  useEffect(() => {
-    return () => {
-      if (checkVideoIntervalRef.current) clearInterval(checkVideoIntervalRef.current);
-    };
-  }, []);
+  // Removed interval cleanup on unmount to allow background polling to finish globally
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -238,18 +272,7 @@ export default function LiveStreamTab({
       {/* KIRI: VIDEO & HUD LAYER */}
       <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[60%] h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {cameraActive ? (
-          videoSrc ? (
-            <img 
-              src={videoSrc} 
-              alt="Microscope Live Feed" 
-              className="w-full h-full object-cover rounded-2xl"
-            />
-          ) : (
-            <div className="flex flex-col items-center">
-              <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p className={`text-sm font-bold ${themeClasses.textMuted}`}>Menghubungkan Aliran Citra Global...</p>
-            </div>
-          )
+          <StreamCanvas videoSrc={videoSrc} themeClasses={themeClasses} />
         ) : (
           <div className="flex flex-col items-center">
             <CameraOff size={64} className={`mb-4 ${themeClasses.textMuted}`} />

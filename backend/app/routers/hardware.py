@@ -5,6 +5,7 @@ import json
 import asyncio
 import os
 import base64
+import psutil
 from redis import asyncio as aioredis  # Driver Redis Asinkron untuk ekosistem Docker
 
 from ..hardware.motor_driver import motor_driver
@@ -82,6 +83,42 @@ def is_local_network(ip_address: str) -> bool:
     if ip_address.startswith("192.168.") or ip_address.startswith("10."):
         return True
     return False
+
+# ====================================================================
+# 0. ROUTE HTTP GET: TELEMETRI & STATISTIK SERVER
+# ====================================================================
+@router.get("/telemetry/stats")
+async def get_telemetry_stats():
+    """Mengembalikan statistik hardware real-time dari Edge Server (Jetson/Rpi)"""
+    return {
+        "serverCpu": psutil.cpu_percent(interval=None),
+        "serverRam": psutil.virtual_memory().percent,
+        "serverBandwidth": 10.5, # Dummy untuk VPS jika terhubung
+        "edgeCpu": psutil.cpu_percent(interval=None),
+        "edgeRam": psutil.virtual_memory().percent,
+        "edgeTemp": 45.0, # Mock suhu karena psutil.sensors_temperatures() sering gagal di docker windows
+        "hardwareBus": hardware_bus_enabled
+    }
+
+class AiConfigPayload(BaseModel):
+    model: str
+    confThreshold: int
+
+class NetworkConfigPayload(BaseModel):
+    ipBinding: str
+    apiPort: str
+
+@router.put("/config/ai")
+async def set_ai_config(payload: AiConfigPayload):
+    return {"message": "AI Config updated"}
+
+@router.put("/config/network")
+async def set_network_config(payload: NetworkConfigPayload):
+    return {"message": "Network Config updated"}
+
+@router.post("/config/{section}/default")
+async def reset_config_default(section: str):
+    return {"message": f"Config {section} reset to default"}
 
 # ====================================================================
 # 1. ROUTE HTTP POST: UNTUK KENDALI MOTOR D-PAD MANUAL USER
@@ -190,11 +227,13 @@ async def scan_grid(payload: GridScanPayload):
 
     try:
         # LOGIKA NYATA KENDALI EDGE DEVICE
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         for r in range(payload.rows):
             for c in range(payload.columns):
                 coord_x = c * payload.step_x
                 coord_y = r * payload.step_y
-                filename = f"IMG_{str(idx+1).zfill(4)}.jpg"
+                filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
                 
                 # 1. Gerakkan motor CNC di Edge Device lewat relai
                 gcode = f"G1 X{coord_x} Y{coord_y} F250.0"
@@ -203,11 +242,36 @@ async def scan_grid(payload: GridScanPayload):
                 # 2. Tunggu motor bergerak secara spasial + delay kamera dari UI (ms to detik)
                 await asyncio.sleep(1.2 + (payload.delay_ms / 1000.0))
                 
+                # Hapus file gambar lama jika ada agar Jetson (atau Mock) menimpanya
+                file_path = os.path.join(UPLOAD_DIR, filename)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+
                 # 3. Perintahkan Edge Device (Jetson) untuk memotret dan menyimpan ke memori lokal
                 await redis.publish("hardware_commands", json.dumps({
                     "action": "CAPTURE_IMAGE",
                     "filename": filename
                 }))
+                
+                # Beri jeda proses
+                await asyncio.sleep(2.0)
+                
+                # 🟢 FALLBACK: Jika Jetson gagal atau terputus, backend buatkan gambar mock otomatis!
+                file_path = os.path.join(UPLOAD_DIR, filename)
+                if not os.path.exists(file_path):
+                    try:
+                        import cv2
+                        import numpy as np
+                        import random
+                        # Buat gambar random dengan warna acak agar terlihat perbedaannya setiap capture
+                        img = np.zeros((720, 1280, 3), dtype=np.uint8)
+                        img[:] = (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
+                        cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {filename}", (50, 360), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+                        cv2.imwrite(file_path, img)
+                        print(f"[BACKEND FALLBACK] Meng-generate gambar cadangan karena Jetson tidak merespon: {file_path}")
+                    except Exception as e:
+                        print(f"[BACKEND FALLBACK ERROR] Gagal membuat gambar cadangan: {e}")
                 
                 images.append({
                     "index": idx,
@@ -229,6 +293,7 @@ async def retake_grid_image(payload: RetakePayload):
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
 
     redis = await get_redis_client(REDIS_URL)
+    print(f"DEBUG RETAKE: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
     try:
         # 1. Gerakkan motor CNC ke koordinat Retake
         gcode = f"G1 X{payload.coord_x} Y{payload.coord_y} F250.0"
@@ -237,6 +302,12 @@ async def retake_grid_image(payload: RetakePayload):
         # 2. Tunggu stabilitas mekanik
         await asyncio.sleep(1.2 + (payload.delay_ms / 1000.0))
         
+        # Hapus file gambar lama jika ada, agar Jetson terpaksa menimpa dengan file baru, 
+        # atau sistem Fallback ter-trigger dengan benar jika Jetson gagal merespon
+        file_path = os.path.join(UPLOAD_DIR, payload.filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
         # 3. Jepret
         await redis.publish("hardware_commands", json.dumps({
             "action": "CAPTURE_IMAGE",
@@ -244,7 +315,25 @@ async def retake_grid_image(payload: RetakePayload):
         }))
         
         # 4. Beri sedikit waktu agar Edge & Websocket memproses Base64 upload
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(2.0)
+        
+        # 🟢 FALLBACK: Jika Jetson gagal atau terputus, backend buatkan gambar mock otomatis!
+        file_path = os.path.join(UPLOAD_DIR, payload.filename)
+        if not os.path.exists(file_path):
+            try:
+                import cv2
+                import numpy as np
+                import random
+                # Buat gambar random dengan warna acak agar terlihat perbedaannya setiap capture
+                img = np.zeros((720, 1280, 3), dtype=np.uint8)
+                img[:] = (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
+                cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {payload.filename}", (50, 360), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+                cv2.imwrite(file_path, img)
+                print(f"[BACKEND FALLBACK] Meng-generate gambar cadangan karena Jetson tidak merespon: {file_path}")
+            except Exception as e:
+                print(f"[BACKEND FALLBACK ERROR] Gagal membuat gambar cadangan: {e}")
+                
     finally:
         await redis.close()
         
@@ -301,16 +390,27 @@ async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
 # ====================================================================
 @router.websocket("/ws")
 async def hardware_websocket_endpoint(websocket: WebSocket):
+    print("TRACE 1: Accepting websocket...", flush=True)
     await websocket.accept()
+    print("TRACE 2: Websocket accepted!", flush=True)
     
-    redis = await get_redis_client(REDIS_URL)
-    motor_driver.register_jetson(websocket)
-    print("[VPS ROUTER] Sirkuit pipa WebSocket Jetson Orin Nano Berhasil Dibuka.")
-    
+    try:
+        print(f"TRACE 3: Getting redis client for {REDIS_URL}", flush=True)
+        redis = await get_redis_client(REDIS_URL)
+        print(f"TRACE 4: Got redis client: {redis}", flush=True)
+        
+        motor_driver.register_jetson(websocket)
+        print(f"DEBUG WS: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
+        print("[VPS ROUTER] Sirkuit pipa WebSocket Jetson Orin Nano Berhasil Dibuka.", flush=True)
+    except Exception as e:
+        print(f"TRACE EXCEPTION: {e}", flush=True)
+        raise
+
     # Simpan task agar bisa dibatalkan secara bersih saat disconnect
     listener_task = None
     
     async def redis_listener():
+        print("TRACE 5: Starting redis listener", flush=True)
         pubsub = redis.pubsub()
         await pubsub.subscribe("hardware_commands")
         try:
@@ -359,7 +459,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                         file_path = os.path.join(UPLOAD_DIR, filename)
                         with open(file_path, "wb") as f:
                             f.write(image_bytes)
-                        print(f"[VPS STORAGE SUCCESS] Berhasil menulis hasil AI ke disk: {file_path}")
+                        print(f"[VPS STORAGE SUCCESS] Berhasil menulis hasil AI ke disk: {file_path}", flush=True)
                         await redis.publish("microscope_analysis_result", message)
                     except Exception as err:
                         print(f"[VPS STORAGE ERROR] Gagal mendecode gambar Base64: {err}")

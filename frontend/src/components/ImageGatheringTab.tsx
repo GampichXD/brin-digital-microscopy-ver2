@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import api from '../utils/api';
 import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers, CameraOff, Image } from 'lucide-react';
@@ -35,6 +35,7 @@ interface CapturedImage {
   coordY: number;
   gridX: number;
   gridY: number;
+  timestamp: number;
 }
 
 export default function ImageGatheringTab({ 
@@ -71,6 +72,12 @@ export default function ImageGatheringTab({
   
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [targetSaveMode, setTargetSaveMode] = useState<'GRID' | 'STITCH' | 'ALL'>('ALL');
+  
+  const cancelRef = useRef(false);
+  const joystickRef = useRef<HTMLDivElement>(null);
+  const joystickActive = useRef(false);
+  const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
   
   const [saveForm, setSaveForm] = useState({ folderName: '', objectType: '', operatorName: localStorage.getItem('username') || 'Operator' });
   const [vk, setVk] = useState<{ visible: boolean, title: string, field: 'folderName' | 'objectType' | 'operatorName' | null }>({ visible: false, title: '', field: null });
@@ -142,6 +149,7 @@ export default function ImageGatheringTab({
   };
 
   const handleStartAuto = async () => {
+    cancelRef.current = false;
     setIsProcessing(true);
     setProcessTask('Mengambil Gambar & Koordinat CNC...');
     setTimerTick(0);
@@ -168,8 +176,14 @@ export default function ImageGatheringTab({
       });
       clearInterval(progressInterval);
       setProgress(totalGrids);
-      setCapturedImages(response.data.images);
+      setCapturedImages(response.data.images.map((img: any) => ({
+        ...img,
+        timestamp: Date.now()
+      })));
       const scanT = (new Date().getTime() - startTime) / 1000;
+      
+      if (cancelRef.current) return;
+      
       showToast('Pemindaian grid berhasil!', 'success');
       logSystemAction('Gathering Image (Grid Scan 2D) Selesai', 'SUCCESS');
       if (autoStitch) {
@@ -189,7 +203,8 @@ export default function ImageGatheringTab({
 
   const handleManualCapture = async () => {
     const newIndex = capturedImages.length;
-    const filename = `IMG_MANUAL_${String(newIndex + 1).padStart(4, '0')}.jpg`;
+    const timestamp = new Date().toISOString().replace(/[:.-]/g, '').slice(0, 15);
+    const filename = `IMG_MANUAL_${timestamp}_${String(newIndex + 1).padStart(4, '0')}.jpg`;
 
     setIsProcessing(true);
     setProcessTask(`Mengambil Gambar Manual (X:${motorPos.x}, Y:${motorPos.y})...`);
@@ -207,7 +222,8 @@ export default function ImageGatheringTab({
         coordX: motorPos.x, 
         coordY: motorPos.y, 
         gridX: 0, 
-        gridY: 0
+        gridY: 0,
+        timestamp: Date.now()
       }]);
       showToast('Gambar manual berhasil diambil!', 'success');
       logSystemAction('Gathering Image (Manual Capture) Selesai', 'SUCCESS');
@@ -263,7 +279,7 @@ export default function ImageGatheringTab({
         delay_ms: parseInt(camDelay)
       });
       setTimeout(() => setIsRetaking(false), 400);
-      setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: newFilename } : img));
+      setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: newFilename, timestamp: Date.now() } : img));
       setIsProcessing(false);
       setShowReviewModal(true);
       showToast('Retake gambar berhasil', 'success');
@@ -283,11 +299,22 @@ export default function ImageGatheringTab({
     }
 
     try {
-      const filesToMove = capturedImages.filter(img => img.filename !== null).map(img => img.filename);
-      let countToSave = validImageCount;
-      if (showStitchModal) {
-          filesToMove.push("stitched_ta_output.jpg");
-          countToSave += 1;
+      let filesToMove: string[] = [];
+      let countToSave = 0;
+      
+      if (targetSaveMode === 'GRID') {
+        filesToMove = capturedImages.filter(img => img.filename !== null).map(img => img.filename as string);
+        countToSave = validImageCount;
+      } else if (targetSaveMode === 'STITCH') {
+        filesToMove = ["stitched_ta_output.jpg"];
+        countToSave = 1;
+      } else {
+        filesToMove = capturedImages.filter(img => img.filename !== null).map(img => img.filename as string);
+        countToSave = validImageCount;
+        if (showStitchModal) {
+            filesToMove.push("stitched_ta_output.jpg");
+            countToSave += 1;
+        }
       }
 
       if (selectedFolderId) {
@@ -337,6 +364,37 @@ export default function ImageGatheringTab({
       feed_rate: axis === 'Z' ? 200 : 250,
       unit: axis === 'Z' ? 'step' : stepUnit
     }).catch(err => console.error("Gagal menggerakkan motor:", err));
+  };
+
+  const handleJoystickMove = (e: React.PointerEvent) => {
+    if (!joystickRef.current || !joystickActive.current) return;
+    const rect = joystickRef.current.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    let dx = e.clientX - rect.left - cx;
+    let dy = e.clientY - rect.top - cy;
+    const maxR = rect.width / 2 - 24; 
+    const r = Math.sqrt(dx*dx + dy*dy);
+    if (r > maxR) { dx = dx * maxR / r; dy = dy * maxR / r; }
+    setJoystickPos({ x: dx, y: dy });
+  };
+
+  const handleJoystickUp = () => {
+     if (!joystickActive.current) return;
+     joystickActive.current = false;
+     
+     if (Math.abs(joystickPos.x) > 10 || Math.abs(joystickPos.y) > 10) {
+        if (Math.abs(joystickPos.x) > Math.abs(joystickPos.y)) {
+           const dir = joystickPos.x > 0 ? 1 : -1;
+           const power = Math.max(1, Math.min(5, Math.floor(Math.abs(joystickPos.x) / 10)));
+           sendHttpMove('X', dir * power);
+        } else {
+           const dir = joystickPos.y < 0 ? 1 : -1; 
+           const power = Math.max(1, Math.min(5, Math.floor(Math.abs(joystickPos.y) / 10)));
+           sendHttpMove('Y', dir * power);
+        }
+     }
+     setJoystickPos({ x: 0, y: 0 });
   };
 
   return (
@@ -544,8 +602,20 @@ export default function ImageGatheringTab({
                         <div />
                       </div>
                     ) : (
-                      <div className={`aspect-square rounded-full border-4 flex items-center justify-center relative touch-none ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-gray-50'}`}>
-                        <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white"><Move size={20} /></div>
+                      <div 
+                        ref={joystickRef}
+                        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); joystickActive.current = true; }}
+                        onPointerMove={handleJoystickMove}
+                        onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); handleJoystickUp(); }}
+                        onPointerCancel={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); handleJoystickUp(); }}
+                        className={`aspect-square rounded-full border-4 flex items-center justify-center relative touch-none ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-gray-50'}`}
+                      >
+                        <div 
+                          className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg transition-transform"
+                          style={{ transform: `translate(${joystickPos.x}px, ${joystickPos.y}px)`, transitionDuration: joystickActive.current ? '0s' : '0.2s' }}
+                        >
+                          <Move size={20} />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -604,7 +674,7 @@ export default function ImageGatheringTab({
               <span>•</span>
               <span className="flex items-center"><Clock size={18} className="mr-2"/> {elapsedTimeText}</span>
             </div>
-            <button onClick={() => setIsProcessing(false)} className="mt-8 px-8 py-3 bg-red-600 rounded-full font-bold shadow-lg shadow-red-600/50 active:scale-95">{t('cancel')}</button>
+            <button onClick={() => { cancelRef.current = true; setIsProcessing(false); }} className="mt-8 px-8 py-3 bg-red-600 rounded-full font-bold shadow-lg shadow-red-600/50 active:scale-95">{t('cancel')}</button>
           </div>
         </div>
       )}
@@ -620,15 +690,15 @@ export default function ImageGatheringTab({
               <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
             </div>
             
-            <div className="flex-1 overflow-auto p-6 bg-black/5">
+            <div className="flex-1 overflow-auto p-4 sm:p-6 bg-black/5">
               <div 
-                className={`grid gap-3 p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5' : ''}`}
-                style={gatherMode === 'AUTO' ? { gridTemplateColumns: `repeat(${cols}, minmax(100px, 1fr))` } : {}}
+                className={`grid gap-3 p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-full sm:w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5' : ''}`}
+                style={gatherMode === 'AUTO' ? { gridTemplateColumns: `repeat(${cols}, minmax(130px, 1fr))` } : {}}
               >
                 {capturedImages.map((img) => (
                   img.filename ? (
                     <div key={img.index} className={`aspect-square rounded-lg border flex flex-col items-center justify-center relative group overflow-hidden ${theme.panel} ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
-                      <img src={`${api.defaults.baseURL}/static/uploads/${img.filename}?t=${(img as unknown as { timestamp?: number }).timestamp || 1}`} className="w-full h-full object-cover absolute inset-0 z-0 opacity-80 group-hover:opacity-100 transition-opacity" alt="grid-tile" />
+                      <img src={`${api.defaults.baseURL}/static/uploads/${img.filename}?t=${img.timestamp}`} className="w-full h-full object-cover absolute inset-0 z-0 opacity-80 group-hover:opacity-100 transition-opacity" alt="grid-tile" />
                       <div className="flex flex-col items-center text-center z-10 bg-black/50 w-full p-1 mt-auto">
                          <span className="text-[9px] font-mono font-bold text-white shadow-sm">{img.filename.replace('.jpg','')}</span>
                          {gatherMode === 'AUTO' && <span className="text-[8px] font-bold text-blue-300 mt-0.5">X:{img.coordX} Y:{img.coordY}</span>}
@@ -647,20 +717,20 @@ export default function ImageGatheringTab({
 
             <div className="p-4 sm:p-6 border-t border-gray-700 flex flex-col sm:flex-row items-stretch sm:items-center bg-black/20 gap-3 sm:gap-4 shrink-0">
               <div className="flex gap-3 sm:gap-4 flex-row w-full sm:w-auto">
-                <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); showToast('Hasil akuisisi telah dibuang', 'info');}} className="flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
-                  <Trash2 size={20} className="mr-1 sm:mr-2 shrink-0"/> {t('cancel')}
+                <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); showToast('Hasil akuisisi telah dibuang', 'info');}} className="flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
+                  <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('cancel')}
                 </button>
-                <button onClick={() => setShowSaveModal(true)} disabled={validImageCount === 0} className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-transparent active:scale-95 text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
-                  <Save size={20} className="mr-1 sm:mr-2 shrink-0"/> {t('save')}
+                <button onClick={() => { setTargetSaveMode('GRID'); setShowSaveModal(true); }} disabled={validImageCount === 0} className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-transparent active:scale-95 text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
+                  <Save size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('save')}
                 </button>
               </div>
               {validImageCount === 1 ? (
                 <button onClick={() => handleSendToAnalysis(capturedImages.find(i => i.filename)?.filename || '')} className="flex-1 py-3 sm:py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20 text-xs sm:text-base px-2 text-center">
-                  <Scan size={20} className="mr-1 sm:mr-2 shrink-0"/> LANJUTKAN KE IMAGE ANALYSIS (1 Gambar)
+                  <Scan size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">LANJUTKAN KE IMAGE ANALYSIS</span><span className="sm:hidden">ANALISIS (1 Gbr)</span>
                 </button>
               ) : (
                 <button onClick={() => executeStitching()} disabled={validImageCount === 0} className="flex-1 py-3 sm:py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20 text-[11px] xs:text-xs sm:text-base px-2 text-center">
-                  <Grid3X3 size={20} className="mr-1 sm:mr-2 shrink-0"/> LANJUTKAN KE TILE STITCHING ({validImageCount} Gambar)
+                  <Grid3X3 size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">LANJUTKAN KE TILE STITCHING</span><span className="sm:hidden">STITCHING</span> ({validImageCount} Gbr)
                 </button>
               )}
             </div>
@@ -670,15 +740,15 @@ export default function ImageGatheringTab({
 
       {showStitchModal && (
         <div className={theme.modalBg}>
-           <div className={`w-[80%] max-w-3xl rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
-            <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-black/20">
-              <div className="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center mr-4">
-                <Image size={24} className="text-purple-400" />
+           <div className={`w-[95%] sm:w-[80%] max-w-3xl rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
+            <div className="p-4 sm:p-6 border-b border-gray-700 flex justify-between items-center bg-black/20">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-500/20 rounded-full flex items-center justify-center mr-3 sm:mr-4 shrink-0">
+                <Image size={20} className="text-purple-400 sm:w-6 sm:h-6" />
               </div>
-              <div>
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">{t('stitchComplete')}</h2>
+              <div className="flex-1">
+                <h2 className="text-lg sm:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">{t('stitchComplete')}</h2>
               </div>
-              <button onClick={() => {setShowStitchModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
+              <button onClick={() => {setShowStitchModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text} shrink-0 ml-2`}><X size={20} className="sm:w-6 sm:h-6"/></button>
             </div>
             
             <div className="p-8 flex flex-col justify-center items-center bg-black/40 border-y border-gray-800">
@@ -690,30 +760,30 @@ export default function ImageGatheringTab({
                  </div>
               </div>
               
-              <div className="flex gap-4">
-                <div className="px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-xs font-mono text-gray-300">
-                  <Camera size={14} className="text-blue-400 mr-2" /> Scan: {processTimes.scan.toFixed(1)}s
+              <div className="flex flex-wrap justify-center gap-2 sm:gap-4 w-full">
+                <div className="px-3 sm:px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-[10px] sm:text-xs font-mono text-gray-300 flex-1 sm:flex-none justify-center">
+                  <Camera size={14} className="text-blue-400 mr-1.5 sm:mr-2" /> Scan: {processTimes.scan.toFixed(1)}s
                 </div>
-                <div className="px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-xs font-mono text-gray-300">
-                  <Layers size={14} className="text-purple-400 mr-2" /> Stitch: {processTimes.stitch.toFixed(1)}s
+                <div className="px-3 sm:px-4 py-2 bg-black/40 border border-gray-700 rounded-lg flex items-center text-[10px] sm:text-xs font-mono text-gray-300 flex-1 sm:flex-none justify-center">
+                  <Layers size={14} className="text-purple-400 mr-1.5 sm:mr-2" /> Stitch: {processTimes.stitch.toFixed(1)}s
                 </div>
-                <div className="px-4 py-2 bg-black/40 border border-green-700/50 rounded-lg flex items-center text-xs font-mono font-bold text-green-400">
-                  <Clock size={14} className="mr-2" /> Total Waktu: {processTimes.total.toFixed(1)}s
+                <div className="px-3 sm:px-4 py-2 bg-black/40 border border-green-700/50 rounded-lg flex items-center text-[10px] sm:text-xs font-mono font-bold text-green-400 flex-1 min-w-full sm:min-w-0 sm:flex-none justify-center">
+                  <Clock size={14} className="mr-1.5 sm:mr-2" /> Total Waktu: {processTimes.total.toFixed(1)}s
                 </div>
               </div>
             </div>
 
             <div className="p-4 sm:p-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 bg-black/20 shrink-0">
               <div className="flex gap-3 sm:gap-4 flex-row w-full sm:w-auto">
-                <button onClick={() => {setShowStitchModal(false); setCapturedImages([]); showToast('Hasil jahitan tile telah dibuang', 'info');}} className="flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
-                  <Trash2 size={20} className="mr-1 sm:mr-2 shrink-0"/> {t('cancel')}
+                <button onClick={() => {setShowStitchModal(false); setCapturedImages([]); showToast('Hasil jahitan tile telah dibuang', 'info');}} className="flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
+                  <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('cancel')}
                 </button>
-                <button onClick={() => setShowSaveModal(true)} className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
-                  <Save size={20} className="mr-1 sm:mr-2 shrink-0"/> {t('save')}
+                <button onClick={() => { setTargetSaveMode('STITCH'); setShowSaveModal(true); }} className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
+                  <Save size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('save')}
                 </button>
               </div>
               <button onClick={() => { setShowStitchModal(false); handleSendToAnalysis("stitched_ta_output.jpg"); }} className="flex-1 py-3 sm:py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-orange-600/20 text-xs sm:text-base px-2 text-center">
-                <Scan size={20} className="mr-1 sm:mr-2 shrink-0"/> LANJUTKAN KE IMAGE ANALYSIS
+                <Scan size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">LANJUTKAN KE IMAGE ANALYSIS</span><span className="sm:hidden">LANJUTKAN KE ANALISIS</span>
               </button>
             </div>
           </div>

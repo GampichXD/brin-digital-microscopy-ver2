@@ -59,7 +59,7 @@ async def get_redis_client(redis_url: str):
         host = redis_url.split("://")[1].split(":")[0]
         port = int(redis_url.split(":")[2].split("/")[0]) if ":" in redis_url.split("://")[1] else 6379
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.1)
+        s.settimeout(2.0)
         s.connect((host, port))
         s.close()
         

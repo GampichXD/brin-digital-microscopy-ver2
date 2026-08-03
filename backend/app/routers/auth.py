@@ -15,6 +15,11 @@ from datetime import datetime, timezone, timedelta
 class RoleUpdate(BaseModel):
     role: str
 
+class PasswordChange(BaseModel):
+    username: str
+    old_password: str
+    new_password: str
+
 router = APIRouter(
     prefix="/api/auth",
     tags=["Authentication"]
@@ -140,3 +145,30 @@ def delete_operator(user_id: int, db: Session = Depends(get_db)):
     db.delete(user)
     db.commit()
     return {"message": "Akun operator berhasil dihapus dari sistem"}
+
+# --- ENDPOINT 6: RESET PASSWORD KE DEFAULT (ADMIN ONLY) ---
+@router.put("/reset-password")
+def reset_password(payload: dict, db: Session = Depends(get_db)):
+    user_id = payload.get("user_id")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Operator tidak ditemukan!")
+    
+    # Reset ke default 123456
+    user.hashed_password = hash_password("123456")
+    db.commit()
+    return {"message": f"Password {user.username} berhasil di-reset ke 123456"}
+
+# --- ENDPOINT 7: GANTI PASSWORD OLEH USER (MANDIRI) ---
+@router.put("/profile/password")
+def change_password(payload: PasswordChange, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == payload.username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan!")
+        
+    if not verify_password(payload.old_password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Password lama salah!")
+        
+    user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    return {"message": "Password berhasil diperbarui"}
