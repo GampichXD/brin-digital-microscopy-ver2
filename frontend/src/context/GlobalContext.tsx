@@ -55,9 +55,9 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([]);
   const latestEdgeTelemetry = useRef<EdgeTelemetryData>({ cpu: 0, ram: 0, temp: 0 });
 
-  const setEdgeTelemetry = (data: EdgeTelemetryData) => {
+  const setEdgeTelemetry = React.useCallback((data: EdgeTelemetryData) => {
     latestEdgeTelemetry.current = data;
-  };
+  }, []);
 
 
   useEffect(() => {

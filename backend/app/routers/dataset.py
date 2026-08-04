@@ -6,15 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from datetime import datetime
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from ..schemas import FolderCreate, FolderUpdate, FolderResponse, ImageCountIncrement, DeleteImagesPayload
 from typing import List
 from ..database import get_db
 from .. import models
 
-# Skema Pydantic baru untuk payload penambahan gambar
-class ImageCountIncrement(BaseModel):
-    count: int
-    filenames: list[str] = []
 
 DATASET_DIR = "./static/datasets"
 os.makedirs(DATASET_DIR, exist_ok=True)
@@ -23,30 +19,6 @@ router = APIRouter(
     prefix="/api/dataset",
     tags=["Dataset Management"]
 )
-
-# Schema Pydantic untuk validasi data dari Frontend
-class FolderCreate(BaseModel):
-    name: str
-    object_type: str
-    date: str
-    operator: str
-
-class FolderUpdate(BaseModel):
-    name: str
-    object_type: str
-    operator: str
-
-class FolderResponse(BaseModel):
-    id: str
-    name: str
-    object_type: str
-    date: str
-    operator: str
-    image_count: int
-    video_count: int = 0
-
-    class Config:
-        from_attributes = True
 
 # --- ENDPOINT 1: BUAT FOLDER DATASET BARU ---
 @router.post("/folders", response_model=FolderResponse, status_code=status.HTTP_201_CREATED)
@@ -242,8 +214,6 @@ def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Sess
                 print(f"[ERROR] Gagal menyalin file {filename}: {e}")
     return {"message": "Jumlah gambar berhasil dimutasi", "current_image_count": folder.image_count}
 
-class DeleteImagesPayload(BaseModel):
-    filenames: List[str]
 
 @router.get("/folders/{folder_id}/images")
 def get_folder_images(folder_id: str):

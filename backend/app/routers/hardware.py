@@ -1,5 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException
-from pydantic import BaseModel
+from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload
 import time
 import json
 import asyncio
@@ -24,46 +24,6 @@ hardware_bus_enabled = True
 UPLOAD_DIR = "./static/uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
-
-# 🟢 FIX 2: Perbarui struktur skema Pydantic agar cocok 100% dengan kiriman objek Axios dari Frontend
-class MotorMovePayload(BaseModel):
-    axis: str
-    value: float
-    feed_rate: float
-    unit: str
-
-
-class CameraSettingsPayload(BaseModel):
-    shutter_speed: int
-    iso: int
-
-
-class HardwareBusTogglePayload(BaseModel):
-    enabled: bool
-
-
-class CncSettingsPayload(BaseModel):
-    feed_rate: float
-    backlash: float
-    acceleration: float
-    settle_time: int
-
-class GridScanPayload(BaseModel):
-    columns: int
-    rows: int
-    step_x: float
-    step_y: float
-    delay_ms: int
-    unit: str
-
-class StitchPayload(BaseModel):
-    images: list[str]
-
-class RetakePayload(BaseModel):
-    coord_x: float
-    coord_y: float
-    filename: str
-    delay_ms: int
 
 
 async def publish_hardware_command(payload: dict) -> None:
@@ -119,13 +79,6 @@ async def get_telemetry_stats():
         "hardwareBus": hardware_bus_enabled
     }
 
-class AiConfigPayload(BaseModel):
-    model: str
-    confThreshold: int
-
-class NetworkConfigPayload(BaseModel):
-    ipBinding: str
-    apiPort: str
 
 @router.put("/config/ai")
 async def set_ai_config(payload: AiConfigPayload):

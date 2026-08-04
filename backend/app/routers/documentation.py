@@ -44,16 +44,7 @@ router = APIRouter(
     tags=["Documentation & Report Generator"]
 )
 
-
-class ReportPayload(BaseModel):
-    folder_id: str
-    title: str = "Laporan Hasil Analisis Mikroskop"
-    # Metadata folder dikirim langsung dari frontend agar tidak bergantung pada DB
-    folder_name: str = ""
-    object_type: str = ""
-    operator: str = ""
-    date: str = ""
-
+from ..schemas import ReportPayload
 
 def _list_images(folder_id: str):
     folder_path = os.path.join(DATASET_DIR, folder_id)

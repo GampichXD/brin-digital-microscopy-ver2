@@ -1,69 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-# from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from typing import Optional
-import bcrypt
 from ..database import get_db
 from .. import models
-from datetime import datetime, timezone, timedelta
-
-# Skema Pydantic baru untuk update role
-class RoleUpdate(BaseModel):
-    role: str
-
-class PasswordChange(BaseModel):
-    username: str
-    old_password: str
-    new_password: str
+from ..schemas import UserRegister, UserLogin, RoleUpdate, PasswordChange
+from ..services.auth_service import hash_password, verify_password, create_access_token
 
 router = APIRouter(
     prefix="/api/auth",
     tags=["Authentication"]
 )
-
-# Konfigurasi Enkripsi Password (Bcrypt)
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Konfigurasi Token JWT (Gunakan SECRET_KEY kustom untuk keamanan lab)
-SECRET_KEY = "UNDIP_BRIN_MICROSCOPY_SECRET_KEY_SUPER_SECURE"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 120 # Token aktif selama 2 jam
-
-# Schema Pydantic untuk Validasi Input Payload dari React Frontend
-class UserRegister(BaseModel):
-    username: str
-    password: str
-
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-class TokenData(BaseModel):
-    username: str
-    role: str
-
-# --- FUNGSI UTILITAS ENKRIPSI ---
-def hash_password(password: str) -> str:
-    # Mengubah string password menjadi bytes sebelum di-hash
-    password_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode('utf-8')
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    password_bytes = plain_password.encode('utf-8')
-    hashed_bytes = hashed_password.encode('utf-8')
-    return bcrypt.checkpw(password_bytes, hashed_bytes)
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 # --- ENDPOINT 1: REGISTRASI OPERATOR BARU ---
 @router.post("/register", status_code=status.HTTP_201_CREATED)

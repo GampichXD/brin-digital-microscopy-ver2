@@ -2,28 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from typing import List
-from pydantic import BaseModel
+from ..schemas import LogCreate, LogResponse
 from datetime import datetime
 from ..database import get_db
 from .. import models
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
-class LogCreate(BaseModel):
-    operator: str
-    action: str
-    status: str = "SUCCESS"
-
-class LogResponse(BaseModel):
-    id: int
-    timestamp: str
-    operator: str
-    action: str
-    status: str
-
-    class Config:
-        orm_mode = True
-        from_attributes = True
 
 @router.get("", response_model=List[LogResponse])
 def get_logs(limit: int = 100, db: Session = Depends(get_db)):
