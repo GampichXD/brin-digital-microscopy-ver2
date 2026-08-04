@@ -32,7 +32,7 @@ interface DatasetFolder {
 }
 
 export default function App() {
-  const { isDarkMode, globalVirtualKeyboard, setGlobalVirtualKeyboard, language, setLanguage, isSystemHardwareEnabled, setIsDarkMode, setTargetAnalysisImage } = useGlobalContext();
+  const { isDarkMode, globalVirtualKeyboard, setGlobalVirtualKeyboard, language, setLanguage, isSystemHardwareEnabled, setIsDarkMode, setTargetAnalysisImage, setEdgeTelemetry } = useGlobalContext();
   const [folders, setFolders] = useState<DatasetFolder[]>([]);
   
   // === GLOBAL HARDWARE STREAM PIPELINE ===
@@ -40,7 +40,7 @@ export default function App() {
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [grblStatus, setGrblStatus] = useState<string>("OFFLINE");
   const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
-  const [jetsonTemperature, setJetsonTemperature] = useState<number | null>(null);
+  const [jetsonTemperatures, setJetsonTemperatures] = useState<{cpu: number | null, gpu: number | null}>({ cpu: null, gpu: null });
   const [limitSwitchState, setLimitSwitchState] = useState<string>("N/A");
   const [jetsonRam, setJetsonRam] = useState<string>("5.12/7.62 GB");
   const [jetsonRom, setJetsonRom] = useState<string>("2.10/50.00 GB");
@@ -205,12 +205,40 @@ export default function App() {
         // CASE 2: Sinkronkan penangkap data koordinat aktual & status GRBL mesin asli
         else if (res.event === 'TELEMETRY_DATA') {
           setGrblStatus(res.status);
-          setJetsonTemperature(typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : null);
+          
+          let currentTemp = 0;
+          if (res.jetson_temperatures) {
+            setJetsonTemperatures(res.jetson_temperatures);
+            currentTemp = res.jetson_temperatures.cpu || 0;
+          } else {
+            setJetsonTemperatures({ cpu: typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : null, gpu: null });
+            currentTemp = typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : 0;
+          }
+          
           setLimitSwitchState(res.limit_switch ?? 'N/A');
-          if (res.ram_usage) setJetsonRam(res.ram_usage);
+          
+          let parsedRamPercent = 0;
+          if (res.ram_usage) {
+            setJetsonRam(res.ram_usage);
+            const parts = res.ram_usage.replace(' GB', '').split('/');
+            if (parts.length === 2) {
+              const used = parseFloat(parts[0]);
+              const total = parseFloat(parts[1]);
+              if (total > 0) parsedRamPercent = Math.round((used / total) * 100);
+            }
+          }
+          
           if (res.rom_usage) setJetsonRom(res.rom_usage);
           if (res.position) {
             setLastEchoGCode(`X:${res.position.X.toFixed(2)} Y:${res.position.Y.toFixed(2)} Z:${res.position.Z}`);
+          }
+          
+          if (setEdgeTelemetry) {
+            setEdgeTelemetry({
+              cpu: res.edge_cpu_usage || 0,
+              ram: parsedRamPercent,
+              temp: currentTemp
+            });
           }
         }
       } catch (err) {
@@ -607,7 +635,7 @@ export default function App() {
             setGrblStatus={setGrblStatus}
             lastEchoGCode={lastEchoGCode}
             setLastEchoGCode={setLastEchoGCode}
-            jetsonTemperatures={{ cpu: jetsonTemperature, gpu: jetsonTemperature }}
+            jetsonTemperatures={jetsonTemperatures}
             limitSwitchState={limitSwitchState}
             wsRef={wsRef}
             availableFolders={folders}

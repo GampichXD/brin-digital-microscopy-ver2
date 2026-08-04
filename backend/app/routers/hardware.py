@@ -87,13 +87,32 @@ def is_local_network(ip_address: str) -> bool:
 # ====================================================================
 # 0. ROUTE HTTP GET: TELEMETRI & STATISTIK SERVER
 # ====================================================================
+last_net_io = psutil.net_io_counters()
+last_net_time = time.time()
+
 @router.get("/telemetry/stats")
 async def get_telemetry_stats():
+    global last_net_io, last_net_time
+    
+    current_net_io = psutil.net_io_counters()
+    current_time = time.time()
+    
+    dt = current_time - last_net_time
+    bandwidth_mbps = 0.0
+    if dt > 0:
+        bytes_sent = current_net_io.bytes_sent - last_net_io.bytes_sent
+        bytes_recv = current_net_io.bytes_recv - last_net_io.bytes_recv
+        total_bytes_per_sec = (bytes_sent + bytes_recv) / dt
+        bandwidth_mbps = (total_bytes_per_sec * 8) / 1_000_000
+        
+    last_net_io = current_net_io
+    last_net_time = current_time
+
     """Mengembalikan statistik hardware real-time dari Edge Server (Jetson/Rpi)"""
     return {
         "serverCpu": psutil.cpu_percent(interval=None),
         "serverRam": psutil.virtual_memory().percent,
-        "serverBandwidth": 10.5, # Dummy untuk VPS jika terhubung
+        "serverBandwidth": round(bandwidth_mbps, 2),
         "edgeCpu": psutil.cpu_percent(interval=None),
         "edgeRam": psutil.virtual_memory().percent,
         "edgeTemp": 45.0, # Mock suhu karena psutil.sensors_temperatures() sering gagal di docker windows

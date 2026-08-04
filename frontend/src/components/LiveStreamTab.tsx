@@ -113,6 +113,43 @@ export default function LiveStreamTab({
   const [motorPos, setMotorPos] = useState({ x: 0.00, y: 0.00, z: 0 });
   const [joystickVector, setJoystickVector] = useState({ x: 0, y: 0 });
 
+  // Real-time FPS Calculation
+  const [actualFps, setActualFps] = useState<number>(0);
+  const [fpsHistory, setFpsHistory] = useState<number[]>(Array(20).fill(0));
+  const framesReceivedRef = useRef(0);
+
+  useEffect(() => {
+    if (videoSrc) {
+      framesReceivedRef.current += 1;
+    }
+  }, [videoSrc]);
+
+  useEffect(() => {
+    let interval: any;
+    if (cameraActive) {
+      interval = setInterval(() => {
+        const fps = framesReceivedRef.current;
+        framesReceivedRef.current = 0;
+        setActualFps(fps);
+        setFpsHistory(prev => [...prev.slice(1), fps]);
+      }, 1000);
+    } else {
+      framesReceivedRef.current = 0;
+      setActualFps(0);
+      setFpsHistory(Array(20).fill(0));
+    }
+    return () => clearInterval(interval);
+  }, [cameraActive]);
+
+  const generateFpsSvgPoints = () => {
+    return fpsHistory.map((fps, i) => {
+      const x = (i * (100 / 19)).toFixed(1);
+      // Map FPS 0-60 to Y 40-0
+      const y = (40 - (Math.min(fps, 60) / 60) * 40).toFixed(1);
+      return `${x},${y}`;
+    }).join(' ');
+  };
+
   const themeClasses = {
     panel: isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200',
     text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
@@ -316,7 +353,7 @@ export default function LiveStreamTab({
             </div>
             {showFps && (
               <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl px-3 py-1.5 text-white font-mono font-bold text-sm shadow-lg pointer-events-none">
-                FPS: {targetFps}
+                FPS: {actualFps} <span className="text-xs font-normal text-gray-400">({targetFps} target)</span>
               </div>
             )}
           </div>
@@ -328,9 +365,9 @@ export default function LiveStreamTab({
             {!isRecording ? (
               <>
                 {/* FOLDER SELECTION ICON -> EXPANDS TO DROPDOWN */}
-                <div className="relative flex items-center bg-black/60 hover:bg-gray-900/80 backdrop-blur-md border border-white/10 rounded-full p-3 shadow-2xl transition-all duration-300 overflow-hidden group max-w-[48px] hover:max-w-[250px]">
-                  <Folder size={20} className="shrink-0 text-gray-300 group-hover:text-blue-400 transition-colors" />
-                  <div className="w-0 opacity-0 group-hover:w-auto group-hover:opacity-100 group-hover:ml-3 overflow-hidden transition-all duration-300">
+                <label className="relative flex items-center justify-start h-12 w-12 hover:w-[220px] focus-within:w-[220px] px-3 bg-black/60 hover:bg-gray-900/80 focus-within:bg-gray-900/80 backdrop-blur-md border border-white/10 rounded-full shadow-2xl transition-all duration-300 overflow-hidden group cursor-pointer outline-none">
+                  <Folder size={24} className="shrink-0 text-gray-300 group-hover:text-blue-400 group-focus-within:text-blue-400 transition-colors pointer-events-none" />
+                  <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ml-3 overflow-hidden transition-opacity duration-300 flex items-center w-full">
                     <select 
                       value={selectedFolderId} 
                       onChange={(e) => setSelectedFolderId(e.target.value)}
@@ -343,7 +380,7 @@ export default function LiveStreamTab({
                     </select>
                     <ChevronDown size={14} className="text-gray-400 absolute right-3 pointer-events-none top-1/2 -translate-y-1/2" />
                   </div>
-                </div>
+                </label>
 
                 {/* RECORD VIDEO ICON -> EXPANDS TO TEXT */}
                 <button onClick={async () => {
@@ -376,9 +413,9 @@ export default function LiveStreamTab({
                     const folder = availableFolders.find(f => f.id === folderIdToUse);
                     videoCountRef.current = folder ? (folder as any).video_count || 0 : 0;
                   }
-                }} className="flex items-center p-3 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl transition-all duration-300 overflow-hidden group max-w-[48px] hover:max-w-[200px]">
-                  <Video size={20} className="shrink-0" />
-                  <span className="w-0 opacity-0 group-hover:w-auto group-hover:opacity-100 group-hover:ml-3 overflow-hidden whitespace-nowrap transition-all duration-300 font-bold">
+                }} className="flex items-center justify-start h-12 w-12 hover:w-[170px] focus:w-[170px] active:w-[170px] px-3 bg-red-600 hover:bg-red-700 focus:bg-red-700 active:bg-red-700 text-white rounded-full shadow-2xl transition-all duration-300 overflow-hidden group outline-none">
+                  <Video size={24} className="shrink-0 pointer-events-none" />
+                  <span className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-active:opacity-100 ml-3 overflow-hidden whitespace-nowrap transition-opacity duration-300 font-bold">
                     Record Video
                   </span>
                 </button>
@@ -418,9 +455,9 @@ export default function LiveStreamTab({
                       }
                     } catch (e) {}
                   }, 1000);
-                }} className="px-4 py-2 bg-white text-red-600 hover:bg-gray-100 font-bold rounded-full flex items-center shadow-[0_0_15px_rgba(255,255,255,0.3)] transition-all overflow-hidden group max-w-[50px] hover:max-w-[150px]">
-                  <Square size={16} fill="currentColor" className="shrink-0 group-hover:mr-2 transition-all" />
-                  <span className="opacity-0 group-hover:opacity-100 whitespace-nowrap transition-all duration-300">STOP</span>
+                }} className="h-10 w-[50px] hover:w-[110px] focus:w-[110px] active:w-[110px] px-[17px] bg-white text-red-600 hover:bg-gray-100 focus:bg-gray-100 active:bg-gray-100 font-bold rounded-full flex items-center justify-start shadow-[0_0_15px_rgba(255,255,255,0.3)] transition-all duration-300 overflow-hidden group outline-none">
+                  <Square size={16} fill="currentColor" className="shrink-0 transition-all pointer-events-none" />
+                  <span className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-active:opacity-100 ml-2 whitespace-nowrap transition-opacity duration-300">STOP</span>
                 </button>
                 <div className="flex flex-col ml-2">
                   <span className="text-[10px] text-red-200 font-bold uppercase tracking-wider">REC</span>
@@ -444,17 +481,17 @@ export default function LiveStreamTab({
               nextState ? 'success' : 'info'
             );
           }} 
-          className={`absolute bottom-6 right-6 p-4 rounded-full text-lg font-bold flex items-center shadow-2xl z-10 overflow-hidden group transition-all duration-300 max-w-[60px] hover:max-w-[200px] ${
+          className={`absolute bottom-6 right-6 flex items-center justify-start h-[60px] w-[60px] hover:w-[220px] focus:w-[220px] active:w-[220px] px-[18px] rounded-full text-lg font-bold shadow-2xl z-10 overflow-hidden group transition-all duration-300 outline-none ${
             !isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
-            cameraActive ? 'bg-black/60 hover:bg-gray-800 text-white backdrop-blur-md border border-gray-600' : 'bg-green-600 hover:bg-green-700 text-white'
+            cameraActive ? 'bg-black/60 hover:bg-gray-800 focus:bg-gray-800 active:bg-gray-800 text-white backdrop-blur-md border border-gray-600' : 'bg-green-600 hover:bg-green-700 focus:bg-green-700 active:bg-green-700 text-white'
           }`}
         >
           {!isSystemHardwareEnabled ? (
-            <><AlertOctagon size={24} className="shrink-0 group-hover:mr-3 transition-all" /><span className="opacity-0 group-hover:opacity-100 whitespace-nowrap transition-all duration-300">Hardware Locked</span></>
+            <><AlertOctagon size={24} className="shrink-0 text-red-400 pointer-events-none" /><span className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-active:opacity-100 ml-3 whitespace-nowrap transition-opacity duration-300">Hardware Locked</span></>
           ) : cameraActive ? (
-            <><CameraOff size={24} className="shrink-0 text-red-400 group-hover:mr-3 transition-all" /><span className="opacity-0 group-hover:opacity-100 whitespace-nowrap transition-all duration-300">Matikan</span></>
+            <><CameraOff size={24} className="shrink-0 text-red-400 pointer-events-none" /><span className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-active:opacity-100 ml-3 whitespace-nowrap transition-opacity duration-300">Matikan</span></>
           ) : (
-            <><Camera size={24} className="shrink-0 group-hover:mr-3 transition-all" /><span className="opacity-0 group-hover:opacity-100 whitespace-nowrap transition-all duration-300">Nyalakan</span></>
+            <><Camera size={24} className="shrink-0 pointer-events-none" /><span className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-active:opacity-100 ml-3 whitespace-nowrap transition-opacity duration-300">Nyalakan</span></>
           )}
         </button>
       </div>
@@ -741,19 +778,19 @@ export default function LiveStreamTab({
              <div className={`p-3 rounded-xl border flex flex-col h-24 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
                <div className="flex justify-between items-center mb-2">
                  <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Network Stream FPS</span>
-                 <span className="text-xs font-mono font-bold text-blue-500">{targetFps} FPS</span>
+                 <span className="text-xs font-mono font-bold text-blue-500">{actualFps} FPS</span>
                </div>
                <svg viewBox="0 0 100 40" className="w-full h-full text-blue-500 overflow-visible" preserveAspectRatio="none">
                  <polyline
                    fill="none"
                    stroke="currentColor"
                    strokeWidth="2"
-                   points="0,30 5,25 10,28 15,10 20,15 25,20 30,12 35,5 40,10 45,20 50,15 55,25 60,30 65,35 70,25 75,20 80,10 85,15 90,5 95,10 100,5"
+                   points={generateFpsSvgPoints()}
                  />
                  <polyline
                    fill="url(#fpsGradient)"
                    stroke="none"
-                   points="0,40 0,30 5,25 10,28 15,10 20,15 25,20 30,12 35,5 40,10 45,20 50,15 55,25 60,30 65,35 70,25 75,20 80,10 85,15 90,5 95,10 100,5 100,40"
+                   points={`0,40 ${generateFpsSvgPoints()} 100,40`}
                  />
                  <defs>
                    <linearGradient id="fpsGradient" x1="0" x2="0" y1="0" y2="1">

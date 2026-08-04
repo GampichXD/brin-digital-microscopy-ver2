@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import api from '../utils/api';
 import type { Language } from '../i18n';
 
@@ -12,6 +12,13 @@ export interface TelemetryData {
   edgeTemp: number;
 }
 
+export interface EdgeTelemetryData {
+  cpu: number;
+  ram: number;
+  temp: number;
+}
+
+
 interface GlobalContextProps {
   isDarkMode: boolean;
   setIsDarkMode: (val: boolean) => void;
@@ -24,6 +31,7 @@ interface GlobalContextProps {
   globalVirtualKeyboard: boolean;
   setGlobalVirtualKeyboard: (val: boolean) => void;
   telemetryData: TelemetryData[];
+  setEdgeTelemetry: (data: EdgeTelemetryData) => void;
 }
 
 const GlobalContext = createContext<GlobalContextProps | undefined>(undefined);
@@ -45,6 +53,12 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([]);
+  const latestEdgeTelemetry = useRef<EdgeTelemetryData>({ cpu: 0, ram: 0, temp: 0 });
+
+  const setEdgeTelemetry = (data: EdgeTelemetryData) => {
+    latestEdgeTelemetry.current = data;
+  };
+
 
   useEffect(() => {
     const fetchTelemetry = async () => {
@@ -52,14 +66,15 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const response = await api.get('/api/hardware/telemetry/stats');
         const data = response.data;
         const d = new Date();
+        const edge = latestEdgeTelemetry.current;
         const newEntry: TelemetryData = {
           time: d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           serverCpu: data.serverCpu || 0,
           serverRam: data.serverRam || 0,
           serverBandwidth: data.serverBandwidth || 0,
-          edgeCpu: data.edgeCpu || 0,
-          edgeRam: data.edgeRam || 0,
-          edgeTemp: data.edgeTemp || 0,
+          edgeCpu: edge.cpu || 0,
+          edgeRam: edge.ram || 0,
+          edgeTemp: edge.temp || 0,
         };
         
         if (data.hardwareBus !== undefined) {
@@ -112,6 +127,7 @@ export const GlobalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         globalVirtualKeyboard,
         setGlobalVirtualKeyboard,
         telemetryData,
+        setEdgeTelemetry,
       }}
     >
       {children}
