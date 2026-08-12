@@ -28,3 +28,9 @@ class SystemLog(Base):
     operator = Column(String, nullable=False)
     action = Column(String, nullable=False)
     status = Column(String, default="SUCCESS")  # 'SUCCESS', 'ERROR', 'CANCELLED'
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=False)

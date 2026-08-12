@@ -11,6 +11,7 @@ interface HardwareSocketProps {
   setJetsonRom: (rom: string) => void;
   setLastEchoGCode: (gcode: string) => void;
   setEdgeTelemetry?: (data: { cpu: number; ram: number; temp: number }) => void;
+  setStreamRole: (role: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED') => void;
 }
 
 export function useHardwareSocket({
@@ -24,6 +25,7 @@ export function useHardwareSocket({
   setJetsonRom,
   setLastEchoGCode,
   setEdgeTelemetry,
+  setStreamRole,
 }: HardwareSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
@@ -40,9 +42,10 @@ export function useHardwareSocket({
 
     console.log('[GLOBAL WEBSOCKET] Menginisialisasi sirkuit pusat lewat Redis Client...');
     
-    // Connect to client websocket route
+    // Connect to client websocket route with authentication token
+    const token = localStorage.getItem('token');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/hardware/client/ws`;
+    const wsUrl = `${protocol}//${window.location.host}/api/hardware/client/ws?token=${token}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -58,7 +61,11 @@ export function useHardwareSocket({
       try {
         const res = JSON.parse(event.data);
         
-        if (res.event === 'STREAM_DATA') {
+        if (res.event === 'ROLE_ASSIGNED') {
+          console.log(`[GLOBAL WEBSOCKET] Peran di-assign oleh server: ${res.role}`);
+          setStreamRole(res.role as 'PILOT' | 'SPECTATOR' | 'QUEUED');
+        }
+        else if (res.event === 'STREAM_DATA') {
           setVideoSrc(res.image);
         }
         else if (res.event === 'TELEMETRY_DATA') {
@@ -110,6 +117,7 @@ export function useHardwareSocket({
         wsRef.current = null;
         setVideoSrc(null);
         setGrblStatus('OFFLINE');
+        setStreamRole('DISCONNECTED');
       }
     };
 
@@ -121,9 +129,10 @@ export function useHardwareSocket({
         wsRef.current = null;
         setVideoSrc(null);
         setGrblStatus('OFFLINE');
+        setStreamRole('DISCONNECTED');
       }
     };
-  }, [isSystemHardwareEnabled, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry]);
+  }, [isSystemHardwareEnabled, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole]);
 
   return wsRef;
 }

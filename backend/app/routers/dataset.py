@@ -391,3 +391,35 @@ async def purge_temporary_cache():
         print("Failed to publish PURGE_CACHE:", e)
         
     return {"message": f"Cache purged. {cleared_bytes} bytes freed."}
+
+@router.delete("/storage/purge-all")
+async def purge_all_datasets(db: Session = Depends(get_db)):
+    cleared_bytes = 0
+    
+    # 1. Hitung ukuran sebelum dihapus
+    if os.path.exists(DATASET_DIR):
+        for root, dirs, files in os.walk(DATASET_DIR):
+            for file in files:
+                cleared_bytes += os.path.getsize(os.path.join(root, file))
+        
+        # Hapus seluruh folder dataset dan buat ulang
+        shutil.rmtree(DATASET_DIR, ignore_errors=True)
+        os.makedirs(DATASET_DIR, exist_ok=True)
+        
+    # 2. Hapus seluruh data di SQLite database
+    try:
+        db.query(models.DatasetFolder).delete()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print("Failed to delete database records:", e)
+
+    # 3. Kirim perintah PURGE_ALL_DATASETS ke Edge Device via Redis
+    try:
+        from ..redis_mock import get_redis_client
+        redis_client = await get_redis_client(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+        await redis_client.publish("hardware_commands", json.dumps({"action": "PURGE_ALL_DATASETS"}))
+    except Exception as e:
+        print("Failed to publish PURGE_ALL_DATASETS:", e)
+        
+    return {"message": f"All datasets purged successfully. {cleared_bytes} bytes freed."}

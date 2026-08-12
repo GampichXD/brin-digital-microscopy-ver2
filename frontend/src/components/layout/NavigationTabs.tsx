@@ -48,14 +48,14 @@ export default function NavigationTabs({ availableTabs, activeTab, setActiveTab 
       </nav>
 
       {/* BOTTOM NAVIGATION BAR (VISIBLE ONLY ON MOBILE) */}
-      <nav className={`flex md:hidden fixed bottom-0 left-0 w-full z-50 border-t ${isDarkMode ? 'border-gray-800 bg-gray-900/95 backdrop-blur' : 'border-gray-200 bg-white/95 backdrop-blur'}`}>
+      <nav className={`flex px-1 md:hidden fixed bottom-0 left-0 w-full z-50 border-t pb-safe ${isDarkMode ? 'border-gray-800 bg-gray-900/95 backdrop-blur' : 'border-gray-200 bg-white/95 backdrop-blur'}`}>
         {availableTabs.map((tab) => (
           <button 
             key={tab} 
             onClick={() => setActiveTab(tab)}
             className="flex-1 flex justify-center items-center py-2.5"
           >
-            <div className={`flex items-center justify-center px-5 py-1.5 rounded-full transition-all duration-300 ${
+            <div className={`flex items-center justify-center px-3 py-1.5 rounded-full transition-all duration-300 ${
               activeTab === tab 
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
                 : (isDarkMode ? 'text-gray-500 hover:text-gray-400' : 'text-gray-400 hover:text-gray-500')

@@ -34,13 +34,13 @@ export default function AdminControlTab() {
     apiPort: '8000',
   };
 
-  // Mock Settings States
-  const [feedRate, setFeedRate] = useState(defaultSettings.feedRate);
+  // Settings States
+  const [feedRate, setFeedRate] = useState<number | string>(defaultSettings.feedRate);
   const [cameraRes, setCameraRes] = useState(defaultSettings.cameraRes);
   const [cameraFps, setCameraFps] = useState(defaultSettings.cameraFps);
-  const [exposure, setExposure] = useState(defaultSettings.exposure);
+  const [exposure, setExposure] = useState<number | string>(defaultSettings.exposure);
   const [videoSource, setVideoSource] = useState(defaultSettings.videoSource);
-  const [confThreshold, setConfThreshold] = useState(defaultSettings.confThreshold);
+  const [confThreshold, setConfThreshold] = useState<number | string>(defaultSettings.confThreshold);
   const [aiModel, setAiModel] = useState(defaultSettings.aiModel);
   const [ipBinding, setIpBinding] = useState(defaultSettings.ipBinding);
   const [apiPort, setApiPort] = useState(defaultSettings.apiPort);
@@ -76,9 +76,28 @@ export default function AdminControlTab() {
     }
   };
 
+  const fetchSystemSettings = async () => {
+    try {
+      const response = await api.get<Record<string, string>>('/api/hardware/config');
+      const data = response.data;
+      if (data.feedRate) setFeedRate(data.feedRate);
+      if (data.cameraRes) setCameraRes(data.cameraRes);
+      if (data.cameraFps) setCameraFps(data.cameraFps);
+      if (data.exposure) setExposure(data.exposure);
+      if (data.videoSource) setVideoSource(data.videoSource);
+      if (data.confThreshold) setConfThreshold(data.confThreshold);
+      if (data.aiModel) setAiModel(data.aiModel);
+      if (data.ipBinding) setIpBinding(data.ipBinding);
+      if (data.apiPort) setApiPort(data.apiPort);
+    } catch (error) {
+      console.error("Gagal mengambil konfigurasi sistem dari backend:", error);
+    }
+  };
+
   useEffect(() => {
     fetchOperators();
     fetchAuditLogs();
+    fetchSystemSettings();
     const interval = setInterval(fetchAuditLogs, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -175,6 +194,22 @@ export default function AdminControlTab() {
     }
   };
 
+  const handlePurgeAllDatasets = async () => {
+    const confirmation = prompt("PERINGATAN BAHAYA!\n\nTindakan ini akan MENGHAPUS SELURUH DATABASE, GAMBAR, DAN VIDEO secara permanen dari Server maupun Edge. Data yang dihapus tidak bisa dikembalikan.\n\nKetik 'HAPUS SEMUA' untuk melanjutkan:");
+    if (confirmation !== 'HAPUS SEMUA') {
+      showToast("Tindakan dibatalkan.", "info");
+      return;
+    }
+    
+    try {
+      showToast("Memusnahkan seluruh dataset...", "info");
+      await api.delete('/api/dataset/storage/purge-all');
+      showToast("Seluruh Dataset di Edge & Server berhasil dihapus permanen.", "success");
+    } catch (err) {
+      showToast("Gagal memusnahkan dataset via API.", "error");
+    }
+  };
+
   const handleClearLogs = async () => {
     if (!confirm("Yakin ingin menghapus seluruh System Audit Logs?")) return;
     try {
@@ -247,6 +282,10 @@ export default function AdminControlTab() {
           setApiPort(defaultSettings.apiPort);
           break;
       }
+      
+      // Ambil kembali konfigurasi terbaru setelah reset (jika disimulasikan dari backend)
+      await fetchSystemSettings();
+      
       showToast(`Pengaturan ${section} dikembalikan ke Default.`, "success");
     } catch (err) {
       showToast(`Gagal mereset pengaturan ${section}.`, "error");
@@ -601,9 +640,14 @@ export default function AdminControlTab() {
             <button onClick={handleExportData} className="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">
               <Download size={16} /> Export All Dataset
             </button>
-            <button onClick={handlePurgeCache} className="w-full p-3 bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2">
-              <Trash2 size={16} /> Purge Temporary Cache
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={handlePurgeCache} className="w-full p-3 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 border border-yellow-500/20 rounded-xl text-[10px] font-bold transition-colors flex flex-col items-center justify-center gap-1">
+                <Trash2 size={16} /> Purge Cache
+              </button>
+              <button onClick={handlePurgeAllDatasets} className="w-full p-3 bg-red-600/10 text-red-500 hover:bg-red-600 border border-red-600/30 hover:border-red-600 hover:text-white rounded-xl text-[10px] font-bold transition-colors flex flex-col items-center justify-center gap-1">
+                <Trash2 size={16} /> PURGE ALL DATASETS
+              </button>
+            </div>
           </div>
         </div>
 

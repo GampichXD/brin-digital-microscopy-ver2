@@ -1,4 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException, Query, Depends
+from jose import jwt, JWTError
+from sqlalchemy.orm import Session
+from ..database import get_db
+from .. import models
+from ..services.auth_service import SECRET_KEY, ALGORITHM
 from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload
 import time
 import json
@@ -79,17 +84,52 @@ async def get_telemetry_stats():
         "hardwareBus": hardware_bus_enabled
     }
 
+def save_setting(db: Session, key: str, value: str):
+    setting = db.query(models.SystemSetting).filter_by(key=key).first()
+    if setting:
+        setting.value = value
+    else:
+        setting = models.SystemSetting(key=key, value=value)
+        db.add(setting)
+    db.commit()
+
+@router.get("/config")
+async def get_system_config(db: Session = Depends(get_db)):
+    settings = db.query(models.SystemSetting).all()
+    config_dict = {s.key: s.value for s in settings}
+    return config_dict
 
 @router.put("/config/ai")
-async def set_ai_config(payload: AiConfigPayload):
+async def set_ai_config(payload: AiConfigPayload, db: Session = Depends(get_db)):
+    save_setting(db, "aiModel", payload.model)
+    save_setting(db, "confThreshold", str(payload.confThreshold))
     return {"message": "AI Config updated"}
 
 @router.put("/config/network")
-async def set_network_config(payload: NetworkConfigPayload):
+async def set_network_config(payload: NetworkConfigPayload, db: Session = Depends(get_db)):
+    save_setting(db, "ipBinding", payload.ipBinding)
+    save_setting(db, "apiPort", payload.apiPort)
     return {"message": "Network Config updated"}
 
 @router.post("/config/{section}/default")
-async def reset_config_default(section: str):
+async def reset_config_default(section: str, db: Session = Depends(get_db)):
+    # Hapus semua record yang berhubungan dengan section dari db
+    # Untuk simulasi: reset tidak benar-benar menghapus, biarkan default fallback dari frontend 
+    # Atau kita bisa mendelete row-row tersebut
+    keys_to_delete = []
+    if section.lower() == 'cnc':
+        keys_to_delete = ['feedRate', 'backlash', 'acceleration', 'settle_time']
+    elif section.lower() == 'camera':
+        keys_to_delete = ['cameraRes', 'cameraFps', 'exposure', 'videoSource']
+    elif section.lower() == 'ai':
+        keys_to_delete = ['aiModel', 'confThreshold']
+    elif section.lower() == 'network':
+        keys_to_delete = ['ipBinding', 'apiPort']
+        
+    for k in keys_to_delete:
+        db.query(models.SystemSetting).filter_by(key=k).delete()
+    db.commit()
+    
     return {"message": f"Config {section} reset to default"}
 
 # ====================================================================
@@ -162,22 +202,30 @@ async def unlock_motor(request: Request):
 
 
 @router.post("/camera/settings")
-async def apply_camera_settings(payload: CameraSettingsPayload):
+async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
 
+    save_setting(db, "exposure", str(payload.iso))
+    # Misal kita simpan iso/shutter speed sesuai key UI
+    
     await publish_hardware_command({
         "action": "APPLY_CAMERA_SETTINGS",
         "shutter_speed": payload.shutter_speed,
         "iso": payload.iso,
     })
-    return {"status": "SUCCESS", "message": "Pengaturan kamera diterima."}
+    return {"status": "SUCCESS", "message": "Pengaturan kamera diterima dan disimpan."}
 
 
 @router.post("/cnc/settings")
-async def apply_cnc_settings(payload: CncSettingsPayload):
+async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    save_setting(db, "feedRate", str(payload.feed_rate))
+    save_setting(db, "backlash", str(payload.backlash))
+    save_setting(db, "acceleration", str(payload.acceleration))
+    save_setting(db, "settle_time", str(payload.settle_time))
 
     await publish_hardware_command({
         "action": "APPLY_CNC_SETTINGS",
@@ -186,7 +234,7 @@ async def apply_cnc_settings(payload: CncSettingsPayload):
         "acceleration": payload.acceleration,
         "settle_time": payload.settle_time,
     })
-    return {"status": "SUCCESS", "message": "Parameter CNC diterima."}
+    return {"status": "SUCCESS", "message": "Pengaturan CNC diterima dan disimpan."}
 
 @router.post("/scan/grid")
 async def scan_grid(payload: GridScanPayload):
@@ -460,16 +508,143 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
         await redis.close()
 
 
+class RoomManager:
+    def __init__(self):
+        self.pilot = None # dict: {"ws": websocket, "username": str, "role": str}
+        self.spectators = [] # list of dicts
+        self.queue = [] # list of dicts
+        self.lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket, username: str, role: str):
+        await websocket.accept()
+        user_data = {"ws": websocket, "username": username, "role": role}
+        assigned_role = ""
+        
+        async with self.lock:
+            if self.pilot is None:
+                self.pilot = user_data
+                assigned_role = "PILOT"
+            elif len(self.spectators) < 2:
+                self.spectators.append(user_data)
+                assigned_role = "SPECTATOR"
+            else:
+                self.queue.append(user_data)
+                assigned_role = "QUEUED"
+        
+        try:
+            await websocket.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": assigned_role}))
+        except Exception:
+            pass
+        return user_data
+
+    async def disconnect(self, websocket: WebSocket):
+        async with self.lock:
+            # Cari dan hapus
+            if self.pilot and self.pilot["ws"] == websocket:
+                self.pilot = None
+            else:
+                self.spectators = [u for u in self.spectators if u["ws"] != websocket]
+                self.queue = [u for u in self.queue if u["ws"] != websocket]
+
+            # Promosi
+            if self.pilot is None and self.spectators:
+                self.pilot = self.spectators.pop(0)
+                try:
+                    await self.pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "PILOT"}))
+                except Exception:
+                    pass
+            
+            while len(self.spectators) < 2 and self.queue:
+                promoted = self.queue.pop(0)
+                self.spectators.append(promoted)
+                try:
+                    await promoted["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
+                except Exception:
+                    pass
+
+    async def takeover(self, websocket: WebSocket):
+        async with self.lock:
+            # Cari user admin ini
+            admin_user = None
+            if self.pilot and self.pilot["ws"] == websocket:
+                return # Already pilot
+            
+            for u in self.spectators:
+                if u["ws"] == websocket:
+                    admin_user = u
+                    break
+            if not admin_user:
+                for u in self.queue:
+                    if u["ws"] == websocket:
+                        admin_user = u
+                        break
+                        
+            if admin_user and admin_user["role"] == "admin":
+                # Remove admin from wherever they are
+                self.spectators = [u for u in self.spectators if u["ws"] != websocket]
+                self.queue = [u for u in self.queue if u["ws"] != websocket]
+                
+                # Demote current pilot
+                old_pilot = self.pilot
+                
+                # Set new pilot
+                self.pilot = admin_user
+                try:
+                    await self.pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "PILOT"}))
+                except Exception:
+                    pass
+                
+                # Handle old pilot
+                if old_pilot:
+                    if len(self.spectators) < 2:
+                        self.spectators.append(old_pilot)
+                        try:
+                            await old_pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
+                        except Exception:
+                            pass
+                    else:
+                        self.queue.insert(0, old_pilot) # Put in front of queue
+                        try:
+                            await old_pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "QUEUED"}))
+                        except Exception:
+                            pass
+
+    def get_role(self, websocket: WebSocket) -> str:
+        # We don't need lock here since we are just reading
+        if self.pilot and self.pilot["ws"] == websocket:
+            return "PILOT"
+        for s in self.spectators:
+            if s["ws"] == websocket:
+                return "SPECTATOR"
+        for q in self.queue:
+            if q["ws"] == websocket:
+                return "QUEUED"
+        return "DISCONNECTED"
+
+room_manager = RoomManager()
+
 # ====================================================================
 # 3. WEBSOCKET KHUSUS CLIENT CLIENT (BROWSER REACT)
 # ====================================================================
 @router.websocket("/client/ws")
-async def client_websocket_endpoint(websocket: WebSocket):
+async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
     """Endpoint tempat browser user (React) terhubung untuk memantau & mengontrol instrumen."""
-    await websocket.accept()
-    redis = await get_redis_client(REDIS_URL)
+    if not token:
+        await websocket.close(code=1008)
+        return
+        
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub", "Unknown")
+        role = payload.get("role", "user")
+    except JWTError:
+        await websocket.close(code=1008)
+        return
 
-    print("[VPS CLIENT] Browser user terhubung penuh dengan sikit sirkuit interaktif.")
+    redis = await get_redis_client(REDIS_URL)
+    user_data = await room_manager.connect(websocket, username, role)
+    print(f"[VPS CLIENT] Browser user {username} ({role}) terhubung ke sirkuit interaktif.")
+
     if motor_driver.jetson_websocket is None:
         try:
             await websocket.send_text(json.dumps({
@@ -488,7 +663,15 @@ async def client_websocket_endpoint(websocket: WebSocket):
         try:
             async for message in pubsub.listen():
                 if message.get('type') == 'message':
-                    await websocket.send_text(message['data'].decode('utf-8'))
+                    msg_text = message['data'].decode('utf-8')
+                    is_video = "STREAM_DATA" in msg_text
+                    role = room_manager.get_role(websocket)
+                    
+                    # Hanya broadcast STREAM_DATA ke Pilot & Spectator (Hemat Bandwidth)
+                    if is_video and role == "QUEUED":
+                        continue
+                        
+                    await websocket.send_text(msg_text)
         except asyncio.CancelledError:
             pass
         finally:
@@ -499,17 +682,25 @@ async def client_websocket_endpoint(websocket: WebSocket):
     broadcast_task = asyncio.create_task(listen_to_redis_broadcast())
     
     try:
-        # 🟢 TASK B: Jalankan antrean penerima instruksi (START_STREAM / STOP_STREAM) dari Browser React
+        # 🟢 TASK B: Jalankan antrean penerima instruksi dari Browser React
         while True:
             client_msg = await websocket.receive_text()
+            try:
+                data = json.loads(client_msg)
+                if data.get("action") == "TAKEOVER":
+                    await room_manager.takeover(websocket)
+                    continue
+            except json.JSONDecodeError:
+                pass
+                
             # Lempar perintah dari browser langsung ke channel instruksi mekatronika
             await redis.publish("hardware_commands", client_msg)
-            print(f"[VPS BROKER] Meneruskan perintah UI ke Hardware Core: {client_msg}")
 
     except WebSocketDisconnect:
-        print("[VPS CLIENT] Hubungan Browser user terputus dari sirkuit.")
+        print(f"[VPS CLIENT] Hubungan Browser user {username} terputus dari sirkuit.")
     finally:
-        # Hancurkan background task secara bersih untuk mencegah kebocoran memori (memory leak)
+        await room_manager.disconnect(websocket)
+        # Hancurkan background task secara bersih untuk mencegah kebocoran memori
         if not broadcast_task.done():
             broadcast_task.cancel()
             try:

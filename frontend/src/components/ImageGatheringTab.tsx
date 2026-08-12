@@ -58,6 +58,10 @@ export default function ImageGatheringTab({
   const [autoStitch, setAutoStitch] = useState(false);
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
   
+  const [targetX, setTargetX] = useState<string>("0");
+  const [targetY, setTargetY] = useState<string>("0");
+  const [targetZ, setTargetZ] = useState<string>("0");
+  
   const [motorPos, setMotorPos] = useState({ x: 0.00, y: 0.00, z: 0 });
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -137,6 +141,32 @@ export default function ImageGatheringTab({
   }, [isProcessing]);
 
   const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
+
+
+
+  const handleGoToCoordinates = async () => {
+    const x = parseFloat(targetX);
+    const y = parseFloat(targetY);
+    const z = parseFloat(targetZ);
+    
+    if (isNaN(x) || isNaN(y) || isNaN(z)) {
+      showToast('Koordinat tidak valid', 'error');
+      return;
+    }
+    
+    const gcodeStr = `G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)}`;
+    
+    setMotorPos({ x, y, z });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        action: 'MOVE_MOTOR',
+        gcode: gcodeStr
+      }));
+    } else {
+      showToast('Koneksi WebSocket terputus', 'error');
+    }
+  };
 
   const handleHome = async () => {
     try {
@@ -634,6 +664,54 @@ export default function ImageGatheringTab({
                     <button onClick={() => sendHttpMove('Z', 1)} className={`flex-1 mb-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={20} className="text-blue-500"/></button>
                     <button onClick={() => sendHttpMove('Z', -1)} className={`flex-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={20} className="text-blue-500"/></button>
                   </div>
+                </div>
+              </div>
+
+              {/* 1.5. KONTROL KOORDINAT ABSOLUT */}
+              <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel} relative`}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className={`text-sm font-bold uppercase tracking-wider ${theme.text}`}>Go-To Coordinate</h3>
+                </div>
+                <div className="flex gap-2 items-end">
+                  <div className="flex flex-col flex-1">
+                    <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>X (mm)</span>
+                    <input
+                      type="number"
+                      readOnly={globalVirtualKeyboard}
+                      value={targetX}
+                      onChange={(e) => setTargetX(e.target.value)}
+                      onClick={() => triggerGlobalKeypad('Koordinat X', targetX, setTargetX)}
+                      className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${theme.input}`}
+                    />
+                  </div>
+                  <div className="flex flex-col flex-1">
+                    <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Y (mm)</span>
+                    <input
+                      type="number"
+                      readOnly={globalVirtualKeyboard}
+                      value={targetY}
+                      onChange={(e) => setTargetY(e.target.value)}
+                      onClick={() => triggerGlobalKeypad('Koordinat Y', targetY, setTargetY)}
+                      className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${theme.input}`}
+                    />
+                  </div>
+                  <div className="flex flex-col flex-1">
+                    <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Z (stp)</span>
+                    <input
+                      type="number"
+                      readOnly={globalVirtualKeyboard}
+                      value={targetZ}
+                      onChange={(e) => setTargetZ(e.target.value)}
+                      onClick={() => triggerGlobalKeypad('Koordinat Z', targetZ, setTargetZ)}
+                      className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${theme.input}`}
+                    />
+                  </div>
+                  <button 
+                    onClick={handleGoToCoordinates}
+                    className={`h-8 px-4 rounded-lg bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors shrink-0`}
+                  >
+                    GO
+                  </button>
                 </div>
               </div>
 

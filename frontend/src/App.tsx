@@ -47,6 +47,7 @@ export default function App() {
   const [limitSwitchState, setLimitSwitchState] = useState<string>("N/A");
   const [jetsonRam, setJetsonRam] = useState<string>("5.12/7.62 GB");
   const [jetsonRom, setJetsonRom] = useState<string>("2.10/50.00 GB");
+  const [streamRole, setStreamRole] = useState<'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED'>('DISCONNECTED');
 
   const wsRef = useHardwareSocket({
     isSystemHardwareEnabled,
@@ -58,7 +59,8 @@ export default function App() {
     setJetsonRam,
     setJetsonRom,
     setLastEchoGCode,
-    setEdgeTelemetry
+    setEdgeTelemetry,
+    setStreamRole
   });
 
   const fetchFolders = async () => {
@@ -238,6 +240,8 @@ export default function App() {
             wsRef={wsRef}
             availableFolders={folders}
             onRefreshFolders={fetchFolders}
+            streamRole={streamRole}
+            currentUserRole={currentUserRole}
           />
         )}
         {activeTab === 'Database' && (

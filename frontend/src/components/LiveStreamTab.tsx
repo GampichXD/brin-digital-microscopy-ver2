@@ -58,6 +58,8 @@ interface LiveStreamTabProps {
   wsRef: React.MutableRefObject<WebSocket | null>;
   availableFolders: {id: string, name: string}[];
   onRefreshFolders: () => void;
+  streamRole?: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED';
+  currentUserRole?: string;
 }
 
 export default function LiveStreamTab({ 
@@ -73,7 +75,9 @@ export default function LiveStreamTab({
   limitSwitchState,
   wsRef,
   availableFolders,
-  onRefreshFolders
+  onRefreshFolders,
+  streamRole = 'DISCONNECTED',
+  currentUserRole = 'OPERATOR'
 }: LiveStreamTabProps) {
   const { isDarkMode, globalVirtualKeyboard, isSystemHardwareEnabled } = useGlobalContext();
   const { t } = useTranslation();
@@ -86,6 +90,10 @@ export default function LiveStreamTab({
   const [xyStepUnit, setXyStepUnit] = useState<'mm' | 'inch'>('mm');
   const [xyStepValue, setXyStepValue] = useState<string>("1");
   const [zStepValue, setZStepValue] = useState<string>("1");
+  
+  const [targetX, setTargetX] = useState<string>("0");
+  const [targetY, setTargetY] = useState<string>("0");
+  const [targetZ, setTargetZ] = useState<string>("0");
 
   const [feedRate, setFeedRate] = useState<string>("250");
   const [backlash, setBacklash] = useState<string>("0.05");
@@ -303,12 +311,57 @@ export default function LiveStreamTab({
     setIso("200");
   };
 
+  const handleGoToCoordinates = async () => {
+    if (!isSystemHardwareEnabled || isControlsDisabled) return;
+    
+    const x = parseFloat(targetX);
+    const y = parseFloat(targetY);
+    const z = parseFloat(targetZ);
+    
+    if (isNaN(x) || isNaN(y) || isNaN(z)) {
+      showToast('Koordinat tidak valid', 'error');
+      return;
+    }
+    
+    const gcodeStr = `G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)}`;
+    
+    setMotorPos({ x, y, z });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setGrblStatus('MOVING...');
+      setLastEchoGCode(gcodeStr);
+      wsRef.current.send(JSON.stringify({
+        action: 'MOVE_MOTOR',
+        gcode: gcodeStr
+      }));
+    } else {
+      // API fallback not implemented yet for absolute positioning in motor driver, but WS is standard
+      showToast('Koneksi WebSocket terputus', 'error');
+    }
+  };
+
+  const handleTakeover = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'TAKEOVER' }));
+    }
+  };
+
+  const isLockedOut = streamRole === 'QUEUED';
+  const isSpectator = streamRole === 'SPECTATOR';
+  const isControlsDisabled = isLockedOut || isSpectator || !isSystemHardwareEnabled;
+
   return (
-    <div className="flex flex-col lg:flex-row gap-3 h-full w-full select-none overflow-y-auto lg:overflow-hidden pb-4 lg:pb-0">
+    <div className={`h-full flex flex-col xl:flex-row gap-4 xl:gap-6 ${isLockedOut ? 'opacity-80' : ''}`}>
       
       {/* KIRI: VIDEO & HUD LAYER */}
-      <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[60%] h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
-        {cameraActive ? (
+      <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[60%] h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive && !isLockedOut ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
+        {isLockedOut ? (
+          <div className="flex flex-col items-center text-center p-6 bg-slate-900/90 w-full h-full justify-center text-slate-200">
+            <AlertOctagon className="w-16 h-16 text-yellow-500 mb-4 animate-pulse" />
+            <h3 className="text-xl font-bold mb-2 text-white">Batas Penonton Penuh (3/3)</h3>
+            <p className="max-w-md">Anda berada dalam antrean. Menunggu giliran untuk mendapatkan saluran transmisi video.</p>
+          </div>
+        ) : cameraActive ? (
           <StreamCanvas videoSrc={videoSrc} themeClasses={themeClasses} />
         ) : (
           <div className="flex flex-col items-center">
@@ -500,10 +553,15 @@ export default function LiveStreamTab({
       </div>
 
       {/* KANAN: PANEL KONTROL ASLI */}
-      <div className="w-full lg:w-[40%] lg:h-full overflow-y-visible lg:overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div className={`w-full xl:w-96 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar ${isControlsDisabled ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
         
         {/* 1. KENDALI MOTOR */}
-        <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
+        <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel} relative`}>
+          {isSpectator && (
+            <div className="absolute top-2 right-2 px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-xs font-bold border border-blue-500/30">
+              Mode Penonton
+            </div>
+          )}
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>Kendali Motor</h3>
             <div className="flex items-center space-x-2">
@@ -612,6 +670,17 @@ export default function LiveStreamTab({
               )}
             </div>
 
+            {currentUserRole === 'admin' && streamRole !== 'PILOT' && streamRole !== 'DISCONNECTED' && (
+              <button 
+                onClick={handleTakeover}
+                className="ml-auto flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-pink-500/20 text-pink-400 hover:bg-pink-500 hover:text-white transition-all shadow-[0_0_15px_rgba(236,72,153,0.3)] border border-pink-500/50 hover:scale-105 group"
+                title="Ambil Alih Kendali (Admin)"
+              >
+                <AlertOctagon className="w-6 h-6 group-hover:animate-bounce" />
+                <span className="text-xs font-semibold whitespace-nowrap">Takeover</span>
+              </button>
+            )}
+
             <div className="w-28 sm:w-32 flex flex-col shrink-0">
               <div className="flex flex-col mb-2">
                 <span className={`text-[10px] font-bold mb-1 truncate ${themeClasses.textMuted}`}>FOKUS (Z)</span>
@@ -632,6 +701,55 @@ export default function LiveStreamTab({
                 <button onClick={() => sendMotorCommand('Z', '-')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* 1.5. KONTROL KOORDINAT ABSOLUT */}
+        <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel} relative`}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>Go-To Coordinate</h3>
+          </div>
+          <div className="flex gap-2 items-end">
+            <div className="flex flex-col flex-1">
+              <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>X (mm)</span>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={targetX}
+                onChange={(e) => setTargetX(e.target.value)}
+                onClick={() => triggerKeypad('Koordinat X', targetX, setTargetX)}
+                className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${themeClasses.input}`}
+              />
+            </div>
+            <div className="flex flex-col flex-1">
+              <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>Y (mm)</span>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={targetY}
+                onChange={(e) => setTargetY(e.target.value)}
+                onClick={() => triggerKeypad('Koordinat Y', targetY, setTargetY)}
+                className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${themeClasses.input}`}
+              />
+            </div>
+            <div className="flex flex-col flex-1">
+              <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>Z (stp)</span>
+              <input
+                type="number"
+                readOnly={globalVirtualKeyboard}
+                value={targetZ}
+                onChange={(e) => setTargetZ(e.target.value)}
+                onClick={() => triggerKeypad('Koordinat Z', targetZ, setTargetZ)}
+                className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${themeClasses.input}`}
+              />
+            </div>
+            <button 
+              disabled={isControlsDisabled}
+              onClick={handleGoToCoordinates}
+              className={`h-8 px-4 rounded-lg bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors disabled:opacity-30 disabled:hover:bg-blue-600 shrink-0`}
+            >
+              GO
+            </button>
           </div>
         </div>
 
