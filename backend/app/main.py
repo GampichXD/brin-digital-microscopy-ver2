@@ -17,11 +17,16 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     print("[API STARTUP] Menyambungkan ke PostgreSQL dan sinkronisasi skema tabel...")
-    try:
-        models.Base.metadata.create_all(bind=engine)
-    except Exception as exc:
-        print(f"[API STARTUP WARNING] PostgreSQL belum siap: {exc}")
-
+    import time
+    for i in range(5):
+        try:
+            models.Base.metadata.create_all(bind=engine)
+            print("[API STARTUP SUCCESS] PostgreSQL siap dan sinkronisasi berhasil.")
+            break
+        except Exception as exc:
+            print(f"[API STARTUP WARNING] PostgreSQL belum siap (Percobaan {i+1}/5): {exc}")
+            time.sleep(3)
+            
 # Pastikan folder static ada
 if not os.path.exists("static"):
     os.makedirs("static")
