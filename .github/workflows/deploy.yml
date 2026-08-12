@@ -1,0 +1,28 @@
+name: CI/CD Deployment to BRIN VPS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Build & Deploy via Self-Hosted Runner
+    runs-on: self-hosted
+
+    steps:
+      - name: 📥 Mengambil Kode Terbaru (Checkout)
+        uses: actions/checkout@v4
+
+      - name: 🔐 Menyiapkan Environment Variables (.env)
+        run: |
+          # Menyalin konfigurasi production (.env) yang disimpan manual di VPS server
+          cp ~/.env-production .env
+          
+      - name: 🐳 Membangun Ulang & Menjalankan Infrastruktur Docker
+        run: |
+          docker compose up -d --build
+          
+      - name: 🧹 Membersihkan Sampah Image Docker
+        run: docker image prune -f
