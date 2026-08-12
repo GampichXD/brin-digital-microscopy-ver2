@@ -476,6 +476,9 @@ export default function LiveStreamTab({
           onClick={() => {
             const nextState = !cameraActive;
             setCameraActive(nextState);
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ action: nextState ? 'START_STREAM' : 'STOP_STREAM' }));
+            }
             showToast(
               nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Stream Kamera Dinonaktifkan.',
               nextState ? 'success' : 'info'

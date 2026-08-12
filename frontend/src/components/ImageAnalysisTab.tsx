@@ -7,7 +7,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { useGlobalContext } from '../context/GlobalContext';
 import { showToast } from '../utils/toast';
 
-const API_BASE_URL = api.defaults.baseURL || 'http://localhost:8000';
+const API_BASE_URL = api.defaults.baseURL || '';
 
 interface DatasetFolder {
   id: string;

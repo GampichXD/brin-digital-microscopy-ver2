@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from './api';
 
 /**
  * Mencatat log aktivitas sistem (Audit Trail) ke backend secara otomatis.
@@ -7,7 +7,7 @@ import axios from 'axios';
 export const logSystemAction = async (action: string, status: 'SUCCESS' | 'ERROR' = 'SUCCESS') => {
   try {
     const operator = localStorage.getItem('username') || 'Operator';
-    await axios.post('http://localhost:8000/api/logs', {
+    await api.post('/api/logs', {
       operator,
       action,
       status

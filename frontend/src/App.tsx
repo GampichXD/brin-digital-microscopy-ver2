@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Delete, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useGlobalContext } from './context/GlobalContext';
 import { useHardwareSocket } from './hooks/useHardwareSocket';
-import axios from 'axios';
-
+import api from './utils/api';
 import LiveStreamTab from './components/LiveStreamTab';
 import DatabaseTab from './components/DatabaseTab';
 import ImageGatheringTab from './components/ImageGatheringTab';
@@ -64,7 +63,7 @@ export default function App() {
 
   const fetchFolders = async () => {
     try {
-      const response = await axios.get<DatasetFolder[]>('http://localhost:8000/api/dataset/folders');
+      const response = await api.get<DatasetFolder[]>('/api/dataset/folders');
       setFolders(response.data);
     } catch (error) {
       console.error("Gagal memuat database folder di App.tsx:", error);

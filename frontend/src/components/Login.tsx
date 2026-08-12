@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
+import api from '../utils/api';
+
 import type { LoginResponse } from '../types/auth';
 
 interface LoginProps {
@@ -17,7 +19,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setErrorMsg('');
 
     try {
-      const response = await axios.post<LoginResponse>('http://localhost:8000/api/auth/login', {
+      const response = await api.post<LoginResponse>('/api/auth/login', {
         username,
         password
       });

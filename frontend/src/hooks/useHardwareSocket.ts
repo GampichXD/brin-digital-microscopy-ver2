@@ -41,7 +41,9 @@ export function useHardwareSocket({
     console.log('[GLOBAL WEBSOCKET] Menginisialisasi sirkuit pusat lewat Redis Client...');
     
     // Connect to client websocket route
-    const ws = new WebSocket('ws://127.0.0.1:8000/api/hardware/client/ws');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/hardware/client/ws`;
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {

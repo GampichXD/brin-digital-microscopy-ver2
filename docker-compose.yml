@@ -53,5 +53,19 @@ services:
       - frontend
       - backend
 
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: mikroskop_ngrok
+    restart: unless-stopped
+    command:
+      - "http"
+      - "nginx:80"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - nginx
+
 volumes:
   postgres_data:
