@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -15,7 +15,7 @@ services:
     image: redis:7-alpine
     container_name: mikroskop_redis
     ports:
-      - "6380:6379" # Ubah host port ke 6380 untuk mencegah bentrok dengan Redis Windows lokal
+      - "127.0.0.1:6380:6379" # Ubah host port ke 6380 untuk mencegah bentrok dengan Redis Windows lokal
 
   frontend:
     build: ./frontend

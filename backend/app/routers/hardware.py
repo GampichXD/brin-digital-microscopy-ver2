@@ -579,7 +579,7 @@ class RoomManager:
                         admin_user = u
                         break
                         
-            if admin_user and admin_user["role"] == "admin":
+            if admin_user and admin_user["role"].upper() == "ADMIN":
                 # Remove admin from wherever they are
                 self.spectators = [u for u in self.spectators if u["ws"] != websocket]
                 self.queue = [u for u in self.queue if u["ws"] != websocket]
@@ -699,9 +699,12 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
     except WebSocketDisconnect:
         print(f"[VPS CLIENT] Hubungan Browser user {username} terputus dari sirkuit.")
     finally:
+        # PENTING: Bersihkan alokasi kursi untuk menghindari sesi hantu
         await room_manager.disconnect(websocket)
-        # Hancurkan background task secara bersih untuk mencegah kebocoran memori
-        if not broadcast_task.done():
+        print(f"[VPS CLIENT] Sesi user {username} telah dilepas sepenuhnya.")
+        
+        # Stop background broadcast task
+        if 'broadcast_task' in locals() and not broadcast_task.done():
             broadcast_task.cancel()
             try:
                 await broadcast_task

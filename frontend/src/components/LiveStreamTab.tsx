@@ -348,7 +348,7 @@ export default function LiveStreamTab({
 
   const isLockedOut = streamRole === 'QUEUED';
   const isSpectator = streamRole === 'SPECTATOR';
-  const isControlsDisabled = isLockedOut || isSpectator || !isSystemHardwareEnabled;
+  const isControlsDisabled = isLockedOut || isSpectator || streamRole === 'DISCONNECTED' || !isSystemHardwareEnabled;
 
   return (
     <div className={`h-full flex flex-col xl:flex-row gap-4 xl:gap-6 ${isLockedOut ? 'opacity-80' : ''}`}>
@@ -670,7 +670,7 @@ export default function LiveStreamTab({
               )}
             </div>
 
-            {currentUserRole === 'admin' && streamRole !== 'PILOT' && streamRole !== 'DISCONNECTED' && (
+            {currentUserRole === 'ADMIN' && streamRole !== 'PILOT' && streamRole !== 'DISCONNECTED' && (
               <button 
                 onClick={handleTakeover}
                 className="ml-auto flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-pink-500/20 text-pink-400 hover:bg-pink-500 hover:text-white transition-all shadow-[0_0_15px_rgba(236,72,153,0.3)] border border-pink-500/50 hover:scale-105 group"
