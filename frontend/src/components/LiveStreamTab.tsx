@@ -60,6 +60,7 @@ interface LiveStreamTabProps {
   onRefreshFolders: () => void;
   streamRole?: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED';
   currentUserRole?: string;
+  roomState?: any;
 }
 
 export default function LiveStreamTab({ 
@@ -77,7 +78,8 @@ export default function LiveStreamTab({
   availableFolders,
   onRefreshFolders,
   streamRole = 'DISCONNECTED',
-  currentUserRole = 'OPERATOR'
+  currentUserRole = 'OPERATOR',
+  roomState = null
 }: LiveStreamTabProps) {
   const { isDarkMode, globalVirtualKeyboard, isSystemHardwareEnabled } = useGlobalContext();
   const { t } = useTranslation();
