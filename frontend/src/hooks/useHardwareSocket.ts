@@ -12,6 +12,7 @@ interface HardwareSocketProps {
   setLastEchoGCode: (gcode: string) => void;
   setEdgeTelemetry?: (data: { cpu: number; ram: number; temp: number }) => void;
   setStreamRole: (role: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED') => void;
+  setRoomState?: (state: any) => void;
 }
 
 export function useHardwareSocket({
@@ -26,9 +27,11 @@ export function useHardwareSocket({
   setLastEchoGCode,
   setEdgeTelemetry,
   setStreamRole,
+  setRoomState,
 }: HardwareSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
+  const lastInteractionTime = useRef<number>(Date.now());
 
   // Sync latest camera state to ref for websocket handlers
   useEffect(() => {
@@ -57,13 +60,39 @@ export function useHardwareSocket({
       }
     };
 
+    // Track user activity for PING mechanism
+    const updateActivity = () => { lastInteractionTime.current = Date.now(); };
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        // Send PING only if user was active in the last 30 seconds
+        if (Date.now() - lastInteractionTime.current < 30000) {
+          ws.send(JSON.stringify({ action: 'PING' }));
+        }
+      }
+    }, 10000);
+
     ws.onmessage = async (event) => {
       try {
         const res = JSON.parse(event.data);
         
         if (res.event === 'ROLE_ASSIGNED') {
           console.log(`[GLOBAL WEBSOCKET] Peran di-assign oleh server: ${res.role}`);
+          if (res.role === 'MAX_DEVICES_REACHED') {
+            alert('Akses Ditolak: Anda telah mencapai batas maksimal login (3 perangkat) dengan akun ini.');
+            return;
+          }
+          if (res.role === 'IDLE_TIMEOUT') {
+            alert('Sesi Berakhir: Anda tidak melakukan aktivitas selama 10 menit, sehingga peran Anda dicabut untuk memberikan kesempatan pada antrian lain.');
+            return;
+          }
           setStreamRole(res.role as 'PILOT' | 'SPECTATOR' | 'QUEUED');
+        }
+        else if (res.event === 'ROOM_STATE_UPDATE') {
+          if (setRoomState) setRoomState(res);
         }
         else if (res.event === 'STREAM_DATA') {
           setVideoSrc(res.image);
@@ -122,6 +151,11 @@ export function useHardwareSocket({
     };
 
     return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      clearInterval(pingInterval);
+
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
       }
@@ -132,7 +166,7 @@ export function useHardwareSocket({
         setStreamRole('DISCONNECTED');
       }
     };
-  }, [isSystemHardwareEnabled, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole]);
+  }, [isSystemHardwareEnabled, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState]);
 
   return wsRef;
 }

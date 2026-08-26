@@ -609,7 +609,7 @@ export default function AdminControlTab() {
               <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
             </div>
           </div>
-          <div className={`flex-1 p-4 overflow-y-auto font-mono text-[10px] sm:text-xs min-h-[220px] ${isDarkMode ? 'bg-[#0d1117] text-gray-300' : 'bg-gray-900 text-gray-300'}`}>
+          <div className={`flex-1 p-4 overflow-y-auto font-mono text-[10px] sm:text-xs min-h-[220px] max-h-[400px] ${isDarkMode ? 'bg-[#0d1117] text-gray-300' : 'bg-gray-900 text-gray-300'}`}>
             <p className="text-blue-400 mb-2">admin@jetson-node:~# tail -f /var/log/digimic/audit.log</p>
             {auditLogs.length > 0 ? (
               auditLogs.map((log, index) => (

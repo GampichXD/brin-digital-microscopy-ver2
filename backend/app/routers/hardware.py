@@ -510,17 +510,59 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
 
 class RoomManager:
     def __init__(self):
-        self.pilot = None # dict: {"ws": websocket, "username": str, "role": str}
+        self.pilot = None # dict: {"ws": websocket, "username": str, "role": str, "last_activity": float}
         self.spectators = [] # list of dicts
         self.queue = [] # list of dicts
         self.lock = asyncio.Lock()
+        
+    async def get_state_payload(self):
+        return {
+            "event": "ROOM_STATE_UPDATE",
+            "pilot": self.pilot["username"] if self.pilot else None,
+            "spectators": [s["username"] for s in self.spectators],
+            "queue": [q["username"] for q in self.queue]
+        }
+        
+    async def broadcast_state(self):
+        payload = json.dumps(await self.get_state_payload())
+        if self.pilot:
+            try:
+                await self.pilot["ws"].send_text(payload)
+            except Exception:
+                pass
+        for s in self.spectators:
+            try:
+                await s["ws"].send_text(payload)
+            except Exception:
+                pass
+        for q in self.queue:
+            try:
+                await q["ws"].send_text(payload)
+            except Exception:
+                pass
+
+    def get_user_connection_count(self, username: str) -> int:
+        count = 0
+        if self.pilot and self.pilot["username"] == username: count += 1
+        count += sum(1 for s in self.spectators if s["username"] == username)
+        count += sum(1 for q in self.queue if q["username"] == username)
+        return count
 
     async def connect(self, websocket: WebSocket, username: str, role: str):
         await websocket.accept()
-        user_data = {"ws": websocket, "username": username, "role": role}
-        assigned_role = ""
         
         async with self.lock:
+            if self.get_user_connection_count(username) >= 3:
+                try:
+                    await websocket.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "MAX_DEVICES_REACHED"}))
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+                return None
+                
+            user_data = {"ws": websocket, "username": username, "role": role, "last_activity": time.time()}
+            assigned_role = ""
+            
             if self.pilot is None:
                 self.pilot = user_data
                 assigned_role = "PILOT"
@@ -535,18 +577,34 @@ class RoomManager:
             await websocket.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": assigned_role}))
         except Exception:
             pass
+            
+        async with self.lock:
+            await self.broadcast_state()
+            
         return user_data
 
     async def disconnect(self, websocket: WebSocket):
         async with self.lock:
-            # Cari dan hapus
+            found = False
             if self.pilot and self.pilot["ws"] == websocket:
                 self.pilot = None
+                found = True
             else:
-                self.spectators = [u for u in self.spectators if u["ws"] != websocket]
-                self.queue = [u for u in self.queue if u["ws"] != websocket]
+                for u in self.spectators:
+                    if u["ws"] == websocket:
+                        self.spectators.remove(u)
+                        found = True
+                        break
+                if not found:
+                    for u in self.queue:
+                        if u["ws"] == websocket:
+                            self.queue.remove(u)
+                            found = True
+                            break
 
-            # Promosi
+            if not found:
+                return
+
             if self.pilot is None and self.spectators:
                 self.pilot = self.spectators.pop(0)
                 try:
@@ -561,13 +619,14 @@ class RoomManager:
                     await promoted["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
                 except Exception:
                     pass
+                    
+            await self.broadcast_state()
 
     async def takeover(self, websocket: WebSocket):
         async with self.lock:
-            # Cari user admin ini
             admin_user = None
             if self.pilot and self.pilot["ws"] == websocket:
-                return # Already pilot
+                return
             
             for u in self.spectators:
                 if u["ws"] == websocket:
@@ -580,21 +639,17 @@ class RoomManager:
                         break
                         
             if admin_user and admin_user["role"].upper() == "ADMIN":
-                # Remove admin from wherever they are
                 self.spectators = [u for u in self.spectators if u["ws"] != websocket]
                 self.queue = [u for u in self.queue if u["ws"] != websocket]
                 
-                # Demote current pilot
                 old_pilot = self.pilot
-                
-                # Set new pilot
                 self.pilot = admin_user
+                
                 try:
                     await self.pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "PILOT"}))
                 except Exception:
                     pass
                 
-                # Handle old pilot
                 if old_pilot:
                     if len(self.spectators) < 2:
                         self.spectators.append(old_pilot)
@@ -603,25 +658,56 @@ class RoomManager:
                         except Exception:
                             pass
                     else:
-                        self.queue.insert(0, old_pilot) # Put in front of queue
+                        self.queue.insert(0, old_pilot)
                         try:
                             await old_pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "QUEUED"}))
                         except Exception:
                             pass
+                            
+            await self.broadcast_state()
 
     def get_role(self, websocket: WebSocket) -> str:
-        # We don't need lock here since we are just reading
-        if self.pilot and self.pilot["ws"] == websocket:
-            return "PILOT"
+        if self.pilot and self.pilot["ws"] == websocket: return "PILOT"
         for s in self.spectators:
-            if s["ws"] == websocket:
-                return "SPECTATOR"
+            if s["ws"] == websocket: return "SPECTATOR"
         for q in self.queue:
-            if q["ws"] == websocket:
-                return "QUEUED"
+            if q["ws"] == websocket: return "QUEUED"
         return "DISCONNECTED"
+        
+    def update_activity(self, websocket: WebSocket):
+        if self.pilot and self.pilot["ws"] == websocket:
+            self.pilot["last_activity"] = time.time()
+        for s in self.spectators:
+            if s["ws"] == websocket: s["last_activity"] = time.time()
+        for q in self.queue:
+            if q["ws"] == websocket: q["last_activity"] = time.time()
+            
+    async def idle_timeout_check(self):
+        while True:
+            await asyncio.sleep(10)
+            now = time.time()
+            to_disconnect = []
+            
+            async with self.lock:
+                if self.pilot and (now - self.pilot["last_activity"] > 600):
+                    to_disconnect.append(self.pilot["ws"])
+                for s in self.spectators:
+                    if (now - s["last_activity"] > 600): to_disconnect.append(s["ws"])
+                for q in self.queue:
+                    if (now - q["last_activity"] > 600): to_disconnect.append(q["ws"])
+                    
+            for ws in to_disconnect:
+                try:
+                    await ws.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "IDLE_TIMEOUT"}))
+                    await ws.close(code=1000)
+                except Exception:
+                    pass
 
 room_manager = RoomManager()
+
+@router.on_event("startup")
+async def startup_event():
+    asyncio.create_task(room_manager.idle_timeout_check())
 
 # ====================================================================
 # 3. WEBSOCKET KHUSUS CLIENT CLIENT (BROWSER REACT)
@@ -643,6 +729,8 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
 
     redis = await get_redis_client(REDIS_URL)
     user_data = await room_manager.connect(websocket, username, role)
+    if user_data is None:
+        return
     print(f"[VPS CLIENT] Browser user {username} ({role}) terhubung ke sirkuit interaktif.")
 
     if motor_driver.jetson_websocket is None:
@@ -685,6 +773,7 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         # 🟢 TASK B: Jalankan antrean penerima instruksi dari Browser React
         while True:
             client_msg = await websocket.receive_text()
+            room_manager.update_activity(websocket)
             try:
                 data = json.loads(client_msg)
                 if data.get("action") == "TAKEOVER":

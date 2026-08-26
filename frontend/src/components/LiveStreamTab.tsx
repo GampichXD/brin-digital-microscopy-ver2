@@ -412,6 +412,30 @@ export default function LiveStreamTab({
           </div>
         )}
 
+        {/* BOTTOM RIGHT HUD: ROOM STATE */}
+        {roomState && (
+          <div className="absolute bottom-4 right-4 z-10 flex flex-col items-end gap-1 pointer-events-none">
+            <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-2.5 text-white shadow-lg text-[10px] w-40">
+              <div className="font-bold text-blue-400 mb-1 border-b border-white/10 pb-1 flex justify-between">
+                <span>PILOT</span>
+                <span className="text-white">{roomState.pilot || '-'}</span>
+              </div>
+              <div className="font-bold text-gray-400 mb-1 border-b border-white/10 pb-1 flex justify-between">
+                <span>SPECTATORS</span>
+                <div className="text-white text-right">
+                  {roomState.spectators && roomState.spectators.length > 0 
+                    ? roomState.spectators.map((s: string, i: number) => <div key={i}>{s}</div>)
+                    : '-'}
+                </div>
+              </div>
+              <div className="font-bold text-orange-400 flex justify-between">
+                <span>QUEUE</span>
+                <span className="text-white">{roomState.queue ? roomState.queue.length : 0}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* BOTTOM LEFT HUD: RECORDING */}
         {cameraActive && (
           <div className="absolute bottom-6 left-6 z-10 flex gap-3">
@@ -609,20 +633,20 @@ export default function LiveStreamTab({
               {controlMode === 'dpad' ? (
                 <div className="grid grid-cols-3 gap-1 aspect-square">
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24}/></button>
+                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24}/></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('X', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24}/></button>
-                  <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer"><Crosshair size={20}/></button>
-                  <button onClick={() => sendMotorCommand('X', '+')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24}/></button>
+                  <button onClick={() => sendMotorCommand('X', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24}/></button>
+                  <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" disabled={isControlsDisabled} className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer disabled:opacity-30"><Crosshair size={20}/></button>
+                  <button onClick={() => sendMotorCommand('X', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24}/></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={!isSystemHardwareEnabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24}/></button>
+                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24}/></button>
                   <div />
                 </div>
               ) : (
                 <div
-                  className={`w-full aspect-square rounded-full border-4 flex flex-col items-center justify-center relative touch-none select-none transition-all ${isSystemHardwareEnabled ? 'border-gray-600/30 bg-black/20 hover:border-blue-500/50 cursor-grab active:cursor-grabbing shadow-inner' : 'border-red-900/30 bg-red-950/20 opacity-50 cursor-not-allowed'}`}
+                  className={`w-full aspect-square rounded-full border-4 flex flex-col items-center justify-center relative touch-none select-none transition-all ${!isControlsDisabled ? 'border-gray-600/30 bg-black/20 hover:border-blue-500/50 cursor-grab active:cursor-grabbing shadow-inner' : 'border-red-900/30 bg-red-950/20 opacity-50 cursor-not-allowed'}`}
                   onPointerDown={(e) => {
-                    if (!isSystemHardwareEnabled) return;
+                    if (isControlsDisabled) return;
                     joystickActiveRef.current = true;
                     e.currentTarget.setPointerCapture(e.pointerId);
                   }}
@@ -697,8 +721,8 @@ export default function LiveStreamTab({
                 </div>
               </div>
               <div className="flex flex-col gap-2 flex-1">
-                <button onClick={() => sendMotorCommand('Z', '+')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">NAIK</span></button>
-                <button onClick={() => sendMotorCommand('Z', '-')} disabled={!isSystemHardwareEnabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
+                <button onClick={() => sendMotorCommand('Z', '+')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">NAIK</span></button>
+                <button onClick={() => sendMotorCommand('Z', '-')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
               </div>
             </div>
           </div>
