@@ -40,10 +40,9 @@ origins = [
     "http://127.0.0.1:80",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
+    "http://202.10.44.52",
+    "http://e-eye.cloud",
+    "https://e-eye.cloud"
 ]
 
 app.add_middleware(
