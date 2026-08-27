@@ -280,7 +280,7 @@ export default function App() {
           />
         )}
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
-          <AdminControlTab />
+          <AdminControlTab roomState={roomState} />
         )}
       </main>
 

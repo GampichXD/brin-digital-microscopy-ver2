@@ -14,7 +14,11 @@ interface LabOperator {
   last_login: string | null;
 }
 
-export default function AdminControlTab() {
+interface AdminControlTabProps {
+  roomState?: any;
+}
+
+export default function AdminControlTab({ roomState }: AdminControlTabProps) {
   const { isDarkMode, isSystemHardwareEnabled, setIsSystemHardwareEnabled, telemetryData } = useGlobalContext();
   const { t } = useTranslation();
   
@@ -624,7 +628,59 @@ export default function AdminControlTab() {
 
       </div>
 
-      {/* SECTION 5: DB & RBAC */}
+      {/* SECTION 5: LIVE SESSIONS MONITOR */}
+      <div className="grid grid-cols-1 gap-4 shrink-0">
+        <div className={`p-4 rounded-2xl border flex flex-col shadow-sm ${theme.panel}`}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-xl"><Activity size={24} /></div>
+            <div>
+              <h3 className={`font-black text-sm ${theme.text}`}>Live Sessions Monitor</h3>
+              <p className="text-[10px] text-gray-500 font-bold uppercase">Room State & Queue</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* PILOT */}
+            <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Pilot (Controller)</span>
+                <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
+              </div>
+              <div className={`font-mono font-bold ${theme.text} break-all`}>
+                {roomState?.pilot || <span className="text-gray-500 italic">Kosong</span>}
+              </div>
+            </div>
+
+            {/* SPECTATORS */}
+            <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Spectators (Max 2)</span>
+                <span className="text-xs font-bold text-gray-400">{roomState?.spectators?.length || 0}/2</span>
+              </div>
+              <div className={`font-mono font-bold ${theme.text} flex flex-col gap-1`}>
+                {roomState?.spectators && roomState.spectators.length > 0 
+                  ? roomState.spectators.map((s: string, i: number) => <div key={i}>{s}</div>)
+                  : <span className="text-gray-500 italic">Kosong</span>}
+              </div>
+            </div>
+
+            {/* QUEUE */}
+            <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">Waiting Queue</span>
+                <span className="text-xs font-bold text-orange-500">{roomState?.queue?.length || 0}</span>
+              </div>
+              <div className={`font-mono font-bold ${theme.text} flex flex-col gap-1 max-h-[60px] overflow-y-auto`}>
+                {roomState?.queue && roomState.queue.length > 0 
+                  ? roomState.queue.map((q: string, i: number) => <div key={i}>{i+1}. {q}</div>)
+                  : <span className="text-gray-500 italic">Antrian kosong</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 6: DB & RBAC */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 shrink-0">
         
         {/* DATABASE MANAGEMENT */}
