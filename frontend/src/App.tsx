@@ -265,6 +265,7 @@ export default function App() {
               setTargetAnalysisImage(imageName); 
               setActiveTab('Image Analysis'); 
             }}
+            lastEchoGCode={lastEchoGCode}
           />
         )}
         {activeTab === 'Image Analysis' && (

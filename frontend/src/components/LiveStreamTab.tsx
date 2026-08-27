@@ -647,13 +647,13 @@ export default function LiveStreamTab({
               {controlMode === 'dpad' ? (
                 <div className="grid grid-cols-3 gap-1 aspect-square">
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24}/></button>
+                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24}/></button>
                   <div />
                   <button onClick={() => sendMotorCommand('X', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24}/></button>
                   <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" disabled={isControlsDisabled} className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer disabled:opacity-30"><Crosshair size={20}/></button>
                   <button onClick={() => sendMotorCommand('X', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24}/></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24}/></button>
+                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24}/></button>
                   <div />
                 </div>
               ) : (
@@ -687,7 +687,7 @@ export default function LiveStreamTab({
                       if (absX >= absY) {
                         await sendMotorCommand('X', x >= 0 ? '+' : '-');
                       } else {
-                        await sendMotorCommand('Y', y <= 0 ? '+' : '-');
+                        await sendMotorCommand('Y', y <= 0 ? '-' : '+');
                       }
                     }
 

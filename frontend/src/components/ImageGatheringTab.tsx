@@ -26,6 +26,7 @@ interface ImageGatheringTabProps {
   cameraActive: boolean;       
   wsRef: React.MutableRefObject<WebSocket | null>; 
   onRefreshFolders?: () => void;
+  lastEchoGCode?: string;
 }
 
 interface CapturedImage {
@@ -45,6 +46,8 @@ export default function ImageGatheringTab({
   videoSrc,
   cameraActive,
   wsRef,
+  onRefreshFolders,
+  lastEchoGCode
 }: ImageGatheringTabProps) {
   const { isDarkMode, globalVirtualKeyboard } = useGlobalContext();
   const { t } = useTranslation();
@@ -143,6 +146,19 @@ export default function ImageGatheringTab({
 
   const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
 
+  // Sinkronisasi koordinat dengan Telemetry (dari WebSocket)
+  useEffect(() => {
+    if (lastEchoGCode && lastEchoGCode.startsWith("X:")) {
+      const match = lastEchoGCode.match(/X:([\d.-]+)\s+Y:([\d.-]+)\s+Z:([\d.-]+)/);
+      if (match) {
+        setMotorPos({
+          x: parseFloat(match[1]),
+          y: parseFloat(match[2]),
+          z: parseFloat(match[3])
+        });
+      }
+    }
+  }, [lastEchoGCode]);
 
 
   const handleGoToCoordinates = async () => {
@@ -188,10 +204,28 @@ export default function ImageGatheringTab({
     setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
     const startTime = new Date().getTime();
-    // Sesuai dengan backend: 0.5s delay pergerakan motor + delay kamera + 0.5s jeda capture = total 1000ms
-    const timePerGridMs = parseInt(camDelay) + 1000; 
+    
+    // Sinkronisasi Animasi dengan Backend CNC Math
+    const feed_rate_mm_per_sec = 250.0 / 60.0;
+    const travel_time_x = Math.max(0.5, sx / feed_rate_mm_per_sec);
+    const travel_time_y = Math.max(0.5, sy / feed_rate_mm_per_sec);
+    
+    let totalGridDelaySec = 0;
+    for (let r_idx = 0; r_idx < r; r_idx++) {
+      for (let c_idx = 0; c_idx < c; c_idx++) {
+         let currentDelay = travel_time_x + (parseInt(camDelay)/1000.0);
+         if (c_idx === 0 && r_idx > 0) {
+             currentDelay = travel_time_y + (parseInt(camDelay)/1000.0) + 1.0; // Waktu settle pindah baris
+         }
+         totalGridDelaySec += currentDelay;
+      }
+    }
+    
+    // Rata-rata waktu per kotak grid
+    const timePerGridMs = (totalGridDelaySec / (c * r)) * 1000; 
     let currentProgress = 0;
     const totalGrids = c * r;
+    
     const progressInterval = setInterval(() => {
       currentProgress++;
       if (currentProgress <= totalGrids) setProgress(currentProgress);
