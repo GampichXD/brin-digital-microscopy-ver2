@@ -348,10 +348,15 @@ async def retake_grid_image(payload: RetakePayload):
     try:
         # 1. Gerakkan motor CNC ke koordinat Retake
         gcode = f"G1 X{payload.coord_x} Y{payload.coord_y} F250.0"
-        await motor_driver.send_gcode(gcode)
         
-        # 2. Tunggu stabilitas mekanik
-        await asyncio.sleep(1.2 + (payload.delay_ms / 1000.0))
+        # PUBLISH KE REDIS AGAR EDGE DEVICE BERGERAK
+        await redis.publish("hardware_commands", json.dumps({
+            "action": "MOVE_MOTOR",
+            "gcode": gcode
+        }))
+        
+        # 2. Tunggu stabilitas mekanik (Karena kita tidak tahu posisi awal saat retake, gunakan delay yang lebih aman)
+        await asyncio.sleep(2.5 + (payload.delay_ms / 1000.0))
         
         # Hapus file gambar lama jika ada, agar Jetson terpaksa menimpa dengan file baru, 
         # atau sistem Fallback ter-trigger dengan benar jika Jetson gagal merespon
