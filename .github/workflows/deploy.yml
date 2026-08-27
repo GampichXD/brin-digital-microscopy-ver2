@@ -22,7 +22,7 @@ jobs:
           
       - name: 🐳 Membangun Ulang & Menjalankan Infrastruktur Docker
         run: |
-          docker compose up -d --build
-          
+          docker compose build --no-cache frontend
+          docker compose up -d
       - name: 🧹 Membersihkan Sampah Image Docker
         run: docker image prune -f
