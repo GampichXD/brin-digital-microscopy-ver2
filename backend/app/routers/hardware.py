@@ -256,20 +256,42 @@ async def scan_grid(payload: GridScanPayload):
     try:
         # LOGIKA NYATA KENDALI EDGE DEVICE
         from datetime import datetime
+        import math
+        
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        
+        last_x, last_y = 0.0, 0.0  # Asumsikan mulai dari 0,0 (seharusnya ini dilacak, tapi untuk estimasi cukup)
+        feed_rate_mm_per_sec = 250.0 / 60.0  # F250 berarti 250mm per menit
+        
         for r in range(payload.rows):
             for c in range(payload.columns):
-                coord_x = c * payload.step_x
+                # Snake pattern (Boustrophedon) untuk meminimalkan gerakan Y yang sia-sia
+                # Jika baris ganjil, gerak dari kanan ke kiri
+                actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
+                
+                coord_x = actual_c * payload.step_x
                 coord_y = r * payload.step_y
                 filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
                 
-                # 1. Gerakkan motor CNC di Edge Device lewat relai
+                # 1. Gerakkan motor CNC di Edge Device
                 gcode = f"G1 X{coord_x} Y{coord_y} F250.0"
-                await motor_driver.send_gcode(gcode)
                 
-                # 2. Tunggu motor bergerak secara spasial + delay kamera dari UI (ms to detik)
-                # Dipercepat dari 1.2 menjadi 0.5 detik (asumsi pergerakan grid kecil)
-                await asyncio.sleep(0.5 + (payload.delay_ms / 1000.0))
+                # PUBLISH KE REDIS AGAR EDGE DEVICE BERGERAK
+                await redis.publish("hardware_commands", json.dumps({
+                    "action": "MOVE_MOTOR",
+                    "gcode": gcode
+                }))
+                
+                # Hitung jarak tempuh untuk sinkronisasi waktu nyata
+                distance = math.sqrt((coord_x - last_x)**2 + (coord_y - last_y)**2)
+                travel_time = distance / feed_rate_mm_per_sec if distance > 0 else 0
+                
+                # Simpan posisi terakhir
+                last_x, last_y = coord_x, coord_y
+                
+                # 2. Tunggu motor bergerak + delay kamera (settle time) dari UI
+                # Minimum tunggu 0.5 detik untuk stabilitas
+                await asyncio.sleep(max(0.5, travel_time) + (payload.delay_ms / 1000.0))
                 
                 # Hapus file gambar lama jika ada agar Jetson (atau Mock) menimpanya
                 file_path = os.path.join(UPLOAD_DIR, filename)
