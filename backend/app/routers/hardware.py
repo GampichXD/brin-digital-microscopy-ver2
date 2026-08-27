@@ -260,7 +260,14 @@ async def scan_grid(payload: GridScanPayload):
         
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         
-        last_x, last_y = 0.0, 0.0  # Asumsikan mulai dari 0,0 (seharusnya ini dilacak, tapi untuk estimasi cukup)
+        # 0. DEKLARASIKAN TITIK AWAL SEBAGAI 0,0 (G92 Relative Homing)
+        await redis.publish("hardware_commands", json.dumps({
+            "action": "MOVE_MOTOR",
+            "gcode": "G92 X0 Y0 Z0"
+        }))
+        await asyncio.sleep(0.1) # Waktu proses GRBL sebentar
+        
+        last_x, last_y = 0.0, 0.0  # Asumsikan mulai dari 0,0 (karena sudah di G92)
         feed_rate_mm_per_sec = 250.0 / 60.0  # F250 berarti 250mm per menit
         
         for r in range(payload.rows):
@@ -290,8 +297,13 @@ async def scan_grid(payload: GridScanPayload):
                 last_x, last_y = coord_x, coord_y
                 
                 # 2. Tunggu motor bergerak + delay kamera (settle time) dari UI
-                # Minimum tunggu 0.5 detik untuk stabilitas
-                await asyncio.sleep(max(0.5, travel_time) + (payload.delay_ms / 1000.0))
+                base_delay = max(0.5, travel_time) + (payload.delay_ms / 1000.0)
+                
+                # JIKA ini adalah pergantian baris (Sumbu Y bergerak), beri waktu ekstra 1.0 detik agar getaran CNC reda
+                if c == 0 and r > 0:
+                    base_delay += 1.0
+                    
+                await asyncio.sleep(base_delay)
                 
                 # Hapus file gambar lama jika ada agar Jetson (atau Mock) menimpanya
                 file_path = os.path.join(UPLOAD_DIR, filename)

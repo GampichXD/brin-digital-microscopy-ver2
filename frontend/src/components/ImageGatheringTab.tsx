@@ -421,7 +421,7 @@ export default function ImageGatheringTab({
            const power = Math.max(1, Math.min(5, Math.floor(Math.abs(joystickPos.x) / 10)));
            sendHttpMove('X', dir * power);
         } else {
-           const dir = joystickPos.y < 0 ? 1 : -1; 
+           const dir = joystickPos.y < 0 ? -1 : 1; // Inversi Y-axis
            const power = Math.max(1, Math.min(5, Math.floor(Math.abs(joystickPos.y) / 10)));
            sendHttpMove('Y', dir * power);
         }
@@ -624,13 +624,13 @@ export default function ImageGatheringTab({
                     {controlMode === 'dpad' ? (
                       <div className="grid grid-cols-3 gap-1 aspect-square">
                         <div />
-                        <button onClick={() => sendHttpMove('Y', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={24}/></button>
+                        <button onClick={() => sendHttpMove('Y', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={24}/></button>
                         <div />
                         <button onClick={() => sendHttpMove('X', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowLeft size={24}/></button>
                         <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95"><Crosshair size={20}/></button>
                         <button onClick={() => sendHttpMove('X', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowRight size={24}/></button>
                         <div />
-                        <button onClick={() => sendHttpMove('Y', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={24}/></button>
+                        <button onClick={() => sendHttpMove('Y', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={24}/></button>
                         <div />
                       </div>
                     ) : (
