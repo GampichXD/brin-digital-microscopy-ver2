@@ -9,6 +9,7 @@ export default defineConfig({
     tailwindcss(), 
     react(),
     VitePWA({
+      selfDestroying: true, // KILL SWITCH: Membunuh paksa semua Service Worker lama di semua perangkat pengguna!
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'favicon.svg', 'icons.svg'],
       manifest: {
