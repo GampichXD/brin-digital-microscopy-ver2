@@ -4,13 +4,14 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from ..services.auth_service import SECRET_KEY, ALGORITHM
-from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload
+from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload, AdminRoomActionPayload
 import time
 import json
 import asyncio
 import os
 import base64
 import psutil
+import uuid
 from redis import asyncio as aioredis  # Driver Redis Asinkron untuk ekosistem Docker
 
 from ..hardware.motor_driver import motor_driver
@@ -131,6 +132,13 @@ async def reset_config_default(section: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": f"Config {section} reset to default"}
+
+@router.post("/room/admin_action")
+async def perform_admin_action(payload: AdminRoomActionPayload):
+    success = await room_manager.admin_action(payload.cid, payload.action)
+    if success:
+        return {"status": "SUCCESS", "message": f"Action {payload.action} executed on {payload.cid}"}
+    raise HTTPException(status_code=404, detail="Connection ID not found")
 
 # ====================================================================
 # 1. ROUTE HTTP POST: UNTUK KENDALI MOTOR D-PAD MANUAL USER
@@ -519,9 +527,9 @@ class RoomManager:
     async def get_state_payload(self):
         return {
             "event": "ROOM_STATE_UPDATE",
-            "pilot": self.pilot["username"] if self.pilot else None,
-            "spectators": [s["username"] for s in self.spectators],
-            "queue": [q["username"] for q in self.queue]
+            "pilot": {"username": self.pilot["username"], "ip": self.pilot.get("ip"), "cid": self.pilot.get("cid")} if self.pilot else None,
+            "spectators": [{"username": s["username"], "ip": s.get("ip"), "cid": s.get("cid")} for s in self.spectators],
+            "queue": [{"username": q["username"], "ip": q.get("ip"), "cid": q.get("cid")} for q in self.queue]
         }
         
     async def broadcast_state(self):
@@ -561,7 +569,9 @@ class RoomManager:
                     pass
                 return None
                 
-            user_data = {"ws": websocket, "username": username, "role": role, "last_activity": time.time()}
+            cid = str(uuid.uuid4())
+            ip = websocket.client.host if websocket.client else "Unknown"
+            user_data = {"ws": websocket, "username": username, "role": role, "last_activity": time.time(), "ip": ip, "cid": cid}
             assigned_role = ""
             
             if self.pilot is None:
@@ -614,10 +624,11 @@ class RoomManager:
                     pass
             
             while len(self.spectators) < 2 and self.queue:
-                promoted = self.queue.pop(0)
-                self.spectators.append(promoted)
+                q = self.queue.pop(0)
+                q["last_activity"] = time.time()
+                self.spectators.append(q)
                 try:
-                    await promoted["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
+                    await q["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
                 except Exception:
                     pass
                     
@@ -666,6 +677,54 @@ class RoomManager:
                             pass
                             
             await self.broadcast_state()
+
+    async def admin_action(self, cid: str, action: str):
+        target_ws = None
+        target_user = None
+        
+        async with self.lock:
+            if self.pilot and self.pilot.get("cid") == cid:
+                target_user = self.pilot
+            else:
+                for s in self.spectators:
+                    if s.get("cid") == cid:
+                        target_user = s
+                        break
+                if not target_user:
+                    for q in self.queue:
+                        if q.get("cid") == cid:
+                            target_user = q
+                            break
+                            
+            if not target_user:
+                return False
+                
+            target_ws = target_user["ws"]
+            
+        if action == "KICK":
+            try:
+                await target_ws.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "KICKED_BY_ADMIN"}))
+                await target_ws.close(code=1008)
+            except Exception:
+                pass
+            await self.disconnect(target_ws)
+            return True
+            
+        elif action == "MAKE_PILOT":
+            # Pindahkan ke antrian terdepan dan lakukan takeover
+            async with self.lock:
+                if target_user in self.spectators:
+                    self.spectators.remove(target_user)
+                    self.queue.insert(0, target_user)
+                elif target_user in self.queue:
+                    self.queue.remove(target_user)
+                    self.queue.insert(0, target_user)
+                    
+            if target_ws:
+                await self.takeover(target_ws)
+            return True
+            
+        return False
 
     def get_role(self, websocket: WebSocket) -> str:
         if self.pilot and self.pilot["ws"] == websocket: return "PILOT"
@@ -779,6 +838,8 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                 data = json.loads(client_msg)
                 if data.get("action") == "TAKEOVER":
                     await room_manager.takeover(websocket)
+                    continue
+                if data.get("action") == "PING":
                     continue
             except json.JSONDecodeError:
                 pass

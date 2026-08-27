@@ -151,6 +151,19 @@ export default function LiveStreamTab({
     return () => clearInterval(interval);
   }, [cameraActive]);
 
+  // Anti-AFK PING jika kamera menyala
+  useEffect(() => {
+    let pingInterval: number;
+    if (cameraActive && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      pingInterval = window.setInterval(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+           wsRef.current.send(JSON.stringify({ action: 'PING' }));
+        }
+      }, 30000); // Kirim PING setiap 30 detik agar backend tidak me-reset status Pilot
+    }
+    return () => clearInterval(pingInterval);
+  }, [cameraActive, wsRef]);
+
   const generateFpsSvgPoints = () => {
     return fpsHistory.map((fps, i) => {
       const x = (i * (100 / 19)).toFixed(1);
@@ -393,50 +406,28 @@ export default function LiveStreamTab({
         )}
 
         {/* TOP RIGHT HUD: TOGGLES & FPS */}
-        {cameraActive && (
-          <div className="absolute top-4 right-4 flex flex-col items-end gap-2 z-10">
-            <div className="flex gap-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-1 shadow-lg">
-              <button onClick={() => setShowCoordinates(!showCoordinates)} className={`p-2 rounded-lg transition-colors ${showCoordinates ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle Coordinates">
-                <Crosshair size={18} />
-              </button>
-              <button onClick={() => setShowFps(!showFps)} className={`p-2 rounded-lg transition-colors ${showFps ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle FPS">
-                <Activity size={18} />
-              </button>
-              <button onClick={toggleFullscreen} className="p-2 rounded-lg text-gray-400 hover:text-white transition-colors" title="Fullscreen">
-                <Maximize size={18} />
-              </button>
-            </div>
-            {showFps && (
-              <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl px-3 py-1.5 text-white font-mono font-bold text-sm shadow-lg pointer-events-none">
-                FPS: {actualFps} <span className="text-xs font-normal text-gray-400">({targetFps} target)</span>
+        <div className="absolute top-4 right-4 flex flex-col items-end gap-2 z-10">
+          {cameraActive && (
+            <>
+              <div className="flex gap-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-1 shadow-lg pointer-events-auto">
+                <button onClick={() => setShowCoordinates(!showCoordinates)} className={`p-2 rounded-lg transition-colors ${showCoordinates ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle Coordinates">
+                  <Crosshair size={18} />
+                </button>
+                <button onClick={() => setShowFps(!showFps)} className={`p-2 rounded-lg transition-colors ${showFps ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle FPS">
+                  <Activity size={18} />
+                </button>
+                <button onClick={toggleFullscreen} className="p-2 rounded-lg text-gray-400 hover:text-white transition-colors" title="Fullscreen">
+                  <Maximize size={18} />
+                </button>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* BOTTOM RIGHT HUD: ROOM STATE */}
-        {roomState && (
-          <div className="absolute bottom-4 right-4 z-10 flex flex-col items-end gap-1 pointer-events-none">
-            <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-2.5 text-white shadow-lg text-[10px] w-40">
-              <div className="font-bold text-blue-400 mb-1 border-b border-white/10 pb-1 flex justify-between">
-                <span>PILOT</span>
-                <span className="text-white">{roomState.pilot || '-'}</span>
-              </div>
-              <div className="font-bold text-gray-400 mb-1 border-b border-white/10 pb-1 flex justify-between">
-                <span>SPECTATORS</span>
-                <div className="text-white text-right">
-                  {roomState.spectators && roomState.spectators.length > 0 
-                    ? roomState.spectators.map((s: string, i: number) => <div key={i}>{s}</div>)
-                    : '-'}
+              {showFps && (
+                <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl px-3 py-1.5 text-white font-mono font-bold text-sm shadow-lg pointer-events-none">
+                  FPS: {actualFps} <span className="text-xs font-normal text-gray-400">({targetFps} target)</span>
                 </div>
-              </div>
-              <div className="font-bold text-orange-400 flex justify-between">
-                <span>QUEUE</span>
-                <span className="text-white">{roomState.queue ? roomState.queue.length : 0}</span>
-              </div>
-            </div>
-          </div>
-        )}
+              )}
+            </>
+          )}
+        </div>
 
         {/* BOTTOM LEFT HUD: RECORDING */}
         {cameraActive && (
@@ -581,6 +572,27 @@ export default function LiveStreamTab({
       {/* KANAN: PANEL KONTROL ASLI */}
       <div className={`w-full xl:w-96 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar ${isControlsDisabled ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
         
+        {/* ROOM STATE PANEL (Informasi Sesi di Luar Video) */}
+        {roomState && (
+          <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
+            <h3 className={`text-sm font-bold uppercase tracking-wider mb-3 ${themeClasses.text}`}>Sesi Aktif</h3>
+            <div className="flex flex-col gap-2">
+              <div className={`flex justify-between items-center p-2 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                <span className="text-xs font-bold text-blue-500">PILOT</span>
+                <span className={`text-xs font-mono font-bold ${themeClasses.text}`}>{roomState.pilot?.username || '-'}</span>
+              </div>
+              <div className={`flex justify-between items-start p-2 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                <span className="text-xs font-bold text-gray-500">SPECTATORS</span>
+                <div className={`text-xs font-mono font-bold text-right ${themeClasses.text}`}>
+                  {roomState.spectators && roomState.spectators.length > 0 
+                    ? roomState.spectators.map((s: any, i: number) => <div key={i}>{s.username}</div>)
+                    : '-'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 1. KENDALI MOTOR */}
         <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel} relative`}>
           {isSpectator && (

@@ -48,6 +48,11 @@ class NetworkConfigPayload(BaseModel):
     ipBinding: str
     apiPort: str
 
+class AdminRoomActionPayload(BaseModel):
+    cid: str
+    action: str
+
+
 # ==========================================
 # AUTH SCHEMAS (auth.py)
 # ==========================================

@@ -170,6 +170,17 @@ export default function AdminControlTab({ roomState }: AdminControlTabProps) {
     }
   };
 
+  const handleAdminRoomAction = async (cid: string, action: string) => {
+    try {
+      await api.post('/api/hardware/room/admin_action', { cid, action });
+      showToast(`Berhasil mengeksekusi aksi ${action} pada sesi tersebut.`, "success");
+    } catch (error) {
+      showToast("Gagal mengeksekusi aksi admin pada sesi.", "error");
+      console.error(error);
+    }
+  };
+
+
   const handleExportData = async () => {
     try {
       showToast("Memulai unduhan dataset ZIP...", "info");
@@ -646,8 +657,18 @@ export default function AdminControlTab({ roomState }: AdminControlTabProps) {
                 <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Pilot (Controller)</span>
                 <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
               </div>
-              <div className={`font-mono font-bold ${theme.text} break-all`}>
-                {roomState?.pilot || <span className="text-gray-500 italic">Kosong</span>}
+              <div className={`font-mono font-bold ${theme.text} break-all flex flex-col gap-2`}>
+                {roomState?.pilot ? (
+                  <div className="flex items-center justify-between group">
+                    <div>
+                      <div>{roomState.pilot.username}</div>
+                      <div className="text-[10px] text-gray-500 font-normal">{roomState.pilot.ip}</div>
+                    </div>
+                    <button onClick={() => handleAdminRoomAction(roomState.pilot.cid, "KICK")} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity" title="Kick Pilot">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ) : <span className="text-gray-500 italic">Kosong</span>}
               </div>
             </div>
 
@@ -657,9 +678,24 @@ export default function AdminControlTab({ roomState }: AdminControlTabProps) {
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Spectators (Max 2)</span>
                 <span className="text-xs font-bold text-gray-400">{roomState?.spectators?.length || 0}/2</span>
               </div>
-              <div className={`font-mono font-bold ${theme.text} flex flex-col gap-1`}>
+              <div className={`font-mono font-bold ${theme.text} flex flex-col gap-2`}>
                 {roomState?.spectators && roomState.spectators.length > 0 
-                  ? roomState.spectators.map((s: string, i: number) => <div key={i}>{s}</div>)
+                  ? roomState.spectators.map((s: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between group border-b border-gray-700/30 pb-1 last:border-0">
+                        <div>
+                          <div>{s.username}</div>
+                          <div className="text-[10px] text-gray-500 font-normal">{s.ip}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleAdminRoomAction(s.cid, "MAKE_PILOT")} className="text-blue-500 hover:bg-blue-500/10 p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity" title="Promote to Pilot">
+                            <Activity size={14} />
+                          </button>
+                          <button onClick={() => handleAdminRoomAction(s.cid, "KICK")} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity" title="Kick Spectator">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
                   : <span className="text-gray-500 italic">Kosong</span>}
               </div>
             </div>
@@ -670,9 +706,24 @@ export default function AdminControlTab({ roomState }: AdminControlTabProps) {
                 <span className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">Waiting Queue</span>
                 <span className="text-xs font-bold text-orange-500">{roomState?.queue?.length || 0}</span>
               </div>
-              <div className={`font-mono font-bold ${theme.text} flex flex-col gap-1 max-h-[60px] overflow-y-auto`}>
+              <div className={`font-mono font-bold ${theme.text} flex flex-col gap-2 max-h-[100px] overflow-y-auto custom-scrollbar`}>
                 {roomState?.queue && roomState.queue.length > 0 
-                  ? roomState.queue.map((q: string, i: number) => <div key={i}>{i+1}. {q}</div>)
+                  ? roomState.queue.map((q: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between group border-b border-gray-700/30 pb-1 last:border-0">
+                        <div>
+                          <div><span className="text-orange-500 mr-1">{i+1}.</span>{q.username}</div>
+                          <div className="text-[10px] text-gray-500 font-normal ml-4">{q.ip}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleAdminRoomAction(q.cid, "MAKE_PILOT")} className="text-blue-500 hover:bg-blue-500/10 p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity" title="Promote to Pilot">
+                            <Activity size={14} />
+                          </button>
+                          <button onClick={() => handleAdminRoomAction(q.cid, "KICK")} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity" title="Kick from Queue">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
                   : <span className="text-gray-500 italic">Antrian kosong</span>}
               </div>
             </div>
