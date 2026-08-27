@@ -188,7 +188,8 @@ export default function ImageGatheringTab({
     setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
     const startTime = new Date().getTime();
-    const timePerGridMs = parseInt(camDelay) + 1200; 
+    // Sesuai dengan backend: 0.5s delay pergerakan motor + delay kamera + 0.5s jeda capture = total 1000ms
+    const timePerGridMs = parseInt(camDelay) + 1000; 
     let currentProgress = 0;
     const totalGrids = c * r;
     const progressInterval = setInterval(() => {

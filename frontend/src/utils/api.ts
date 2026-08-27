@@ -2,8 +2,8 @@ import axios from 'axios';
 
 // Konfigurasi instance Axios pusat
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
-  timeout: 30000,
+  baseURL: 'http://localhost:8000',
+  timeout: 120000,
 });
 
 // Interceptor untuk menyuntikkan Token JWT secara otomatis ke setiap request

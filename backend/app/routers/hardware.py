@@ -260,7 +260,8 @@ async def scan_grid(payload: GridScanPayload):
                 await motor_driver.send_gcode(gcode)
                 
                 # 2. Tunggu motor bergerak secara spasial + delay kamera dari UI (ms to detik)
-                await asyncio.sleep(1.2 + (payload.delay_ms / 1000.0))
+                # Dipercepat dari 1.2 menjadi 0.5 detik (asumsi pergerakan grid kecil)
+                await asyncio.sleep(0.5 + (payload.delay_ms / 1000.0))
                 
                 # Hapus file gambar lama jika ada agar Jetson (atau Mock) menimpanya
                 file_path = os.path.join(UPLOAD_DIR, filename)
@@ -273,8 +274,8 @@ async def scan_grid(payload: GridScanPayload):
                     "filename": filename
                 }))
                 
-                # Beri jeda proses
-                await asyncio.sleep(2.0)
+                # Beri jeda proses untuk Jetson memotret (dipercepat dari 2.0 -> 0.5 detik)
+                await asyncio.sleep(0.5)
                 
                 # 🟢 FALLBACK: Jika Jetson gagal atau terputus, backend buatkan gambar mock otomatis!
                 file_path = os.path.join(UPLOAD_DIR, filename)
