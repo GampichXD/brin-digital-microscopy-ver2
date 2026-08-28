@@ -35,6 +35,9 @@ class GridScanPayload(BaseModel):
 
 class StitchPayload(BaseModel):
     images: List[str]
+    # Koordinat X/Y tiap tile (grid scan tidak menaruh koordinat di nama file).
+    # Item: {"filename": str, "coordX": float, "coordY": float}
+    tiles: Optional[List[Dict[str, Any]]] = None
 
 class RetakePayload(BaseModel):
     coord_x: float

@@ -516,7 +516,8 @@ async def stitch_images(payload: StitchPayload):
         # Perintahkan Jetson Edge untuk memulai deep learning tile stitching hanya pada gambar-gambar spesifik sesi ini
         await redis.publish("hardware_commands", json.dumps({
             "action": "START_STITCHING",
-            "images": payload.images
+            "images": payload.images,
+            "tiles": payload.tiles
         }))
     finally:
         await redis.close()

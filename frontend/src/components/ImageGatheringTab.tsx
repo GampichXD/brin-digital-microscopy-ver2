@@ -344,9 +344,17 @@ export default function ImageGatheringTab({
     setTimerTick(0);
     const stitchStart = new Date().getTime();
     try {
+      const validTiles = capturedImages.filter(img => img.filename !== null);
       await api.post('/api/hardware/stitch', {
-        images: capturedImages.filter(img => img.filename !== null).map(img => img.filename)
-      });
+        images: validTiles.map(img => img.filename),
+        // Kirim koordinat X/Y tiap tile — nama file grid scan tidak memuatnya,
+        // sedangkan SP_LG butuh posisi untuk menyusun mosaik.
+        tiles: validTiles.map(img => ({
+          filename: img.filename,
+          coordX: img.coordX,
+          coordY: img.coordY,
+        })),
+      }, { timeout: 0 });
       const stitchT = (new Date().getTime() - stitchStart) / 1000;
       setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
       setIsProcessing(false);
