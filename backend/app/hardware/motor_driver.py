@@ -5,6 +5,9 @@ class GRBLMotorVPSRelay:
     def __init__(self):
         # Menyimpan referensi koneksi WebSocket aktif milik Jetson Orin Nano
         self.jetson_websocket = None
+        # Posisi fisik terakhir yang dilaporkan Jetson lewat telemetri (X/Y/Z),
+        # dipakai sebagai titik awal grid scan agar CNC tidak "terbang" ke 0,0.
+        self.last_edge_position = None
 
     def register_jetson(self, websocket):
         """Mendaftarkan pipa WebSocket Jetson yang sedang aktif mengetuk VPS."""
@@ -13,6 +16,7 @@ class GRBLMotorVPSRelay:
 
     def unregister_jetson(self):
         self.jetson_websocket = None
+        self.last_edge_position = None
         print("[VPS MOTOR RELAY] Pipa Jetson terputus. Sistem kembali siaga.")
 
     async def send_gcode(self, gcode_command: str) -> str:

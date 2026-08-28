@@ -259,17 +259,28 @@ async def scan_grid(payload: GridScanPayload):
         import math
         
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        
-        last_x, last_y = payload.start_x, payload.start_y
+
+        # Titik awal grid = posisi fisik Edge saat ini (dari telemetri), BUKAN 0,0.
+        # Ini mencegah CNC "terbang balik" ke origin (terlihat seperti auto-homing)
+        # ketika frontend mengirim start_x/start_y yang basi.
+        origin_x, origin_y = payload.start_x, payload.start_y
+        if motor_driver.last_edge_position is not None:
+            origin_x = motor_driver.last_edge_position["X"]
+            origin_y = motor_driver.last_edge_position["Y"]
+            print(f"[SCAN GRID] Titik awal diambil dari posisi live Edge: X{origin_x:.3f} Y{origin_y:.3f}")
+        else:
+            print(f"[SCAN GRID] Posisi live Edge belum tersedia, memakai start dari frontend: X{origin_x} Y{origin_y}")
+
+        last_x, last_y = origin_x, origin_y
         feed_rate_mm_per_sec = 250.0 / 60.0  # F250
-        
+
         for r in range(payload.rows):
             for c in range(payload.columns):
                 # Snake pattern (Boustrophedon)
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
-                
-                coord_x = payload.start_x + (actual_c * payload.step_x)
-                coord_y = payload.start_y + (r * payload.step_y)
+
+                coord_x = origin_x + (actual_c * payload.step_x)
+                coord_y = origin_y + (r * payload.step_y)
                 filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
                 
                 dx = coord_x - last_x
@@ -513,6 +524,18 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                     await redis.publish("microscope_video_stream", message)
                 
             elif event_type == "TELEMETRY_DATA":
+                # Simpan posisi fisik terakhir Jetson untuk dipakai sebagai titik
+                # awal grid scan (mencegah CNC balik ke origin / terlihat homing).
+                pos = data.get("position")
+                if isinstance(pos, dict):
+                    try:
+                        motor_driver.last_edge_position = {
+                            "X": float(pos.get("X", 0.0)),
+                            "Y": float(pos.get("Y", 0.0)),
+                            "Z": float(pos.get("Z", 0.0)),
+                        }
+                    except (TypeError, ValueError):
+                        pass
                 await redis.publish("microscope_telemetry", message)
                 
             elif event_type == "MOTOR_MOVED":
