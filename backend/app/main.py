@@ -63,7 +63,8 @@ app.include_router(documentation.router)  # Report generator: Word, Excel, PPT
 app.include_router(logs.router)
 
 # Penanda build — ganti string ini setiap deploy untuk memastikan kontainer
-# yang berjalan benar-benar memuat kode terbaru (cek: GET / -> "build").
+# yang berjalan benar-benar memuat kode terbaru.
+# Cek publik lewat browser: https://e-eye.cloud/api/version
 BUILD_MARKER = "2026-08-28-async-grid-scan"
 
 @app.get("/", tags=["Health Check"])
@@ -77,3 +78,8 @@ async def root():
             "grbl_core": "READY"
         }
     }
+
+@app.get("/api/version", tags=["Health Check"])
+async def version():
+    """Bisa dibuka langsung di browser (nginx meneruskan /api/ ke backend)."""
+    return {"build": BUILD_MARKER}
