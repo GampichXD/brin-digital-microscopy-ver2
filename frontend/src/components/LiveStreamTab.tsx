@@ -8,13 +8,13 @@ import { showToast } from '../utils/toast';
 
 const StreamCanvas = ({ videoSrc, themeClasses }: { videoSrc: string | null, themeClasses: any }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   useEffect(() => {
     if (!videoSrc || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+
     const img = new Image();
     img.onload = () => {
       // Set canvas internal resolution only once or if it doesn't match the image's aspect ratio
@@ -23,7 +23,7 @@ const StreamCanvas = ({ videoSrc, themeClasses }: { videoSrc: string | null, the
         canvas.width = img.width;
         canvas.height = img.height;
       }
-      
+
       // Draw image directly. Since the canvas matches the image resolution exactly, 
       // we don't need complex centerShift calculations. CSS object-cover will handle the display.
       ctx.drawImage(img, 0, 0, img.width, img.height);
@@ -56,15 +56,15 @@ interface LiveStreamTabProps {
   jetsonTemperatures: { cpu: number | null, gpu: number | null };
   limitSwitchState: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
-  availableFolders: {id: string, name: string}[];
+  availableFolders: { id: string, name: string }[];
   onRefreshFolders: () => void;
   streamRole?: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED';
   currentUserRole?: string;
   roomState?: any;
 }
 
-export default function LiveStreamTab({ 
-  openKeypad, 
+export default function LiveStreamTab({
+  openKeypad,
   cameraActive,
   setCameraActive,
   videoSrc,
@@ -83,16 +83,16 @@ export default function LiveStreamTab({
 }: LiveStreamTabProps) {
   const { isDarkMode, globalVirtualKeyboard, isSystemHardwareEnabled } = useGlobalContext();
   const { t } = useTranslation();
-  
+
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
   const joystickVectorRef = useRef({ x: 0, y: 0 });
   const joystickActiveRef = useRef(false);
-  const lastMoveDirectionRef = useRef<Record<'X' | 'Y' | 'Z', '+' | '-'> >({ X: '+', Y: '+', Z: '+' });
-  
+  const lastMoveDirectionRef = useRef<Record<'X' | 'Y' | 'Z', '+' | '-'>>({ X: '+', Y: '+', Z: '+' });
+
   const [xyStepUnit, setXyStepUnit] = useState<'mm' | 'inch'>('mm');
   const [xyStepValue, setXyStepValue] = useState<string>("1");
   const [zStepValue, setZStepValue] = useState<string>("1");
-  
+
   const [targetX, setTargetX] = useState<string>("0");
   const [targetY, setTargetY] = useState<string>("0");
   const [targetZ, setTargetZ] = useState<string>("0");
@@ -102,7 +102,7 @@ export default function LiveStreamTab({
   const [acceleration, setAcceleration] = useState<string>("10");
   const [settleTime, setSettleTime] = useState<string>("500");
 
-  const [shutterSpeed, setShutterSpeed] = useState<string>("15000"); 
+  const [shutterSpeed, setShutterSpeed] = useState<string>("15000");
   const [iso, setIso] = useState<string>("200");
   const [targetFps, setTargetFps] = useState<string>("30");
 
@@ -157,7 +157,7 @@ export default function LiveStreamTab({
     if (cameraActive && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       pingInterval = window.setInterval(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-           wsRef.current.send(JSON.stringify({ action: 'PING' }));
+          wsRef.current.send(JSON.stringify({ action: 'PING' }));
         }
       }, 30000); // Kirim PING setiap 30 detik agar backend tidak me-reset status Pilot
     }
@@ -191,7 +191,7 @@ export default function LiveStreamTab({
           setTargetX(parts[0].replace("X:", ""));
           setTargetY(parts[1].replace("Y:", ""));
           setTargetZ(parts[2].replace("Z:", ""));
-          
+
           setMotorPos({
             x: parseFloat(parts[0].replace("X:", "")),
             y: parseFloat(parts[1].replace("Y:", "")),
@@ -233,7 +233,7 @@ export default function LiveStreamTab({
   };
 
   const triggerKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
-    if (!globalVirtualKeyboard) return; 
+    if (!globalVirtualKeyboard) return;
     openKeypad({
       visible: true,
       title: title,
@@ -265,7 +265,7 @@ export default function LiveStreamTab({
 
   const sendMotorCommand = async (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
-    
+
     const stepMm = toMm(axis);
     const backlashMm = axis === 'Z' ? 0 : Math.max(0, parseFloat(backlash) || 0);
     const lastDirection = lastMoveDirectionRef.current[axis];
@@ -273,13 +273,13 @@ export default function LiveStreamTab({
     const adjustedValue = axis !== 'Z' && lastDirection && lastDirection !== direction
       ? compensatedValue + (direction === '+' ? backlashMm : -backlashMm)
       : compensatedValue;
-    
-    const gcodeStr = axis === 'Z' 
+
+    const gcodeStr = axis === 'Z'
       ? `G1 Z${adjustedValue.toFixed(3)} F200`
       : `G1 ${axis}${adjustedValue.toFixed(3)} F${feedRate}`;
 
     lastMoveDirectionRef.current[axis] = direction;
-    
+
     setMotorPos(prev => ({
       ...prev,
       [axis.toLowerCase()]: parseFloat((prev[axis.toLowerCase() as keyof typeof prev] + adjustedValue).toFixed(2))
@@ -333,18 +333,18 @@ export default function LiveStreamTab({
 
   const handleGoToCoordinates = async () => {
     if (!isSystemHardwareEnabled || isControlsDisabled) return;
-    
+
     const x = parseFloat(targetX);
     const y = parseFloat(targetY);
     const z = parseFloat(targetZ);
-    
+
     if (isNaN(x) || isNaN(y) || isNaN(z)) {
       showToast('Koordinat tidak valid', 'error');
       return;
     }
-    
+
     const gcodeStr = `G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)}`;
-    
+
     setMotorPos({ x, y, z });
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -372,7 +372,7 @@ export default function LiveStreamTab({
 
   return (
     <div className={`h-full flex flex-col xl:flex-row gap-4 xl:gap-6 ${isLockedOut ? 'opacity-80' : ''}`}>
-      
+
       {/* KIRI: VIDEO & HUD LAYER */}
       <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[60%] h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive && !isLockedOut ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {isLockedOut ? (
@@ -443,8 +443,8 @@ export default function LiveStreamTab({
                 <label className="relative flex items-center justify-start h-12 w-12 hover:w-[220px] focus-within:w-[220px] px-3 bg-black/60 hover:bg-gray-900/80 focus-within:bg-gray-900/80 backdrop-blur-md border border-white/10 rounded-full shadow-2xl transition-all duration-300 overflow-hidden group cursor-pointer outline-none">
                   <Folder size={24} className="shrink-0 text-gray-300 group-hover:text-blue-400 group-focus-within:text-blue-400 transition-colors pointer-events-none" />
                   <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ml-3 overflow-hidden transition-opacity duration-300 flex items-center w-full">
-                    <select 
-                      value={selectedFolderId} 
+                    <select
+                      value={selectedFolderId}
                       onChange={(e) => setSelectedFolderId(e.target.value)}
                       className="bg-transparent text-sm text-white font-bold outline-none appearance-none pr-6 cursor-pointer w-[150px] text-ellipsis overflow-hidden whitespace-nowrap"
                     >
@@ -464,7 +464,7 @@ export default function LiveStreamTab({
                     try {
                       const now = new Date();
                       const pad = (n: number) => n.toString().padStart(2, '0');
-                      const folderName = `Live Video ${pad(now.getDate())}-${pad(now.getMonth()+1)}-${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                      const folderName = `Live Video ${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
                       const currentUser = localStorage.getItem('username') || "Unknown User";
                       const res = await api.post('/api/dataset/folders', {
                         name: folderName,
@@ -507,7 +507,7 @@ export default function LiveStreamTab({
                     wsRef.current.send(JSON.stringify({ action: "STOP_RECORDING" }));
                   }
                   showToast("Menyimpan video... Estimasi upload: ~15 detik.", 'info');
-                  
+
                   // Polling backend untuk memeriksa apakah video_count bertambah (upload selesai)
                   if (checkVideoIntervalRef.current) clearInterval(checkVideoIntervalRef.current);
                   let attempts = 0;
@@ -528,7 +528,7 @@ export default function LiveStreamTab({
                         onRefreshFolders();
                         if (checkVideoIntervalRef.current) clearInterval(checkVideoIntervalRef.current);
                       }
-                    } catch (e) {}
+                    } catch (e) { }
                   }, 1000);
                 }} className="h-10 w-[50px] hover:w-[110px] focus:w-[110px] active:w-[110px] px-[17px] bg-white text-red-600 hover:bg-gray-100 focus:bg-gray-100 active:bg-gray-100 font-bold rounded-full flex items-center justify-start shadow-[0_0_15px_rgba(255,255,255,0.3)] transition-all duration-300 overflow-hidden group outline-none">
                   <Square size={16} fill="currentColor" className="shrink-0 transition-all pointer-events-none" />
@@ -546,23 +546,22 @@ export default function LiveStreamTab({
         )}
 
         {/* BOTTOM RIGHT: CAMERA ON/OFF */}
-        <button 
-          disabled={!isSystemHardwareEnabled} 
+        <button
+          disabled={!isSystemHardwareEnabled}
           onClick={() => {
             const nextState = !cameraActive;
             setCameraActive(nextState);
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({ action: nextState ? 'START_STREAM' : 'STOP_STREAM' }));
+              wsRef.current.send(JSON.stringify({ action: nextState ? 'START_STREAM' : 'STOP_STREAM' }));
             }
             showToast(
               nextState ? 'Sensor Optik IMX477 Berhasil Diaktifkan!' : 'Stream Kamera Dinonaktifkan.',
               nextState ? 'success' : 'info'
             );
-          }} 
-          className={`absolute bottom-6 right-6 flex items-center justify-start h-[60px] w-[60px] hover:w-[220px] focus:w-[220px] active:w-[220px] px-[18px] rounded-full text-lg font-bold shadow-2xl z-10 overflow-hidden group transition-all duration-300 outline-none ${
-            !isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
-            cameraActive ? 'bg-black/60 hover:bg-gray-800 focus:bg-gray-800 active:bg-gray-800 text-white backdrop-blur-md border border-gray-600' : 'bg-green-600 hover:bg-green-700 focus:bg-green-700 active:bg-green-700 text-white'
-          }`}
+          }}
+          className={`absolute bottom-6 right-6 flex items-center justify-start h-[60px] w-[60px] hover:w-[220px] focus:w-[220px] active:w-[220px] px-[18px] rounded-full text-lg font-bold shadow-2xl z-10 overflow-hidden group transition-all duration-300 outline-none ${!isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
+              cameraActive ? 'bg-black/60 hover:bg-gray-800 focus:bg-gray-800 active:bg-gray-800 text-white backdrop-blur-md border border-gray-600' : 'bg-green-600 hover:bg-green-700 focus:bg-green-700 active:bg-green-700 text-white'
+            }`}
         >
           {!isSystemHardwareEnabled ? (
             <><AlertOctagon size={24} className="shrink-0 text-red-400 pointer-events-none" /><span className="opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-active:opacity-100 ml-3 whitespace-nowrap transition-opacity duration-300">Hardware Locked</span></>
@@ -576,7 +575,7 @@ export default function LiveStreamTab({
 
       {/* KANAN: PANEL KONTROL ASLI */}
       <div className={`w-full xl:w-96 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar ${isControlsDisabled ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
-        
+
         {/* ROOM STATE PANEL (Informasi Sesi di Luar Video) */}
         {roomState && (
           <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
@@ -589,7 +588,7 @@ export default function LiveStreamTab({
               <div className={`flex justify-between items-start p-2 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                 <span className="text-xs font-bold text-gray-500">SPECTATORS</span>
                 <div className={`text-xs font-mono font-bold text-right ${themeClasses.text}`}>
-                  {roomState.spectators && roomState.spectators.length > 0 
+                  {roomState.spectators && roomState.spectators.length > 0
                     ? roomState.spectators.map((s: any, i: number) => <div key={i}>{s.username}</div>)
                     : '-'}
                 </div>
@@ -608,7 +607,7 @@ export default function LiveStreamTab({
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>Kendali Motor</h3>
             <div className="flex items-center space-x-2">
-              <button 
+              <button
                 disabled={!isSystemHardwareEnabled}
                 onClick={() => {
                   showToast('Perintah Homing Dikirim! Mengembalikan CNC ke (0,0,0)', 'info');
@@ -648,17 +647,17 @@ export default function LiveStreamTab({
                   </select>
                 </div>
               </div>
-              
+
               {controlMode === 'dpad' ? (
                 <div className="grid grid-cols-3 gap-1 aspect-square">
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24}/></button>
+                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} /></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('X', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24}/></button>
-                  <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" disabled={isControlsDisabled} className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer disabled:opacity-30"><Crosshair size={20}/></button>
-                  <button onClick={() => sendMotorCommand('X', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24}/></button>
+                  <button onClick={() => sendMotorCommand('X', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24} /></button>
+                  <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" disabled={isControlsDisabled} className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer disabled:opacity-30"><Crosshair size={20} /></button>
+                  <button onClick={() => sendMotorCommand('X', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24} /></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24}/></button>
+                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} /></button>
                   <div />
                 </div>
               ) : (
@@ -703,18 +702,18 @@ export default function LiveStreamTab({
                   <div className="w-16 h-16 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg transition-transform" style={{ transform: `translate(${joystickVector.x * 32}px, ${joystickVector.y * 32}px)` }}>
                     <Move size={24} />
                   </div>
-                  
+
                   <div className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 text-xs font-bold ${isSystemHardwareEnabled ? (joystickActiveRef.current ? 'text-blue-400' : themeClasses.textMuted) : 'text-red-400'}`}>
-                      {isSystemHardwareEnabled 
-                        ? (joystickActiveRef.current ? t('cameraMoving') : t('dragToMove'))
-                        : t('panTiltLocked')}
+                    {isSystemHardwareEnabled
+                      ? (joystickActiveRef.current ? t('cameraMoving') : t('dragToMove'))
+                      : t('panTiltLocked')}
                   </div>
                 </div>
               )}
             </div>
 
             {currentUserRole === 'ADMIN' && streamRole !== 'PILOT' && streamRole !== 'DISCONNECTED' && (
-              <button 
+              <button
                 onClick={handleTakeover}
                 className="ml-auto flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-pink-500/20 text-pink-400 hover:bg-pink-500 hover:text-white transition-all shadow-[0_0_15px_rgba(236,72,153,0.3)] border border-pink-500/50 hover:scale-105 group"
                 title="Ambil Alih Kendali (Admin)"
@@ -740,8 +739,8 @@ export default function LiveStreamTab({
                 </div>
               </div>
               <div className="flex flex-col gap-2 flex-1">
-                <button onClick={() => sendMotorCommand('Z', '+')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">NAIK</span></button>
-                <button onClick={() => sendMotorCommand('Z', '-')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500"/><span className="text-[10px] font-bold mt-1">TURUN</span></button>
+                <button onClick={() => sendMotorCommand('Z', '+')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500" /><span className="text-[10px] font-bold mt-1">NAIK</span></button>
+                <button onClick={() => sendMotorCommand('Z', '-')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500" /><span className="text-[10px] font-bold mt-1">TURUN</span></button>
               </div>
             </div>
           </div>
@@ -786,7 +785,7 @@ export default function LiveStreamTab({
                 className={`w-full h-8 px-2 rounded border text-sm font-bold outline-none ${themeClasses.input}`}
               />
             </div>
-            <button 
+            <button
               disabled={isControlsDisabled}
               onClick={handleGoToCoordinates}
               className={`h-8 px-4 rounded-lg bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors disabled:opacity-30 disabled:hover:bg-blue-600 shrink-0`}
@@ -807,7 +806,7 @@ export default function LiveStreamTab({
               <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> {t('apply')}</button>
             </div>
           </div>
-          
+
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Target FPS <span className="text-[9px]">(1-60)</span></span>
@@ -856,7 +855,7 @@ export default function LiveStreamTab({
             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t('cncParams')}</h3>
             <div className="flex space-x-2">
               <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t('default')}</button>
-              <button 
+              <button
                 onClick={sendCncSettings}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
               >
@@ -864,7 +863,7 @@ export default function LiveStreamTab({
               </button>
             </div>
           </div>
-          
+
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Motor Speed / Feed <span className="text-[9px]">(mm/min)</span></span>
@@ -915,64 +914,64 @@ export default function LiveStreamTab({
 
         {/* 4. STATUS HARDWARE BAR */}
         <div className={`p-4 rounded-2xl border shrink-0 mb-4 ${themeClasses.panel}`}>
-           <div className="flex items-center justify-between mb-3">
-             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t('systemStatus')}</h3>
-             <button onClick={() => setShowFpsGraph(!showFpsGraph)} className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center shadow-sm active:scale-95 transition-colors ${showFpsGraph ? 'bg-blue-600 text-white' : 'bg-gray-600 hover:bg-gray-700 text-white'}`}>
-               <Activity size={12} className="mr-1" /> FPS GRAPH
-             </button>
-           </div>
-           
-           <div className="grid grid-cols-2 gap-3 mb-3">
-             <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
-                <div className="flex items-center mb-1"><Thermometer size={14} className="text-orange-400 mr-2"/><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>CPU Temp</span></div>
-               <div className={`text-sm font-bold font-mono ${jetsonTemperatures.cpu && jetsonTemperatures.cpu > 75 ? 'text-red-500' : themeClasses.text}`}>{jetsonTemperatures.cpu !== null ? `${jetsonTemperatures.cpu.toFixed(1)}°C` : 'N/A'}</div>
-             </div>
-             <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
-                <div className="flex items-center mb-1"><Thermometer size={14} className="text-orange-400 mr-2"/><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>GPU Temp</span></div>
-               <div className={`text-sm font-bold font-mono ${jetsonTemperatures.gpu && jetsonTemperatures.gpu > 75 ? 'text-red-500' : themeClasses.text}`}>{jetsonTemperatures.gpu !== null ? `${jetsonTemperatures.gpu.toFixed(1)}°C` : 'N/A'}</div>
-             </div>
-             <div className={`col-span-2 p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
-                <div className="flex items-center mb-1"><Settings size={14} className="text-green-500 mr-2"/><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Limit Switch</span></div>
-               <div className={`text-sm font-bold font-mono ${limitSwitchState !== 'N/A' ? 'text-green-500' : themeClasses.textMuted}`}>{limitSwitchState}</div>
-             </div>
-           </div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t('systemStatus')}</h3>
+            <button onClick={() => setShowFpsGraph(!showFpsGraph)} className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center shadow-sm active:scale-95 transition-colors ${showFpsGraph ? 'bg-blue-600 text-white' : 'bg-gray-600 hover:bg-gray-700 text-white'}`}>
+              <Activity size={12} className="mr-1" /> FPS GRAPH
+            </button>
+          </div>
 
-           {/* FPS GRAPH AREA */}
-           {showFpsGraph && (
-             <div className={`p-3 rounded-xl border flex flex-col h-24 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
-               <div className="flex justify-between items-center mb-2">
-                 <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Network Stream FPS</span>
-                 <span className="text-xs font-mono font-bold text-blue-500">{actualFps} FPS</span>
-               </div>
-               <svg viewBox="0 0 100 40" className="w-full h-full text-blue-500 overflow-visible" preserveAspectRatio="none">
-                 <polyline
-                   fill="none"
-                   stroke="currentColor"
-                   strokeWidth="2"
-                   points={generateFpsSvgPoints()}
-                 />
-                 <polyline
-                   fill="url(#fpsGradient)"
-                   stroke="none"
-                   points={`0,40 ${generateFpsSvgPoints()} 100,40`}
-                 />
-                 <defs>
-                   <linearGradient id="fpsGradient" x1="0" x2="0" y1="0" y2="1">
-                     <stop offset="0%" stopColor="currentColor" stopOpacity="0.5" />
-                     <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-                   </linearGradient>
-                 </defs>
-               </svg>
-             </div>
-           )}
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
+              <div className="flex items-center mb-1"><Thermometer size={14} className="text-orange-400 mr-2" /><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>CPU Temp</span></div>
+              <div className={`text-sm font-bold font-mono ${jetsonTemperatures.cpu && jetsonTemperatures.cpu > 75 ? 'text-red-500' : themeClasses.text}`}>{jetsonTemperatures.cpu !== null ? `${jetsonTemperatures.cpu.toFixed(1)}°C` : 'N/A'}</div>
+            </div>
+            <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
+              <div className="flex items-center mb-1"><Thermometer size={14} className="text-orange-400 mr-2" /><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>GPU Temp</span></div>
+              <div className={`text-sm font-bold font-mono ${jetsonTemperatures.gpu && jetsonTemperatures.gpu > 75 ? 'text-red-500' : themeClasses.text}`}>{jetsonTemperatures.gpu !== null ? `${jetsonTemperatures.gpu.toFixed(1)}°C` : 'N/A'}</div>
+            </div>
+            <div className={`col-span-2 p-3 rounded-xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
+              <div className="flex items-center mb-1"><Settings size={14} className="text-green-500 mr-2" /><span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Limit Switch</span></div>
+              <div className={`text-sm font-bold font-mono ${limitSwitchState !== 'N/A' ? 'text-green-500' : themeClasses.textMuted}`}>{limitSwitchState}</div>
+            </div>
+          </div>
 
-           <div className={`col-span-2 p-3 rounded-xl border flex justify-between items-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
-              <div className="flex items-center">
-                <Activity size={14} className="text-blue-400 mr-2"/>
-                <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Status GRBL ({lastEchoGCode})</span>
+          {/* FPS GRAPH AREA */}
+          {showFpsGraph && (
+            <div className={`p-3 rounded-xl border flex flex-col h-24 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
+              <div className="flex justify-between items-center mb-2">
+                <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Network Stream FPS</span>
+                <span className="text-xs font-mono font-bold text-blue-500">{actualFps} FPS</span>
               </div>
-              <div className="px-3 py-1 bg-blue-500/20 text-blue-500 rounded-lg text-[10px] font-bold uppercase">{grblStatus}</div>
-           </div>
+              <svg viewBox="0 0 100 40" className="w-full h-full text-blue-500 overflow-visible" preserveAspectRatio="none">
+                <polyline
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  points={generateFpsSvgPoints()}
+                />
+                <polyline
+                  fill="url(#fpsGradient)"
+                  stroke="none"
+                  points={`0,40 ${generateFpsSvgPoints()} 100,40`}
+                />
+                <defs>
+                  <linearGradient id="fpsGradient" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="currentColor" stopOpacity="0.5" />
+                    <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          )}
+
+          <div className={`col-span-2 p-3 rounded-xl border flex justify-between items-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50'}`}>
+            <div className="flex items-center">
+              <Activity size={14} className="text-blue-400 mr-2" />
+              <span className={`text-[10px] font-bold uppercase ${themeClasses.textMuted}`}>Status GRBL ({lastEchoGCode})</span>
+            </div>
+            <div className="px-3 py-1 bg-blue-500/20 text-blue-500 rounded-lg text-[10px] font-bold uppercase">{grblStatus}</div>
+          </div>
         </div>
 
       </div>
