@@ -13,6 +13,7 @@ interface HardwareSocketProps {
   setEdgeTelemetry?: (data: { cpu: number; ram: number; temp: number }) => void;
   setStreamRole: (role: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED') => void;
   setRoomState?: (state: any) => void;
+  currentUser: string | null;
 }
 
 export function useHardwareSocket({
@@ -28,6 +29,7 @@ export function useHardwareSocket({
   setEdgeTelemetry,
   setStreamRole,
   setRoomState,
+  currentUser,
 }: HardwareSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
@@ -39,14 +41,14 @@ export function useHardwareSocket({
   }, [cameraActive]);
 
   useEffect(() => {
-    if (!isSystemHardwareEnabled) {
+    const token = localStorage.getItem('token');
+    if (!isSystemHardwareEnabled || !token) {
       return;
     }
 
     console.log('[GLOBAL WEBSOCKET] Menginisialisasi sirkuit pusat lewat Redis Client...');
     
     // Connect to client websocket route with authentication token
-    const token = localStorage.getItem('token');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/hardware/client/ws?token=${token}`;
     const ws = new WebSocket(wsUrl);
@@ -166,7 +168,7 @@ export function useHardwareSocket({
         setStreamRole('DISCONNECTED');
       }
     };
-  }, [isSystemHardwareEnabled, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState]);
+  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState]);
 
   return wsRef;
 }

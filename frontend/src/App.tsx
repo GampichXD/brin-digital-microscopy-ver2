@@ -62,7 +62,8 @@ export default function App() {
     setLastEchoGCode,
     setEdgeTelemetry,
     setStreamRole,
-    setRoomState
+    setRoomState,
+    currentUser
   });
 
   const fetchFolders = async () => {
