@@ -62,11 +62,16 @@ app.include_router(analysis.router)
 app.include_router(documentation.router)  # Report generator: Word, Excel, PPT
 app.include_router(logs.router)
 
+# Penanda build — ganti string ini setiap deploy untuk memastikan kontainer
+# yang berjalan benar-benar memuat kode terbaru (cek: GET / -> "build").
+BUILD_MARKER = "2026-08-28-grid-relative-origin+scan-progress"
+
 @app.get("/", tags=["Health Check"])
 async def root():
     return {
         "status": "ONLINE",
         "message": "Sistem API Mikroskop Digital BRIN/UNDIP Berjalan Normal",
+        "build": BUILD_MARKER,
         "hardware": {
             "jetson_orin_nano": "CONNECTED",
             "grbl_core": "READY"

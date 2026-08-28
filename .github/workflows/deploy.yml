@@ -19,10 +19,32 @@ jobs:
         run: |
           # Menyalin konfigurasi production (.env) yang disimpan manual di VPS server
           cp ~/.env-production .env
-          
-      - name: 🐳 Membangun Ulang & Menjalankan Infrastruktur Docker
+
+      - name: 🐳 Membangun Ulang SELURUH Service (backend + frontend)
         run: |
-          docker compose build --no-cache frontend
-          docker compose up -d
+          # WAJIB sebut backend juga — kalau tidak, image backend tetap lama
+          # dan perubahan *.py tidak pernah masuk kontainer.
+          docker compose build --no-cache backend frontend
+
+      - name: 🚀 Recreate Kontainer + Reload nginx
+        run: |
+          # --force-recreate memastikan kontainer memakai image yang baru dibangun,
+          # bukan yang lama walau tag-nya sama.
+          docker compose up -d --force-recreate --remove-orphans
+          # nginx pakai bind-mount config -> perlu reload eksplisit untuk
+          # menerapkan proxy_read_timeout dsb.
+          docker compose restart nginx
+          docker compose ps
+
+      - name: ✅ Verifikasi Build Marker
+        run: |
+          sleep 5
+          # Port 8000 backend dipetakan langsung di docker-compose (8000:8000).
+          MARKER=$(curl -sf http://localhost:8000/ | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','?'))")
+          echo "Build marker aktif di server: $MARKER"
+          # Samakan dengan BUILD_MARKER di backend/app/main.py
+          test "$MARKER" = "2026-08-28-grid-relative-origin+scan-progress" \
+            || (echo "::error::Backend BELUM memuat kode terbaru!" && exit 1)
+
       - name: 🧹 Membersihkan Sampah Image Docker
         run: docker image prune -f
