@@ -203,34 +203,45 @@ export default function ImageGatheringTab({
     setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
     
     const startTime = new Date().getTime();
-    
-    // Sinkronisasi Animasi dengan Backend CNC Math
-    const feed_rate_mm_per_sec = 250.0 / 60.0;
-    const travel_time_x = Math.max(0.5, sx / feed_rate_mm_per_sec);
-    const travel_time_y = Math.max(0.5, sy / feed_rate_mm_per_sec);
-    
-    let totalGridDelaySec = 0;
-    for (let r_idx = 0; r_idx < r; r_idx++) {
-      for (let c_idx = 0; c_idx < c; c_idx++) {
-         let currentDelay = travel_time_x + (parseInt(camDelay)/1000.0);
-         if (c_idx === 0 && r_idx > 0) {
-             currentDelay = travel_time_y + (parseInt(camDelay)/1000.0) + 1.0; // Waktu settle pindah baris
-         }
-         totalGridDelaySec += currentDelay;
-      }
-    }
-    
-    // Rata-rata waktu per kotak grid
-    const timePerGridMs = (totalGridDelaySec / (c * r)) * 1000; 
-    let currentProgress = 0;
     const totalGrids = c * r;
-    
-    const progressInterval = setInterval(() => {
-      currentProgress++;
-      if (currentProgress <= totalGrids) setProgress(currentProgress);
-    }, timePerGridMs);
+
+    // Progress bar digerakkan oleh event NYATA per-tile dari backend
+    // (SCAN_PROGRESS via WebSocket), bukan perkiraan waktu buta yang selalu
+    // selesai lebih cepat dari mesin. Perkiraan waktu hanya dipakai sebagai
+    // fallback lambat kalau event WS tidak sampai (mis. Redis mock).
+    let sawWsProgress = false;
+    const feed_rate_mm_per_sec = 250.0 / 60.0;
+    const perTileEstMs = ((Math.max(0.5, sy / feed_rate_mm_per_sec)
+        + (parseInt(camDelay) / 1000.0) + 1.0)) * 1000;
+
+    const fallbackInterval = setInterval(() => {
+      if (sawWsProgress) return; // event nyata mengambil alih
+      setProgress(prev => Math.min(prev + 1, totalGrids - 1)); // jangan pernah "selesai" sendiri
+    }, Math.max(400, perTileEstMs));
+
+    const onWsMessage = (ev: MessageEvent) => {
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
+          sawWsProgress = true;
+          setProgress(Math.min(m.index, totalGrids));
+          setProcessTask(`Tile ${m.index}/${m.total} — X:${m.coordX} Y:${m.coordY}`);
+        } else if (m.event === 'SCAN_COMPLETE') {
+          sawWsProgress = true;
+          setProgress(totalGrids);
+        }
+      } catch { /* pesan non-JSON diabaikan */ }
+    };
+    wsRef.current?.addEventListener('message', onWsMessage);
+
+    const cleanup = () => {
+      clearInterval(fallbackInterval);
+      wsRef.current?.removeEventListener('message', onWsMessage);
+    };
 
     try {
+      // timeout: 0 -> jangan batasi durasi; grid besar bisa berjalan menit-an.
+      // (nginx juga perlu proxy_read_timeout besar — lihat nginx/default.conf)
       const response = await api.post('/api/hardware/scan/grid', {
         columns: c,
         rows: r,
@@ -240,28 +251,28 @@ export default function ImageGatheringTab({
         unit: stepUnit,
         start_x: motorPos.x,
         start_y: motorPos.y
-      });
-      clearInterval(progressInterval);
+      }, { timeout: 0 });
+      cleanup();
       setProgress(totalGrids);
       setCapturedImages(response.data.images.map((img: any) => ({
         ...img,
         timestamp: Date.now()
       })));
       const scanT = (new Date().getTime() - startTime) / 1000;
-      
+
       if (cancelRef.current) return;
-      
+
       showToast('Pemindaian grid berhasil!', 'success');
       logSystemAction('Gathering Image (Grid Scan 2D) Selesai', 'SUCCESS');
       if (autoStitch) {
         executeStitching(scanT);
-      } else { 
+      } else {
         setProcessTimes({ scan: scanT, stitch: 0, total: scanT });
         setIsProcessing(false);
-        setShowReviewModal(true); 
+        setShowReviewModal(true);
       }
     } catch (error: any) {
-      clearInterval(progressInterval);
+      cleanup();
       const detail = error?.response?.data?.detail;
       showToast(detail || 'Proses pemindaian terputus!', 'error');
       logSystemAction('Gathering Image (Grid Scan 2D) Gagal', 'ERROR');

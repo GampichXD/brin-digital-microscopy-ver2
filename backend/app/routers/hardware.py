@@ -284,6 +284,12 @@ async def scan_grid(payload: GridScanPayload):
             print(f"[SCAN GRID] Edge offline, titik awal dari frontend: X{origin_x} Y{origin_y}")
 
         feed_rate_mm_per_sec = 250.0 / 60.0  # F250
+        total_tiles = payload.rows * payload.columns
+
+        # Kabari frontend bahwa scan dimulai (untuk progress bar berbasis event nyata).
+        await redis.publish("microscope_scan_progress", json.dumps({
+            "event": "SCAN_STARTED", "total": total_tiles
+        }))
 
         # Kunci mode ABSOLUT, lalu gerak eksplisit ke posisi awal (image ke-1
         # diambil tepat di posisi motor sekarang).
@@ -371,6 +377,29 @@ async def scan_grid(payload: GridScanPayload):
                     "gridY": r
                 })
                 idx += 1
+
+                # Progress NYATA per-tile -> frontend menggerakkan bar dari sini,
+                # bukan dari perkiraan waktu buta.
+                await redis.publish("microscope_scan_progress", json.dumps({
+                    "event": "SCAN_PROGRESS",
+                    "index": idx,
+                    "total": total_tiles,
+                    "filename": filename,
+                    "coordX": round(coord_x, 2),
+                    "coordY": round(coord_y, 2)
+                }))
+
+        await redis.publish("microscope_scan_progress", json.dumps({
+            "event": "SCAN_COMPLETE", "total": len(images)
+        }))
+    except Exception as exc:
+        try:
+            await redis.publish("microscope_scan_progress", json.dumps({
+                "event": "SCAN_FAILED", "detail": str(getattr(exc, "detail", exc))
+            }))
+        except Exception:
+            pass
+        raise
     finally:
         # Kembalikan ke Absolute Mode setelah scan selesai
         await redis.publish("hardware_commands", json.dumps({
@@ -378,7 +407,7 @@ async def scan_grid(payload: GridScanPayload):
             "gcode": "G90"
         }))
         await redis.close()
-        
+
     return {"status": "SUCCESS", "images": images}
 
 @router.post("/scan/retake")
@@ -906,7 +935,7 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
     # 🟢 TASK A: Mendengarkan siaran video/telemetri dari Redis dan menembakkannya ke Browser
     async def listen_to_redis_broadcast():
         pubsub = redis.pubsub()
-        await pubsub.subscribe("microscope_video_stream", "microscope_telemetry")
+        await pubsub.subscribe("microscope_video_stream", "microscope_telemetry", "microscope_scan_progress")
         try:
             async for message in pubsub.listen():
                 if message.get('type') == 'message':
@@ -922,7 +951,7 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         except asyncio.CancelledError:
             pass
         finally:
-            await pubsub.unsubscribe("microscope_video_stream", "microscope_telemetry")
+            await pubsub.unsubscribe("microscope_video_stream", "microscope_telemetry", "microscope_scan_progress")
             await pubsub.close()
 
     # Jalankan pendengar siaran Redis di background task
