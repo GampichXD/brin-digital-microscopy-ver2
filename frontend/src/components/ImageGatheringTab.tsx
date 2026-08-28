@@ -260,9 +260,10 @@ export default function ImageGatheringTab({
         setIsProcessing(false);
         setShowReviewModal(true); 
       }
-    } catch (_error) {
+    } catch (error: any) {
       clearInterval(progressInterval);
-      showToast('Proses pemindaian terputus!', 'error');
+      const detail = error?.response?.data?.detail;
+      showToast(detail || 'Proses pemindaian terputus!', 'error');
       logSystemAction('Gathering Image (Grid Scan 2D) Gagal', 'ERROR');
       setIsProcessing(false);
     }

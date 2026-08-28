@@ -260,19 +260,40 @@ async def scan_grid(payload: GridScanPayload):
         
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-        # Titik awal grid = posisi fisik Edge saat ini (dari telemetri), BUKAN 0,0.
-        # Ini mencegah CNC "terbang balik" ke origin (terlihat seperti auto-homing)
-        # ketika frontend mengirim start_x/start_y yang basi.
-        origin_x, origin_y = payload.start_x, payload.start_y
-        if motor_driver.last_edge_position is not None:
+        # ── Titik awal grid = POSISI MOTOR SAAT INI (bukan 0,0) ──────────────
+        # Ambil dari cache telemetri Edge. Jika Jetson terhubung tapi telemetri
+        # belum masuk, tunggu sebentar; kalau tetap kosong -> tolak (jangan
+        # diam-diam scan dari 0,0 dan bikin CNC "homing").
+        if motor_driver.jetson_websocket is not None:
+            waited = 0.0
+            while motor_driver.last_edge_position is None and waited < 3.0:
+                await asyncio.sleep(0.2)
+                waited += 0.2
+            if motor_driver.last_edge_position is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Posisi motor belum diketahui dari telemetri Edge. "
+                           "Gerakkan motor sedikit atau tunggu beberapa detik lalu ulangi."
+                )
             origin_x = motor_driver.last_edge_position["X"]
             origin_y = motor_driver.last_edge_position["Y"]
-            print(f"[SCAN GRID] Titik awal diambil dari posisi live Edge: X{origin_x:.3f} Y{origin_y:.3f}")
+            print(f"[SCAN GRID] Titik awal = posisi motor saat ini: X{origin_x:.3f} Y{origin_y:.3f}")
         else:
-            print(f"[SCAN GRID] Posisi live Edge belum tersedia, memakai start dari frontend: X{origin_x} Y{origin_y}")
+            # Tidak ada Edge (mode mock) — pakai nilai dari frontend apa adanya.
+            origin_x, origin_y = payload.start_x, payload.start_y
+            print(f"[SCAN GRID] Edge offline, titik awal dari frontend: X{origin_x} Y{origin_y}")
 
-        last_x, last_y = origin_x, origin_y
         feed_rate_mm_per_sec = 250.0 / 60.0  # F250
+
+        # Kunci mode ABSOLUT, lalu gerak eksplisit ke posisi awal (image ke-1
+        # diambil tepat di posisi motor sekarang).
+        await redis.publish("hardware_commands", json.dumps({"action": "MOVE_MOTOR", "gcode": "G90"}))
+        await asyncio.sleep(0.05)
+        await redis.publish("hardware_commands", json.dumps({
+            "action": "MOVE_MOTOR",
+            "gcode": f"G1 X{origin_x:.3f} Y{origin_y:.3f} F250.0"
+        }))
+        last_x, last_y = origin_x, origin_y
 
         for r in range(payload.rows):
             for c in range(payload.columns):
@@ -282,22 +303,18 @@ async def scan_grid(payload: GridScanPayload):
                 coord_x = origin_x + (actual_c * payload.step_x)
                 coord_y = origin_y + (r * payload.step_y)
                 filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
-                
+
                 dx = coord_x - last_x
                 dy = coord_y - last_y
-                
-                # 1. Gerakkan motor CNC secara ABSOLUT
+
+                # Gerak ABSOLUT ke (origin + offset). Origin = posisi motor saat
+                # scan dimulai, jadi tidak pernah menuju 0,0.
                 if dx != 0.0 or dy != 0.0:
-                    await redis.publish("hardware_commands", json.dumps({
-                        "action": "MOVE_MOTOR",
-                        "gcode": "G90"
-                    }))
-                    await asyncio.sleep(0.05)
                     await redis.publish("hardware_commands", json.dumps({
                         "action": "MOVE_MOTOR",
                         "gcode": f"G1 X{coord_x:.3f} Y{coord_y:.3f} F250.0"
                     }))
-                
+
                 # Hitung jarak tempuh untuk sinkronisasi waktu nyata
                 distance = math.sqrt(dx**2 + dy**2)
                 travel_time = distance / feed_rate_mm_per_sec if distance > 0 else 0
@@ -372,16 +389,27 @@ async def retake_grid_image(payload: RetakePayload):
     redis = await get_redis_client(REDIS_URL)
     print(f"DEBUG RETAKE: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
     try:
-        # 1. Gerakkan motor CNC ke koordinat Retake
-        gcode = f"G1 X{payload.coord_x} Y{payload.coord_y} F250.0"
-        
-        # PUBLISH KE REDIS AGAR EDGE DEVICE BERGERAK
-        await redis.publish("hardware_commands", json.dumps({
-            "action": "MOVE_MOTOR",
-            "gcode": gcode
-        }))
-        
-        # 2. Tunggu stabilitas mekanik (Karena kita tidak tahu posisi awal saat retake, gunakan delay yang lebih aman)
+        # 1. Gerakkan motor ke koordinat Retake — TANPA absolute move ke koordinat
+        #    mentah (bisa jadi 0,0 dan bikin CNC "homing"). Kalau posisi live Edge
+        #    diketahui, hitung delta lalu gerak RELATIF; kalau tidak, jepret di
+        #    tempat (user biasanya sudah memposisikan head secara manual).
+        edge_pos = motor_driver.last_edge_position
+        if edge_pos is not None:
+            ddx = payload.coord_x - edge_pos["X"]
+            ddy = payload.coord_y - edge_pos["Y"]
+            if abs(ddx) > 1e-4 or abs(ddy) > 1e-4:
+                await redis.publish("hardware_commands", json.dumps({"action": "MOVE_MOTOR", "gcode": "G91"}))
+                await asyncio.sleep(0.05)
+                await redis.publish("hardware_commands", json.dumps({
+                    "action": "MOVE_MOTOR",
+                    "gcode": f"G1 X{ddx:.3f} Y{ddy:.3f} F250.0"
+                }))
+                await asyncio.sleep(0.05)
+                await redis.publish("hardware_commands", json.dumps({"action": "MOVE_MOTOR", "gcode": "G90"}))
+        else:
+            print("[RETAKE] Posisi live Edge tidak diketahui — memotret di posisi saat ini tanpa menggerakkan motor.")
+
+        # 2. Tunggu stabilitas mekanik
         await asyncio.sleep(2.5 + (payload.delay_ms / 1000.0))
         
         # Hapus file gambar lama jika ada, agar Jetson terpaksa menimpa dengan file baru, 
