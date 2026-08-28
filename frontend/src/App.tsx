@@ -38,6 +38,16 @@ export default function App() {
   const { isDarkMode, globalVirtualKeyboard, isSystemHardwareEnabled, setTargetAnalysisImage, setEdgeTelemetry } = useGlobalContext();
   const [folders, setFolders] = useState<DatasetFolder[]>([]);
   
+  // User & Auth State
+  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('username'));
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => (localStorage.getItem('role') as UserRole) || 'OPERATOR');
+  const [activeTab, setActiveTabState] = useState<TabName>(() => {
+    const savedTab = localStorage.getItem('activeTab') as TabName | null;
+    if (savedTab) return savedTab;
+    const savedRole = localStorage.getItem('role') as UserRole | null;
+    return savedRole === 'ADMIN' ? 'Admin Control' : 'Live Stream';
+  });
+  
   // Hardware State
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -84,14 +94,7 @@ export default function App() {
     return () => { if (delayFetch) clearTimeout(delayFetch); };
   }, []);
   
-  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('username'));
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => (localStorage.getItem('role') as UserRole) || 'OPERATOR');
-  const [activeTab, setActiveTabState] = useState<TabName>(() => {
-    const savedTab = localStorage.getItem('activeTab') as TabName | null;
-    if (savedTab) return savedTab;
-    const savedRole = localStorage.getItem('role') as UserRole | null;
-    return savedRole === 'ADMIN' ? 'Admin Control' : 'Live Stream';
-  });
+
 
   const setActiveTab = (tab: TabName) => {
     setActiveTabState(tab);
