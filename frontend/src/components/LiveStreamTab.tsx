@@ -188,10 +188,15 @@ export default function LiveStreamTab({
       const timer = setTimeout(() => {
         try {
           const parts = lastEchoGCode.split(" ");
-          const xVal = parseFloat(parts[0].split(":")[1]);
-          const yVal = parseFloat(parts[1].split(":")[1]);
-          const zVal = parseFloat(parts[2].split(":")[1]);
-          setMotorPos({ x: xVal, y: yVal, z: zVal });
+          setTargetX(parts[0].replace("X:", ""));
+          setTargetY(parts[1].replace("Y:", ""));
+          setTargetZ(parts[2].replace("Z:", ""));
+          
+          setMotorPos({
+            x: parseFloat(parts[0].replace("X:", "")),
+            y: parseFloat(parts[1].replace("Y:", "")),
+            z: parseFloat(parts[2].replace("Z:", ""))
+          });
         } catch (e) {
           console.error("Gagal mem-parsing koordinat motor dari lastEchoGCode:", e);
         }
