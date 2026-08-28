@@ -30,6 +30,8 @@ class GridScanPayload(BaseModel):
     step_y: float
     delay_ms: int
     unit: str
+    start_x: float
+    start_y: float
 
 class StitchPayload(BaseModel):
     images: List[str]

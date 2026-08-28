@@ -237,7 +237,9 @@ export default function ImageGatheringTab({
         step_x: sx,
         step_y: sy,
         delay_ms: parseInt(camDelay),
-        unit: stepUnit
+        unit: stepUnit,
+        start_x: motorPos.x,
+        start_y: motorPos.y
       });
       clearInterval(progressInterval);
       setProgress(totalGrids);

@@ -260,14 +260,7 @@ async def scan_grid(payload: GridScanPayload):
         
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         
-        # 0. PASTIKAN MODE RELATIF (G91) UNTUK AUTO-GATHER
-        await redis.publish("hardware_commands", json.dumps({
-            "action": "MOVE_MOTOR",
-            "gcode": "G91"
-        }))
-        await asyncio.sleep(0.1) # Waktu proses GRBL
-        
-        last_x, last_y = 0.0, 0.0
+        last_x, last_y = payload.start_x, payload.start_y
         feed_rate_mm_per_sec = 250.0 / 60.0  # F250
         
         for r in range(payload.rows):
@@ -275,27 +268,30 @@ async def scan_grid(payload: GridScanPayload):
                 # Snake pattern (Boustrophedon)
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
                 
-                coord_x = actual_c * payload.step_x
-                coord_y = r * payload.step_y
+                coord_x = payload.start_x + (actual_c * payload.step_x)
+                coord_y = payload.start_y + (r * payload.step_y)
                 filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
                 
-                # Hitung jarak relatif (delta) dari kotak sebelumnya ke kotak saat ini
                 dx = coord_x - last_x
                 dy = coord_y - last_y
                 
-                # 1. Gerakkan motor CNC secara RELATIF
+                # 1. Gerakkan motor CNC secara ABSOLUT
                 if dx != 0.0 or dy != 0.0:
-                    gcode = f"G1 X{dx:.3f} Y{dy:.3f} F250.0"
                     await redis.publish("hardware_commands", json.dumps({
                         "action": "MOVE_MOTOR",
-                        "gcode": gcode
+                        "gcode": "G90"
+                    }))
+                    await asyncio.sleep(0.05)
+                    await redis.publish("hardware_commands", json.dumps({
+                        "action": "MOVE_MOTOR",
+                        "gcode": f"G1 X{coord_x:.3f} Y{coord_y:.3f} F250.0"
                     }))
                 
                 # Hitung jarak tempuh untuk sinkronisasi waktu nyata
                 distance = math.sqrt(dx**2 + dy**2)
                 travel_time = distance / feed_rate_mm_per_sec if distance > 0 else 0
                 
-                # Simpan posisi target absolut virtual
+                # Simpan posisi target absolut
                 last_x, last_y = coord_x, coord_y
                 
                 # 2. Tunggu motor bergerak + delay kamera (settle time)
