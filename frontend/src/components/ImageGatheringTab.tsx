@@ -46,7 +46,6 @@ export default function ImageGatheringTab({
   videoSrc,
   cameraActive,
   wsRef,
-  onRefreshFolders,
   lastEchoGCode
 }: ImageGatheringTabProps) {
   const { isDarkMode, globalVirtualKeyboard } = useGlobalContext();
