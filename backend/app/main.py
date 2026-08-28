@@ -64,7 +64,7 @@ app.include_router(logs.router)
 
 # Penanda build — ganti string ini setiap deploy untuk memastikan kontainer
 # yang berjalan benar-benar memuat kode terbaru (cek: GET / -> "build").
-BUILD_MARKER = "2026-08-28-grid-relative-origin+scan-progress"
+BUILD_MARKER = "2026-08-28-async-grid-scan"
 
 @app.get("/", tags=["Health Check"])
 async def root():

@@ -197,71 +197,52 @@ export default function ImageGatheringTab({
   const handleStartAuto = async () => {
     cancelRef.current = false;
     setIsProcessing(true);
-    setProcessTask('Mengambil Gambar & Koordinat CNC...');
+    setProcessTask('Memulai pemindaian...');
     setTimerTick(0);
     setProgress(0);
-    setProcessTimes({ scan: 0, stitch: 0, total: 0 }); 
-    
-    const startTime = new Date().getTime();
+    setProcessTimes({ scan: 0, stitch: 0, total: 0 });
+
+    const startTime = Date.now();
     const totalGrids = c * r;
 
-    // Progress bar digerakkan oleh event NYATA per-tile dari backend
-    // (SCAN_PROGRESS via WebSocket), bukan perkiraan waktu buta yang selalu
-    // selesai lebih cepat dari mesin. Perkiraan waktu hanya dipakai sebagai
-    // fallback lambat kalau event WS tidak sampai (mis. Redis mock).
-    let sawWsProgress = false;
-    const feed_rate_mm_per_sec = 250.0 / 60.0;
-    const perTileEstMs = ((Math.max(0.5, sy / feed_rate_mm_per_sec)
-        + (parseInt(camDelay) / 1000.0) + 1.0)) * 1000;
-
-    const fallbackInterval = setInterval(() => {
-      if (sawWsProgress) return; // event nyata mengambil alih
-      setProgress(prev => Math.min(prev + 1, totalGrids - 1)); // jangan pernah "selesai" sendiri
-    }, Math.max(400, perTileEstMs));
+    // Scan berjalan ASINKRON di backend (background task). Frontend TIDAK
+    // menunggu response HTTP panjang (Cloudflare memutus di ~120 dtk) — cukup
+    // dengarkan event SCAN_PROGRESS / SCAN_COMPLETE / SCAN_FAILED via WebSocket,
+    // dengan polling /scan/status sebagai cadangan kalau WS sempat putus.
+    let finished = false;
+    let lastWsEventAt = Date.now();
+    let keepAlive: ReturnType<typeof setInterval> | undefined;
+    let poller: ReturnType<typeof setInterval> | undefined;
 
     const onWsMessage = (ev: MessageEvent) => {
       try {
         const m = JSON.parse(ev.data);
         if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
-          sawWsProgress = true;
+          lastWsEventAt = Date.now();
           setProgress(Math.min(m.index, totalGrids));
           setProcessTask(`Tile ${m.index}/${m.total} — X:${m.coordX} Y:${m.coordY}`);
         } else if (m.event === 'SCAN_COMPLETE') {
-          sawWsProgress = true;
-          setProgress(totalGrids);
+          finishSuccess(m.images || []);
+        } else if (m.event === 'SCAN_FAILED') {
+          finishError(m.detail);
         }
       } catch { /* pesan non-JSON diabaikan */ }
     };
-    wsRef.current?.addEventListener('message', onWsMessage);
 
     const cleanup = () => {
-      clearInterval(fallbackInterval);
+      if (keepAlive) clearInterval(keepAlive);
+      if (poller) clearInterval(poller);
       wsRef.current?.removeEventListener('message', onWsMessage);
     };
 
-    try {
-      // timeout: 0 -> jangan batasi durasi; grid besar bisa berjalan menit-an.
-      // (nginx juga perlu proxy_read_timeout besar — lihat nginx/default.conf)
-      const response = await api.post('/api/hardware/scan/grid', {
-        columns: c,
-        rows: r,
-        step_x: sx,
-        step_y: sy,
-        delay_ms: parseInt(camDelay),
-        unit: stepUnit,
-        start_x: motorPos.x,
-        start_y: motorPos.y
-      }, { timeout: 0 });
+    const finishSuccess = (imgs: any[]) => {
+      if (finished) return;
+      finished = true;
       cleanup();
       setProgress(totalGrids);
-      setCapturedImages(response.data.images.map((img: any) => ({
-        ...img,
-        timestamp: Date.now()
-      })));
-      const scanT = (new Date().getTime() - startTime) / 1000;
-
-      if (cancelRef.current) return;
-
+      setCapturedImages(imgs.map((img: any) => ({ ...img, timestamp: Date.now() })));
+      const scanT = (Date.now() - startTime) / 1000;
+      if (cancelRef.current) { setIsProcessing(false); return; }
       showToast('Pemindaian grid berhasil!', 'success');
       logSystemAction('Gathering Image (Grid Scan 2D) Selesai', 'SUCCESS');
       if (autoStitch) {
@@ -271,12 +252,54 @@ export default function ImageGatheringTab({
         setIsProcessing(false);
         setShowReviewModal(true);
       }
-    } catch (error: any) {
+    };
+
+    const finishError = (msg?: string) => {
+      if (finished) return;
+      finished = true;
       cleanup();
-      const detail = error?.response?.data?.detail;
-      showToast(detail || 'Proses pemindaian terputus!', 'error');
+      showToast(msg || 'Proses pemindaian terputus!', 'error');
       logSystemAction('Gathering Image (Grid Scan 2D) Gagal', 'ERROR');
       setIsProcessing(false);
+    };
+
+    wsRef.current?.addEventListener('message', onWsMessage);
+
+    // Jaga sesi tetap hidup selama scan panjang (idle-timeout server 10 menit).
+    keepAlive = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ action: 'PING' }));
+      }
+    }, 20000);
+
+    // Cadangan: kalau WS putus, tarik progres/hasil via HTTP.
+    poller = setInterval(async () => {
+      if (finished) return;
+      if (Date.now() - lastWsEventAt < 15000) return; // WS masih sehat, tak perlu polling
+      try {
+        const { data } = await api.get('/api/hardware/scan/status');
+        if (typeof data.index === 'number') setProgress(Math.min(data.index, totalGrids));
+        if (!data.running) {
+          if (data.error) finishError(data.error);
+          else if (Array.isArray(data.images) && data.images.length >= totalGrids) finishSuccess(data.images);
+        }
+      } catch { /* abaikan, coba lagi tick berikutnya */ }
+    }, 5000);
+
+    try {
+      const response = await api.post('/api/hardware/scan/grid', {
+        columns: c, rows: r, step_x: sx, step_y: sy,
+        delay_ms: parseInt(camDelay), unit: stepUnit,
+        start_x: motorPos.x, start_y: motorPos.y
+      });
+      // Backend baru membalas cepat {status:"STARTED"}. Backend lama (sinkron)
+      // membalas {status:"SUCCESS", images:[...]} -> langsung selesaikan.
+      if (response.data?.status !== 'STARTED') {
+        finishSuccess(response.data?.images || []);
+      }
+      // else: tunggu SCAN_COMPLETE dari WebSocket / poller.
+    } catch (error: any) {
+      finishError(error?.response?.data?.detail);
     }
   };
 

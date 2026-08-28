@@ -244,171 +244,191 @@ async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(
     })
     return {"status": "SUCCESS", "message": "Pengaturan CNC diterima dan disimpan."}
 
-@router.post("/scan/grid")
-async def scan_grid(payload: GridScanPayload):
-    if not hardware_bus_enabled:
-        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+# ── State grid scan async (tahan ratusan gambar tanpa kena timeout proxy) ──
+_scan_state = {
+    "running": False, "index": 0, "total": 0,
+    "images": [], "error": None, "started_at": None,
+}
+_scan_task = None  # simpan referensi agar task tidak di-GC di tengah jalan
 
+
+async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: float, timestamp: str):
+    """Loop scan grid — dijalankan sebagai background task (BUKAN di dalam
+    request HTTP) sehingga durasi berapa pun (mis. 680 gambar = puluhan menit)
+    tidak kena batas 100–120 detik Cloudflare / proxy. Progres dikirim lewat
+    WebSocket (channel Redis 'microscope_scan_progress')."""
+    import math
+    redis = await get_redis_client(REDIS_URL)
     images = []
     idx = 0
-    redis = await get_redis_client(REDIS_URL)
+    total_tiles = payload.rows * payload.columns
+    feed_rate_mm_per_sec = 250.0 / 60.0
 
+    _scan_state.update({"running": True, "index": 0, "total": total_tiles,
+                        "images": [], "error": None, "started_at": time.time()})
     try:
-        # LOGIKA NYATA KENDALI EDGE DEVICE
-        from datetime import datetime
-        import math
-        
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-
-        # ── Titik awal grid = POSISI MOTOR SAAT INI (bukan 0,0) ──────────────
-        # Ambil dari cache telemetri Edge. Jika Jetson terhubung tapi telemetri
-        # belum masuk, tunggu sebentar; kalau tetap kosong -> tolak (jangan
-        # diam-diam scan dari 0,0 dan bikin CNC "homing").
-        if motor_driver.jetson_websocket is not None:
-            waited = 0.0
-            while motor_driver.last_edge_position is None and waited < 3.0:
-                await asyncio.sleep(0.2)
-                waited += 0.2
-            if motor_driver.last_edge_position is None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Posisi motor belum diketahui dari telemetri Edge. "
-                           "Gerakkan motor sedikit atau tunggu beberapa detik lalu ulangi."
-                )
-            origin_x = motor_driver.last_edge_position["X"]
-            origin_y = motor_driver.last_edge_position["Y"]
-            print(f"[SCAN GRID] Titik awal = posisi motor saat ini: X{origin_x:.3f} Y{origin_y:.3f}")
-        else:
-            # Tidak ada Edge (mode mock) — pakai nilai dari frontend apa adanya.
-            origin_x, origin_y = payload.start_x, payload.start_y
-            print(f"[SCAN GRID] Edge offline, titik awal dari frontend: X{origin_x} Y{origin_y}")
-
-        feed_rate_mm_per_sec = 250.0 / 60.0  # F250
-        total_tiles = payload.rows * payload.columns
-
-        # Kabari frontend bahwa scan dimulai (untuk progress bar berbasis event nyata).
         await redis.publish("microscope_scan_progress", json.dumps({
             "event": "SCAN_STARTED", "total": total_tiles
         }))
 
-        # Kunci mode ABSOLUT, lalu gerak eksplisit ke posisi awal (image ke-1
-        # diambil tepat di posisi motor sekarang).
+        # Kunci mode ABSOLUT + gerak ke posisi awal (image ke-1 diambil tepat
+        # di posisi motor sekarang).
         await redis.publish("hardware_commands", json.dumps({"action": "MOVE_MOTOR", "gcode": "G90"}))
         await asyncio.sleep(0.05)
         await redis.publish("hardware_commands", json.dumps({
-            "action": "MOVE_MOTOR",
-            "gcode": f"G1 X{origin_x:.3f} Y{origin_y:.3f} F250.0"
+            "action": "MOVE_MOTOR", "gcode": f"G1 X{origin_x:.3f} Y{origin_y:.3f} F250.0"
         }))
         last_x, last_y = origin_x, origin_y
 
         for r in range(payload.rows):
             for c in range(payload.columns):
-                # Snake pattern (Boustrophedon)
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
-
                 coord_x = origin_x + (actual_c * payload.step_x)
                 coord_y = origin_y + (r * payload.step_y)
                 filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
 
                 dx = coord_x - last_x
                 dy = coord_y - last_y
-
-                # Gerak ABSOLUT ke (origin + offset). Origin = posisi motor saat
-                # scan dimulai, jadi tidak pernah menuju 0,0.
                 if dx != 0.0 or dy != 0.0:
                     await redis.publish("hardware_commands", json.dumps({
                         "action": "MOVE_MOTOR",
                         "gcode": f"G1 X{coord_x:.3f} Y{coord_y:.3f} F250.0"
                     }))
 
-                # Hitung jarak tempuh untuk sinkronisasi waktu nyata
                 distance = math.sqrt(dx**2 + dy**2)
                 travel_time = distance / feed_rate_mm_per_sec if distance > 0 else 0
-                
-                # Simpan posisi target absolut
                 last_x, last_y = coord_x, coord_y
-                
-                # 2. Tunggu motor bergerak + delay kamera (settle time)
+
                 base_delay = max(0.5, travel_time) + (payload.delay_ms / 1000.0)
-                
-                # JIKA ini adalah pergantian baris (Sumbu Y bergerak), beri waktu ekstra 1.0 detik agar getaran CNC reda
                 if c == 0 and r > 0:
                     base_delay += 1.0
-                    
                 await asyncio.sleep(base_delay)
-                
-                # Hapus file gambar lama jika ada agar Jetson (atau Mock) menimpanya
+
                 file_path = os.path.join(UPLOAD_DIR, filename)
                 if os.path.exists(file_path):
                     os.remove(file_path)
 
-                # 3. Perintahkan Edge Device (Jetson) untuk memotret dan menyimpan ke memori lokal
                 await redis.publish("hardware_commands", json.dumps({
-                    "action": "CAPTURE_IMAGE",
-                    "filename": filename
+                    "action": "CAPTURE_IMAGE", "filename": filename
                 }))
-                
-                # Beri jeda proses untuk Jetson memotret (dipercepat dari 2.0 -> 0.5 detik)
                 await asyncio.sleep(0.5)
-                
-                # 🟢 FALLBACK: Jika Jetson gagal atau terputus, backend buatkan gambar mock otomatis!
+
                 file_path = os.path.join(UPLOAD_DIR, filename)
                 if not os.path.exists(file_path):
                     try:
                         import cv2
                         import numpy as np
                         import random
-                        # Buat gambar random dengan warna acak agar terlihat perbedaannya setiap capture
                         img = np.zeros((720, 1280, 3), dtype=np.uint8)
                         img[:] = (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
-                        cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {filename}", (50, 360), 
+                        cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {filename}", (50, 360),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
                         cv2.imwrite(file_path, img)
-                        print(f"[BACKEND FALLBACK] Meng-generate gambar cadangan karena Jetson tidak merespon: {file_path}")
+                        print(f"[BACKEND FALLBACK] Gambar cadangan: {file_path}")
                     except Exception as e:
-                        print(f"[BACKEND FALLBACK ERROR] Gagal membuat gambar cadangan: {e}")
-                
+                        print(f"[BACKEND FALLBACK ERROR] {e}")
+
                 images.append({
-                    "index": idx,
-                    "filename": filename,
-                    "coordX": round(coord_x, 2),
-                    "coordY": round(coord_y, 2),
-                    "gridX": c,
-                    "gridY": r
+                    "index": idx, "filename": filename,
+                    "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
+                    "gridX": c, "gridY": r,
                 })
                 idx += 1
+                _scan_state["index"] = idx
+                _scan_state["images"] = images
 
-                # Progress NYATA per-tile -> frontend menggerakkan bar dari sini,
-                # bukan dari perkiraan waktu buta.
                 await redis.publish("microscope_scan_progress", json.dumps({
-                    "event": "SCAN_PROGRESS",
-                    "index": idx,
-                    "total": total_tiles,
-                    "filename": filename,
-                    "coordX": round(coord_x, 2),
-                    "coordY": round(coord_y, 2)
+                    "event": "SCAN_PROGRESS", "index": idx, "total": total_tiles,
+                    "filename": filename, "coordX": round(coord_x, 2), "coordY": round(coord_y, 2)
                 }))
 
+        _scan_state["running"] = False
         await redis.publish("microscope_scan_progress", json.dumps({
-            "event": "SCAN_COMPLETE", "total": len(images)
+            "event": "SCAN_COMPLETE", "total": len(images), "images": images
         }))
+        print(f"[SCAN GRID] Selesai: {len(images)} gambar.")
     except Exception as exc:
+        _scan_state["running"] = False
+        _scan_state["error"] = str(exc)
+        print(f"[SCAN GRID ERROR] {exc}")
         try:
             await redis.publish("microscope_scan_progress", json.dumps({
-                "event": "SCAN_FAILED", "detail": str(getattr(exc, "detail", exc))
+                "event": "SCAN_FAILED", "detail": str(exc)
             }))
         except Exception:
             pass
-        raise
     finally:
-        # Kembalikan ke Absolute Mode setelah scan selesai
-        await redis.publish("hardware_commands", json.dumps({
-            "action": "MOVE_MOTOR",
-            "gcode": "G90"
-        }))
+        try:
+            await redis.publish("hardware_commands", json.dumps({"action": "MOVE_MOTOR", "gcode": "G90"}))
+        except Exception:
+            pass
         await redis.close()
 
-    return {"status": "SUCCESS", "images": images}
+
+@router.post("/scan/grid")
+async def scan_grid(payload: GridScanPayload):
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    if _scan_state["running"]:
+        raise HTTPException(status_code=409, detail="Sebuah grid scan masih berjalan. Tunggu sampai selesai.")
+
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    # ── Titik awal grid = POSISI MOTOR SAAT INI (bukan 0,0) ──
+    if motor_driver.jetson_websocket is not None:
+        waited = 0.0
+        while motor_driver.last_edge_position is None and waited < 3.0:
+            await asyncio.sleep(0.2)
+            waited += 0.2
+        if motor_driver.last_edge_position is None:
+            raise HTTPException(status_code=409,
+                detail="Posisi motor belum diketahui dari telemetri Edge. "
+                       "Gerakkan motor sedikit atau tunggu beberapa detik lalu ulangi.")
+        origin_x = motor_driver.last_edge_position["X"]
+        origin_y = motor_driver.last_edge_position["Y"]
+        print(f"[SCAN GRID] Titik awal = posisi motor saat ini: X{origin_x:.3f} Y{origin_y:.3f}")
+    else:
+        origin_x, origin_y = payload.start_x, payload.start_y
+        print(f"[SCAN GRID] Edge offline, titik awal dari frontend: X{origin_x} Y{origin_y}")
+
+    total_tiles = payload.rows * payload.columns
+
+    # Rencana lengkap (filename + koordinat) supaya frontend tahu daftar penuh
+    # tanpa menunggu scan selesai. Urutan idx = urutan loop (r luar, c dalam),
+    # jadi nama file cocok persis dengan yang dibuat _run_grid_scan.
+    planned = []
+    pidx = 0
+    for r in range(payload.rows):
+        for c in range(payload.columns):
+            actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
+            cx = origin_x + (actual_c * payload.step_x)
+            cy = origin_y + (r * payload.step_y)
+            planned.append({
+                "index": pidx,
+                "filename": f"IMG_{timestamp}_{str(pidx+1).zfill(4)}.jpg",
+                "coordX": round(cx, 2), "coordY": round(cy, 2),
+                "gridX": c, "gridY": r,
+            })
+            pidx += 1
+
+    # Jalankan sebagai background task -> HTTP balas < 1 detik.
+    global _scan_task
+    _scan_task = asyncio.create_task(_run_grid_scan(payload, origin_x, origin_y, timestamp))
+
+    return {"status": "STARTED", "total": total_tiles, "images": planned}
+
+
+@router.get("/scan/status")
+async def scan_status():
+    """Polling untuk memulihkan progres kalau WebSocket sempat putus."""
+    return {
+        "running": _scan_state["running"],
+        "index": _scan_state["index"],
+        "total": _scan_state["total"],
+        "error": _scan_state["error"],
+        "images": _scan_state["images"],
+    }
 
 @router.post("/scan/retake")
 async def retake_grid_image(payload: RetakePayload):
