@@ -6,7 +6,7 @@ import bcrypt
 # Konfigurasi Token JWT (Gunakan SECRET_KEY kustom untuk keamanan lab)
 SECRET_KEY = "UNDIP_BRIN_MICROSCOPY_SECRET_KEY_SUPER_SECURE"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 120 # Token aktif selama 2 jam
+ACCESS_TOKEN_EXPIRE_MINUTES = 720 # Token aktif selama 12 jam (instrumen lab, sesi panjang)
 
 def hash_password(password: str) -> str:
     # Mengubah string password menjadi bytes sebelum di-hash

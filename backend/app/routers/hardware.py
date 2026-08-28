@@ -651,8 +651,7 @@ class RoomManager:
         return count
 
     async def connect(self, websocket: WebSocket, username: str, role: str):
-        await websocket.accept()
-        
+        # websocket.accept() sudah dilakukan di client_websocket_endpoint.
         async with self.lock:
             if self.get_user_connection_count(username) >= 3:
                 try:
@@ -868,16 +867,23 @@ async def startup_event():
 @router.websocket("/client/ws")
 async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
     """Endpoint tempat browser user (React) terhubung untuk memantau & mengontrol instrumen."""
+    # Terima handshake DULU, baru validasi token. Kalau ditolak sebelum accept(),
+    # browser hanya melihat kegagalan generik (close code 1006) dan tak bisa
+    # membedakan "token kadaluarsa" dari "jaringan putus". Dengan accept lebih
+    # dulu, kita bisa menutup memakai kode khusus 4001 yang dibaca frontend.
+    await websocket.accept()
+
     if not token:
-        await websocket.close(code=1008)
+        await websocket.close(code=4001)
         return
-        
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub", "Unknown")
         role = payload.get("role", "user")
     except JWTError:
-        await websocket.close(code=1008)
+        print("[VPS CLIENT] Koneksi ditolak: token JWT kadaluarsa / tidak valid.")
+        await websocket.close(code=4001)
         return
 
     redis = await get_redis_client(REDIS_URL)

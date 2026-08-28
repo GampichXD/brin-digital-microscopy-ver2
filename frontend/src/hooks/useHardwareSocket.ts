@@ -144,6 +144,16 @@ export function useHardwareSocket({
 
     ws.onclose = (event) => {
       console.log(`[GLOBAL WEBSOCKET] Putus sirkuit broker (Code: ${event.code}). Memicu siaga.`);
+
+      // 4001 = token JWT kadaluarsa/invalid (dikirim server setelah accept).
+      // 1008 = policy violation. Keduanya berarti sesi login tidak sah lagi.
+      if (event.code === 4001 || event.code === 1008) {
+        localStorage.removeItem('token');
+        alert('Sesi login Anda telah berakhir. Silakan login kembali.');
+        window.location.reload();
+        return;
+      }
+
       if (wsRef.current === ws) {
         wsRef.current = null;
         setVideoSrc(null);
