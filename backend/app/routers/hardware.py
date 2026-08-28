@@ -260,43 +260,45 @@ async def scan_grid(payload: GridScanPayload):
         
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         
-        # 0. DEKLARASIKAN TITIK AWAL SEBAGAI 0,0 (G92 Relative Homing)
+        # 0. PASTIKAN MODE RELATIF (G91) UNTUK AUTO-GATHER
         await redis.publish("hardware_commands", json.dumps({
             "action": "MOVE_MOTOR",
-            "gcode": "G92 X0 Y0 Z0"
+            "gcode": "G91"
         }))
-        await asyncio.sleep(0.1) # Waktu proses GRBL sebentar
+        await asyncio.sleep(0.1) # Waktu proses GRBL
         
-        last_x, last_y = 0.0, 0.0  # Asumsikan mulai dari 0,0 (karena sudah di G92)
-        feed_rate_mm_per_sec = 250.0 / 60.0  # F250 berarti 250mm per menit
+        last_x, last_y = 0.0, 0.0
+        feed_rate_mm_per_sec = 250.0 / 60.0  # F250
         
         for r in range(payload.rows):
             for c in range(payload.columns):
-                # Snake pattern (Boustrophedon) untuk meminimalkan gerakan Y yang sia-sia
-                # Jika baris ganjil, gerak dari kanan ke kiri
+                # Snake pattern (Boustrophedon)
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
                 
                 coord_x = actual_c * payload.step_x
                 coord_y = r * payload.step_y
                 filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
                 
-                # 1. Gerakkan motor CNC di Edge Device
-                gcode = f"G1 X{coord_x} Y{coord_y} F250.0"
+                # Hitung jarak relatif (delta) dari kotak sebelumnya ke kotak saat ini
+                dx = coord_x - last_x
+                dy = coord_y - last_y
                 
-                # PUBLISH KE REDIS AGAR EDGE DEVICE BERGERAK
-                await redis.publish("hardware_commands", json.dumps({
-                    "action": "MOVE_MOTOR",
-                    "gcode": gcode
-                }))
+                # 1. Gerakkan motor CNC secara RELATIF
+                if dx != 0.0 or dy != 0.0:
+                    gcode = f"G1 X{dx:.3f} Y{dy:.3f} F250.0"
+                    await redis.publish("hardware_commands", json.dumps({
+                        "action": "MOVE_MOTOR",
+                        "gcode": gcode
+                    }))
                 
                 # Hitung jarak tempuh untuk sinkronisasi waktu nyata
-                distance = math.sqrt((coord_x - last_x)**2 + (coord_y - last_y)**2)
+                distance = math.sqrt(dx**2 + dy**2)
                 travel_time = distance / feed_rate_mm_per_sec if distance > 0 else 0
                 
-                # Simpan posisi terakhir
+                # Simpan posisi target absolut virtual
                 last_x, last_y = coord_x, coord_y
                 
-                # 2. Tunggu motor bergerak + delay kamera (settle time) dari UI
+                # 2. Tunggu motor bergerak + delay kamera (settle time)
                 base_delay = max(0.5, travel_time) + (payload.delay_ms / 1000.0)
                 
                 # JIKA ini adalah pergantian baris (Sumbu Y bergerak), beri waktu ekstra 1.0 detik agar getaran CNC reda
@@ -346,6 +348,11 @@ async def scan_grid(payload: GridScanPayload):
                 })
                 idx += 1
     finally:
+        # Kembalikan ke Absolute Mode setelah scan selesai
+        await redis.publish("hardware_commands", json.dumps({
+            "action": "MOVE_MOTOR",
+            "gcode": "G90"
+        }))
         await redis.close()
         
     return {"status": "SUCCESS", "images": images}
