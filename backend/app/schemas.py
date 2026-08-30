@@ -34,10 +34,18 @@ class GridScanPayload(BaseModel):
     start_y: float
 
 class StitchPayload(BaseModel):
-    images: List[str]
-    # Koordinat X/Y tiap tile (grid scan tidak menaruh koordinat di nama file).
-    # Item: {"filename": str, "coordX": float, "coordY": float}
+    images: List[str] = []
+    # Info tiap tile. Item bisa berisi:
+    #   {"filename": str, "coordX": float, "coordY": float, "gridX": int, "gridY": int}
     tiles: Optional[List[Dict[str, Any]]] = None
+    # Pilihan model/backend stitching: sp_lg_tensorrt | sp_lg_pytorch | sp_lg_onnx
+    model: Optional[str] = "sp_lg_tensorrt"
+
+class InputTileFromDataset(BaseModel):
+    folder_id: str
+    image_name: str
+    grid_x: int
+    grid_y: int
 
 class RetakePayload(BaseModel):
     coord_x: float

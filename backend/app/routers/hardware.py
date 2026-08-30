@@ -1,14 +1,15 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException, Query, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException, Query, Depends, UploadFile, File, Form
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from ..services.auth_service import SECRET_KEY, ALGORITHM
-from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload, AdminRoomActionPayload
+from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload, AdminRoomActionPayload, InputTileFromDataset
 import time
 import json
 import asyncio
 import os
+import shutil
 import base64
 import psutil
 import uuid
@@ -30,6 +31,11 @@ hardware_bus_enabled = True
 UPLOAD_DIR = "./static/uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
+
+DATASET_DIR = "./static/datasets"
+
+# Model tile stitching yang didukung -> backend cfg SP_LG.
+STITCH_MODELS = {"sp_lg_tensorrt", "sp_lg_pytorch", "sp_lg_onnx"}
 
 
 async def publish_hardware_command(payload: dict) -> None:
@@ -247,9 +253,15 @@ async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(
 # ── State grid scan async (tahan ratusan gambar tanpa kena timeout proxy) ──
 _scan_state = {
     "running": False, "index": 0, "total": 0,
-    "images": [], "error": None, "started_at": None,
+    "images": [], "error": None, "started_at": None, "cancel": False,
 }
 _scan_task = None  # simpan referensi agar task tidak di-GC di tengah jalan
+
+
+def _tile_name(timestamp: str, row: int, col: int) -> str:
+    """Nama file per POSISI GRID (bukan urutan scan). Cocok pola SP_LG
+    'tile_r<row>_c<col>' sehingga stitching tidak bergantung urutan boustrophedon."""
+    return f"IMG_{timestamp}_r{row}_c{col}.jpg"
 
 
 async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: float, timestamp: str):
@@ -265,7 +277,9 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
     feed_rate_mm_per_sec = 250.0 / 60.0
 
     _scan_state.update({"running": True, "index": 0, "total": total_tiles,
-                        "images": [], "error": None, "started_at": time.time()})
+                        "images": [], "error": None, "started_at": time.time(),
+                        "cancel": False})
+    cancelled = False
     try:
         await redis.publish("microscope_scan_progress", json.dumps({
             "event": "SCAN_STARTED", "total": total_tiles
@@ -281,11 +295,16 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
         last_x, last_y = origin_x, origin_y
 
         for r in range(payload.rows):
+            if cancelled:
+                break
             for c in range(payload.columns):
+                if _scan_state["cancel"]:
+                    cancelled = True
+                    break
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
                 coord_x = origin_x + (actual_c * payload.step_x)
                 coord_y = origin_y + (r * payload.step_y)
-                filename = f"IMG_{timestamp}_{str(idx+1).zfill(4)}.jpg"
+                filename = _tile_name(timestamp, r, actual_c)
 
                 dx = coord_x - last_x
                 dy = coord_y - last_y
@@ -331,7 +350,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                 images.append({
                     "index": idx, "filename": filename,
                     "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
-                    "gridX": c, "gridY": r,
+                    "gridX": actual_c, "gridY": r,
                 })
                 idx += 1
                 _scan_state["index"] = idx
@@ -343,10 +362,16 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                 }))
 
         _scan_state["running"] = False
-        await redis.publish("microscope_scan_progress", json.dumps({
-            "event": "SCAN_COMPLETE", "total": len(images), "images": images
-        }))
-        print(f"[SCAN GRID] Selesai: {len(images)} gambar.")
+        if cancelled:
+            await redis.publish("microscope_scan_progress", json.dumps({
+                "event": "SCAN_CANCELLED", "total": len(images), "images": images
+            }))
+            print(f"[SCAN GRID] Dibatalkan setelah {len(images)} gambar.")
+        else:
+            await redis.publish("microscope_scan_progress", json.dumps({
+                "event": "SCAN_COMPLETE", "total": len(images), "images": images
+            }))
+            print(f"[SCAN GRID] Selesai: {len(images)} gambar.")
     except Exception as exc:
         _scan_state["running"] = False
         _scan_state["error"] = str(exc)
@@ -371,6 +396,7 @@ async def scan_grid(payload: GridScanPayload):
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
     if _scan_state["running"]:
         raise HTTPException(status_code=409, detail="Sebuah grid scan masih berjalan. Tunggu sampai selesai.")
+    _scan_state["cancel"] = False
 
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -406,9 +432,9 @@ async def scan_grid(payload: GridScanPayload):
             cy = origin_y + (r * payload.step_y)
             planned.append({
                 "index": pidx,
-                "filename": f"IMG_{timestamp}_{str(pidx+1).zfill(4)}.jpg",
+                "filename": _tile_name(timestamp, r, actual_c),
                 "coordX": round(cx, 2), "coordY": round(cy, 2),
-                "gridX": c, "gridY": r,
+                "gridX": actual_c, "gridY": r,
             })
             pidx += 1
 
@@ -428,7 +454,18 @@ async def scan_status():
         "total": _scan_state["total"],
         "error": _scan_state["error"],
         "images": _scan_state["images"],
+        "cancelled": _scan_state["cancel"],
     }
+
+
+@router.post("/scan/cancel")
+async def scan_cancel():
+    """Batalkan grid scan yang sedang berjalan. Loop akan berhenti di tile
+    berikutnya lalu mengirim event SCAN_CANCELLED."""
+    if not _scan_state["running"]:
+        return {"status": "IDLE", "message": "Tidak ada scan yang berjalan."}
+    _scan_state["cancel"] = True
+    return {"status": "CANCELLING"}
 
 @router.post("/scan/retake")
 async def retake_grid_image(payload: RetakePayload):
@@ -498,40 +535,84 @@ async def retake_grid_image(payload: RetakePayload):
         
     return {"status": "SUCCESS", "filename": payload.filename}
 
+STITCH_OUTPUT = "stitched_ta_output.jpg"
+
+
 @router.post("/stitch")
 async def stitch_images(payload: StitchPayload):
+    """Mulai tile stitching di Edge. ASINKRON: balas cepat, hasil dilaporkan
+    lewat WebSocket (event STITCH_COMPLETE / STITCH_FAILED) — sama seperti grid
+    scan, supaya tidak kena batas waktu proxy untuk mosaik besar."""
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
-    
-    # LOGIKA NYATA INTEGRASI AI EDGE DEVICE
-    output_filename = "stitched_ta_output.jpg"
-    output_path = os.path.join(UPLOAD_DIR, output_filename)
-    
-    # Hapus file lama jika ada agar tidak rancu dengan hasil sebelumnya
+
+    model = (payload.model or "sp_lg_tensorrt").lower()
+    if model not in STITCH_MODELS:
+        model = "sp_lg_tensorrt"
+
+    output_path = os.path.join(UPLOAD_DIR, STITCH_OUTPUT)
     if os.path.exists(output_path):
         os.remove(output_path)
 
+    # Lengkapi tiap tile dengan URL publik agar Edge bisa mengunduh gambar yang
+    # tidak ada di memori lokalnya (mis. mode "Input Images" dari database/upload).
+    tiles = payload.tiles
+    if tiles:
+        for t in tiles:
+            fn = t.get("filename")
+            if fn and not t.get("url"):
+                t["url"] = f"/static/uploads/{fn}"
+
     redis = await get_redis_client(REDIS_URL)
     try:
-        # Perintahkan Jetson Edge untuk memulai deep learning tile stitching hanya pada gambar-gambar spesifik sesi ini
         await redis.publish("hardware_commands", json.dumps({
             "action": "START_STITCHING",
             "images": payload.images,
-            "tiles": payload.tiles
+            "tiles": tiles,
+            "model": model,
         }))
     finally:
         await redis.close()
 
-    # Polling menunggu file dari Edge masuk ke VPS (maksimal 60 detik)
-    timeout = 60
-    elapsed = 0
-    while elapsed < timeout:
-        if os.path.exists(output_path):
-            return {"status": "SUCCESS", "message": "Proses penyatuan ubin berhasil secara nyata"}
-        await asyncio.sleep(1)
-        elapsed += 1
-        
-    raise HTTPException(status_code=504, detail="Timeout menunggu Edge Device menyelesaikan stitching AI.")
+    return {"status": "STARTED", "model": model}
+
+
+@router.get("/stitch/status")
+async def stitch_status():
+    """Cadangan bila event WebSocket STITCH_COMPLETE terlewat."""
+    output_path = os.path.join(UPLOAD_DIR, STITCH_OUTPUT)
+    return {"done": os.path.exists(output_path), "filename": STITCH_OUTPUT}
+
+
+@router.post("/stitch/place")
+async def stitch_place_upload(
+    file: UploadFile = File(...),
+    grid_x: int = Form(...),
+    grid_y: int = Form(...),
+    session: str = Form("input"),
+):
+    """Mode 'Input Images': taruh satu gambar dari PERANGKAT user ke sel grid
+    (grid_x, grid_y). Nama file otomatis mengikuti posisi grid."""
+    safe_session = "".join(ch for ch in session if ch.isalnum() or ch in "-_")[:24] or "input"
+    filename = f"IMG_{safe_session.upper()}_r{grid_y}_c{grid_x}.jpg"
+    dst = os.path.join(UPLOAD_DIR, filename)
+    with open(dst, "wb") as buf:
+        shutil.copyfileobj(file.file, buf)
+    return {"filename": filename, "url": f"/static/uploads/{filename}", "gridX": grid_x, "gridY": grid_y}
+
+
+@router.post("/stitch/place-from-dataset")
+async def stitch_place_from_dataset(payload: InputTileFromDataset):
+    """Mode 'Input Images': taruh satu gambar dari DATABASE (dataset folder) ke
+    sel grid. Disalin ke uploads dengan nama sesuai posisi grid."""
+    src = os.path.join(DATASET_DIR, payload.folder_id, payload.image_name)
+    if not os.path.exists(src):
+        raise HTTPException(status_code=404, detail="Gambar dataset tidak ditemukan.")
+    filename = f"IMG_INPUT_r{payload.grid_y}_c{payload.grid_x}.jpg"
+    dst = os.path.join(UPLOAD_DIR, filename)
+    shutil.copy2(src, dst)
+    return {"filename": filename, "url": f"/static/uploads/{filename}",
+            "gridX": payload.grid_x, "gridY": payload.grid_y}
 
 
 @router.post("/bus/toggle")
@@ -623,7 +704,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
             elif event_type in ["IMAGE_CAPTURED", "STITCHING_COMPLETE", "COUNTING_COMPLETE", "EDIT_COMPLETE"]:
                 filename = data.get("filename", "output.jpg")
                 img_b64_data = data.get("image_data", "")
-                
+
                 if img_b64_data and "," in img_b64_data:
                     header, base64_str = img_b64_data.split(",", 1)
                     try:
@@ -635,6 +716,16 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                         await redis.publish("microscope_analysis_result", message)
                     except Exception as err:
                         print(f"[VPS STORAGE ERROR] Gagal mendecode gambar Base64: {err}")
+
+                if event_type == "STITCHING_COMPLETE":
+                    await redis.publish("microscope_scan_progress", json.dumps({
+                        "event": "STITCH_COMPLETE", "filename": filename
+                    }))
+
+            elif event_type in ["STITCHING_FAILED", "COUNTING_FAILED", "EDIT_FAILED"]:
+                await redis.publish("microscope_scan_progress", json.dumps({
+                    "event": "STITCH_FAILED", "detail": data.get("detail", "Proses AI gagal di Edge Device.")
+                }))
                 
     except WebSocketDisconnect:
         print("[VPS ROUTER WARNING] Koneksi Jetson Orin Nano terputus dari sirkuit cloud.")

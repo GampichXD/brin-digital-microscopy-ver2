@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import api from '../utils/api';
-import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers, CameraOff, Image } from 'lucide-react';
+import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MousePointerSquareDashed, Gamepad2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X, Save, Scan, Clock, ArrowUpLeft, Move, FolderPlus, Map, RefreshCcw, Trash2, AlertTriangle, Layers, CameraOff, Image, Upload, Database, Boxes, Cpu, Plus } from 'lucide-react';
+
+const STITCH_MODELS = [
+  { value: 'sp_lg_tensorrt', label: 'SuperPoint + LightGlue (TensorRT)' },
+  { value: 'sp_lg_pytorch', label: 'SuperPoint + LightGlue (PyTorch)' },
+  { value: 'sp_lg_onnx', label: 'SuperPoint + LightGlue (ONNX)' },
+];
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';
 import { logSystemAction } from '../utils/logger';
@@ -50,7 +56,7 @@ export default function ImageGatheringTab({
 }: ImageGatheringTabProps) {
   const { isDarkMode, globalVirtualKeyboard } = useGlobalContext();
   const { t } = useTranslation();
-  const [gatherMode, setGatherMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const [gatherMode, setGatherMode] = useState<'AUTO' | 'MANUAL' | 'INPUT'>('AUTO');
   const [cols, setCols] = useState("5");
   const [rows, setRows] = useState("4");
   const [stepUnit, setStepUnit] = useState<'mm' | 'inch'>('mm');
@@ -69,6 +75,7 @@ export default function ImageGatheringTab({
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processTask, setProcessTask] = useState('');
+  const [processKind, setProcessKind] = useState<'scan' | 'stitch' | 'manual' | ''>('');
   const [progress, setProgress] = useState(0);
   const [timerTick, setTimerTick] = useState(0);
   const [processTimes, setProcessTimes] = useState({ scan: 0, stitch: 0, total: 0 });
@@ -80,8 +87,23 @@ export default function ImageGatheringTab({
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [targetSaveMode, setTargetSaveMode] = useState<'GRID' | 'STITCH' | 'ALL'>('ALL');
-  
+
+  // ── Tile stitching: pilihan model (dipakai AUTO/MANUAL/INPUT) ──
+  const [stitchModel, setStitchModel] = useState<string>(STITCH_MODELS[0].value);
+
+  // ── Mode INPUT IMAGES ──
+  type InputTile = { gridX: number; gridY: number; filename: string; url: string; preview?: string };
+  const [showInputModal, setShowInputModal] = useState(false);
+  const [inputTiles, setInputTiles] = useState<Record<string, InputTile>>({});
+  const [inputTarget, setInputTarget] = useState<{ gx: number; gy: number } | null>(null);
+  const [showDbPicker, setShowDbPicker] = useState(false);
+  const [dbPickerFolder, setDbPickerFolder] = useState<string | null>(null);
+  const [dbPickerImages, setDbPickerImages] = useState<{ name: string }[]>([]);
+  const [inputBusy, setInputBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const cancelRef = useRef(false);
+  const stitchAbortRef = useRef<(() => void) | null>(null);
   const joystickRef = useRef<HTMLDivElement>(null);
   const joystickActive = useRef(false);
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
@@ -197,6 +219,7 @@ export default function ImageGatheringTab({
   const handleStartAuto = async () => {
     cancelRef.current = false;
     setIsProcessing(true);
+    setProcessKind('scan');
     setProcessTask('Memulai pemindaian...');
     setTimerTick(0);
     setProgress(0);
@@ -223,6 +246,8 @@ export default function ImageGatheringTab({
           setProcessTask(`Tile ${m.index}/${m.total} — X:${m.coordX} Y:${m.coordY}`);
         } else if (m.event === 'SCAN_COMPLETE') {
           finishSuccess(m.images || []);
+        } else if (m.event === 'SCAN_CANCELLED') {
+          finishCancelled(m.images || []);
         } else if (m.event === 'SCAN_FAILED') {
           finishError(m.detail);
         }
@@ -263,6 +288,20 @@ export default function ImageGatheringTab({
       setIsProcessing(false);
     };
 
+    const finishCancelled = (imgs: any[]) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      showToast(`Pemindaian dibatalkan (${imgs.length} gambar terambil).`, 'info');
+      logSystemAction('Gathering Image (Grid Scan 2D) Dibatalkan', 'ERROR');
+      setIsProcessing(false);
+      if (imgs.length > 0) {
+        setCapturedImages(imgs.map((img: any) => ({ ...img, timestamp: Date.now() })));
+        setProcessTimes({ scan: (Date.now() - startTime) / 1000, stitch: 0, total: (Date.now() - startTime) / 1000 });
+        setShowReviewModal(true);
+      }
+    };
+
     wsRef.current?.addEventListener('message', onWsMessage);
 
     // Jaga sesi tetap hidup selama scan panjang (idle-timeout server 10 menit).
@@ -281,6 +320,7 @@ export default function ImageGatheringTab({
         if (typeof data.index === 'number') setProgress(Math.min(data.index, totalGrids));
         if (!data.running) {
           if (data.error) finishError(data.error);
+          else if (data.cancelled) finishCancelled(data.images || []);
           else if (Array.isArray(data.images) && data.images.length >= totalGrids) finishSuccess(data.images);
         }
       } catch { /* abaikan, coba lagi tick berikutnya */ }
@@ -309,6 +349,7 @@ export default function ImageGatheringTab({
     const filename = `IMG_MANUAL_${timestamp}_${String(newIndex + 1).padStart(4, '0')}.jpg`;
 
     setIsProcessing(true);
+    setProcessKind('manual');
     setProcessTask(`Mengambil Gambar Manual (X:${motorPos.x}, Y:${motorPos.y})...`);
     setTimerTick(0);
     try {
@@ -318,13 +359,13 @@ export default function ImageGatheringTab({
         filename: filename,
         delay_ms: parseInt(camDelay)
       });
-      setCapturedImages(prev => [...prev, { 
-        index: newIndex, 
-        filename: filename, 
-        coordX: motorPos.x, 
-        coordY: motorPos.y, 
-        gridX: 0, 
-        gridY: 0,
+      setCapturedImages(prev => [...prev, {
+        index: newIndex,
+        filename: filename,
+        coordX: motorPos.x,
+        coordY: motorPos.y,
+        gridX: -1,   // -1 -> stitching pakai koordinat mm, bukan indeks grid
+        gridY: -1,
         timestamp: Date.now()
       }]);
       showToast('Gambar manual berhasil diambil!', 'success');
@@ -337,35 +378,176 @@ export default function ImageGatheringTab({
     }
   };
 
-  const executeStitching = async (scanTParam = processTimes.scan) => {
+  // Inti proses stitching — ASINKRON: backend balas cepat, hasil datang lewat
+  // event WebSocket STITCH_COMPLETE / STITCH_FAILED (fallback polling).
+  const runStitching = async (
+    tilesPayload: { images: (string | null)[]; tiles: any[] },
+    scanTParam = 0,
+  ) => {
     setShowReviewModal(false);
+    setShowInputModal(false);
     setIsProcessing(true);
+    setProcessKind('stitch');
     setProcessTask('AI Tile Stitching Berjalan di Edge Device...');
     setTimerTick(0);
-    const stitchStart = new Date().getTime();
+    setProgress(30);
+    const stitchStart = Date.now();
+    let finished = false;
+
+    const done = (ok: boolean, detail?: string) => {
+      if (finished) return;
+      finished = true;
+      stitchAbortRef.current = null;
+      clearInterval(poll); clearInterval(keepAlive); clearTimeout(watchdog);
+      wsRef.current?.removeEventListener('message', onWs);
+      setIsProcessing(false);
+      setProgress(100);
+      const stitchT = (Date.now() - stitchStart) / 1000;
+      if (detail === '__ABORT__') return;
+      if (ok) {
+        setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
+        setShowStitchModal(true);
+        showToast('Proses tile stitching berhasil diselesaikan!', 'success');
+        logSystemAction('Tile Stitching Mosaik Selesai', 'SUCCESS');
+      } else {
+        showToast(detail || 'Proses Tile Stitching gagal!', 'error');
+        logSystemAction('Tile Stitching Mosaik Gagal', 'ERROR');
+      }
+    };
+
+    const onWs = (ev: MessageEvent) => {
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.event === 'STITCH_COMPLETE') done(true);
+        else if (m.event === 'STITCH_FAILED') done(false, m.detail);
+      } catch { /* ignore */ }
+    };
+    wsRef.current?.addEventListener('message', onWs);
+
+    const poll = setInterval(async () => {
+      if (finished) return;
+      try {
+        const { data } = await api.get('/api/hardware/stitch/status');
+        if (data.done) done(true);
+      } catch { /* ignore */ }
+    }, 4000);
+    const keepAlive = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ action: 'PING' }));
+    }, 20000);
+    const watchdog = setTimeout(() => done(false, 'Timeout menunggu Edge menyelesaikan stitching.'), 15 * 60 * 1000);
+    stitchAbortRef.current = () => done(false, '__ABORT__');
+
     try {
-      const validTiles = capturedImages.filter(img => img.filename !== null);
       await api.post('/api/hardware/stitch', {
-        images: validTiles.map(img => img.filename),
-        // Kirim koordinat X/Y tiap tile — nama file grid scan tidak memuatnya,
-        // sedangkan SP_LG butuh posisi untuk menyusun mosaik.
-        tiles: validTiles.map(img => ({
-          filename: img.filename,
-          coordX: img.coordX,
-          coordY: img.coordY,
-        })),
-      }, { timeout: 0 });
-      const stitchT = (new Date().getTime() - stitchStart) / 1000;
-      setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
-      setIsProcessing(false);
-      setShowStitchModal(true);
-      showToast('Proses tile stitching berhasil diselesaikan!', 'success');
-      logSystemAction('Tile Stitching Mosaik Selesai', 'SUCCESS');
-    } catch (_error) {
-      showToast('Proses Tile Stitching gagal!', 'error');
-      logSystemAction('Tile Stitching Mosaik Gagal', 'ERROR');
-      setIsProcessing(false);
+        images: tilesPayload.images,
+        tiles: tilesPayload.tiles,
+        model: stitchModel,
+      }, { timeout: 30000 });
+    } catch (error: any) {
+      done(false, error?.response?.data?.detail);
     }
+  };
+
+  const executeStitching = (scanTParam = processTimes.scan) => {
+    const valid = capturedImages.filter(img => img.filename !== null);
+    if (valid.length < 2) { showToast('Butuh minimal 2 gambar untuk stitching', 'error'); return; }
+    runStitching({
+      images: valid.map(img => img.filename),
+      tiles: valid.map(img => ({
+        filename: img.filename,
+        coordX: img.coordX, coordY: img.coordY,
+        gridX: img.gridX, gridY: img.gridY,
+      })),
+    }, scanTParam);
+  };
+
+  const executeStitchingInput = () => {
+    const tiles = Object.values(inputTiles);
+    if (tiles.length < 2) { showToast('Isi minimal 2 sel grid dengan gambar', 'error'); return; }
+    runStitching({
+      images: tiles.map(tl => tl.filename),
+      tiles: tiles.map(tl => ({
+        filename: tl.filename, url: tl.url,
+        gridX: tl.gridX, gridY: tl.gridY,
+      })),
+    }, 0);
+  };
+
+  // ── Handler mode INPUT IMAGES ──
+  const openCellSource = (gx: number, gy: number) => setInputTarget({ gx, gy });
+
+  const handleInputFileChosen = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !inputTarget) return;
+    const { gx, gy } = inputTarget;
+    setInputBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('grid_x', String(gx));
+      fd.append('grid_y', String(gy));
+      fd.append('session', 'input');
+      const { data } = await api.post('/api/hardware/stitch/place', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setInputTiles(prev => ({
+        ...prev,
+        [`${gy}-${gx}`]: { gridX: gx, gridY: gy, filename: data.filename, url: data.url, preview: URL.createObjectURL(file) },
+      }));
+      showToast(`Sel (${gx + 1},${gy + 1}) terisi`, 'success');
+    } catch {
+      showToast('Gagal mengunggah gambar', 'error');
+    } finally {
+      setInputBusy(false);
+      setInputTarget(null);
+    }
+  };
+
+  const openDbPicker = () => { setShowDbPicker(true); setDbPickerFolder(null); setDbPickerImages([]); };
+
+  const loadDbFolderImages = async (folderId: string) => {
+    setDbPickerFolder(folderId);
+    setInputBusy(true);
+    try {
+      const { data } = await api.get(`/api/dataset/folders/${folderId}/images`);
+      setDbPickerImages((data || []).filter((im: any) => /\.(png|jpe?g)$/i.test(im.name)));
+    } catch {
+      showToast('Gagal memuat gambar folder', 'error');
+    } finally {
+      setInputBusy(false);
+    }
+  };
+
+  const pickDbImage = async (imageName: string) => {
+    if (!inputTarget || !dbPickerFolder) return;
+    const { gx, gy } = inputTarget;
+    setInputBusy(true);
+    try {
+      const { data } = await api.post('/api/hardware/stitch/place-from-dataset', {
+        folder_id: dbPickerFolder, image_name: imageName, grid_x: gx, grid_y: gy,
+      });
+      setInputTiles(prev => ({
+        ...prev,
+        [`${gy}-${gx}`]: {
+          gridX: gx, gridY: gy, filename: data.filename, url: data.url,
+          preview: `${api.defaults.baseURL}/static/datasets/${dbPickerFolder}/${imageName}`,
+        },
+      }));
+      showToast(`Sel (${gx + 1},${gy + 1}) terisi dari database`, 'success');
+      setShowDbPicker(false);
+      setInputTarget(null);
+    } catch {
+      showToast('Gagal menempatkan gambar', 'error');
+    } finally {
+      setInputBusy(false);
+    }
+  };
+
+  const removeInputTile = (gx: number, gy: number) => {
+    setInputTiles(prev => {
+      const next = { ...prev };
+      delete next[`${gy}-${gx}`];
+      return next;
+    });
   };
 
   const removeCapturedImage = (index: number) => {
@@ -376,9 +558,12 @@ export default function ImageGatheringTab({
   const retakeImage = async (index: number, cx: number, cy: number) => {
     setShowReviewModal(false);
     setIsProcessing(true);
+    setProcessKind('manual');
     setProcessTask(`Retake Koordinat (X:${cx}, Y:${cy})...`);
     setTimerTick(0);
-    const newFilename = `IMG_${String(index+1).padStart(4, '0')}.jpg`;
+    // Pakai ulang nama file tile ini supaya posisinya di grid tidak berubah.
+    const existing = capturedImages.find(im => im.index === index);
+    const newFilename = existing?.filename || `IMG_${String(index + 1).padStart(4, '0')}.jpg`;
 
     try {
       setIsRetaking(true);
@@ -557,13 +742,48 @@ export default function ImageGatheringTab({
       {/* PANEL KANAN */}
       <div className="w-full lg:w-[45%] lg:h-full overflow-y-visible lg:overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         <div className={`flex rounded-xl border p-1 shrink-0 ${theme.panel}`}>
-          <button onClick={() => setGatherMode('AUTO')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${gatherMode === 'AUTO' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('autoGather')}</button>
-          <button onClick={() => setGatherMode('MANUAL')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${gatherMode === 'MANUAL' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('manualGather')}</button>
+          <button onClick={() => setGatherMode('AUTO')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors ${gatherMode === 'AUTO' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('autoGather')}</button>
+          <button onClick={() => setGatherMode('MANUAL')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors ${gatherMode === 'MANUAL' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('manualGather')}</button>
+          <button onClick={() => setGatherMode('INPUT')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${gatherMode === 'INPUT' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><Boxes size={13}/> Input Images</button>
         </div>
 
-        <button onClick={handleHome} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
-          <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
-        </button>
+        {gatherMode !== 'INPUT' && (
+          <button onClick={handleHome} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all text-xs shrink-0">
+            <ArrowUpLeft size={18} className="mr-2" /> KEMBALIKAN KE POJOK KIRI ATAS (0,0)
+          </button>
+        )}
+
+        {gatherMode === 'INPUT' && (
+          <>
+            <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
+              <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center mb-3 ${theme.text}`}><Grid3X3 size={16} className="mr-2 text-blue-400" /> Pengaturan Grid</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold ${theme.textMuted}`}>Kolom</span>
+                  <input readOnly={globalVirtualKeyboard} value={cols} onChange={(e) => setCols(e.target.value)} onClick={() => triggerGlobalKeypad('Jumlah Kolom', cols, setCols)} className={`w-14 h-8 text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold ${theme.textMuted}`}>Baris</span>
+                  <input readOnly={globalVirtualKeyboard} value={rows} onChange={(e) => setRows(e.target.value)} onClick={() => triggerGlobalKeypad('Jumlah Baris', rows, setRows)} className={`w-14 h-8 text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`} />
+                </div>
+              </div>
+              <p className={`text-[10px] mt-3 ${theme.textMuted}`}>{c} × {r} = {c * r} sel. Isi tiap sel dengan gambar dari perangkat atau database; nama file otomatis mengikuti posisi grid.</p>
+            </div>
+
+            <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
+              <h3 className={`text-xs font-bold uppercase tracking-wider flex items-center mb-2 ${theme.textMuted}`}><Cpu size={14} className="mr-2" /> Model Tile Stitching</h3>
+              <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-9 px-2 rounded-lg border text-xs font-bold outline-none ${theme.input}`}>
+                {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+
+            <div className="mt-auto pt-2">
+              <button onClick={() => setShowInputModal(true)} className="w-full py-4 rounded-2xl font-bold flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all">
+                <Grid3X3 size={20} className="mr-2" /> SUSUN & ISI GRID ({Object.keys(inputTiles).length}/{c * r})
+              </button>
+            </div>
+          </>
+        )}
 
           {gatherMode === 'AUTO' && (
             <>
@@ -636,6 +856,14 @@ export default function ImageGatheringTab({
                     <span className={`text-[10px] ${theme.textMuted}`}>Bypass pop-up review pecahan gambar</span>
                   </div>
                 </label>
+                {autoStitch && (
+                  <div className="mt-3">
+                    <span className={`text-[10px] font-bold flex items-center mb-1 ${theme.textMuted}`}><Cpu size={12} className="mr-1.5" /> Model Stitching</span>
+                    <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-9 px-2 rounded-lg border text-xs font-bold outline-none ${theme.input}`}>
+                      {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className={`p-3 rounded-2xl border shrink-0 flex flex-col ${theme.panel}`}>
@@ -832,7 +1060,25 @@ export default function ImageGatheringTab({
               <span>•</span>
               <span className="flex items-center"><Clock size={18} className="mr-2"/> {elapsedTimeText}</span>
             </div>
-            <button onClick={() => { cancelRef.current = true; setIsProcessing(false); }} className="mt-8 px-8 py-3 bg-red-600 rounded-full font-bold shadow-lg shadow-red-600/50 active:scale-95">{t('cancel')}</button>
+            <button
+              onClick={async () => {
+                cancelRef.current = true;
+                if (processKind === 'scan') {
+                  setProcessTask('Membatalkan pemindaian...');
+                  try { await api.post('/api/hardware/scan/cancel'); } catch { /* ignore */ }
+                  // Tunggu event SCAN_CANCELLED; paksa tutup kalau tidak datang.
+                  setTimeout(() => setIsProcessing(false), 12000);
+                } else if (processKind === 'stitch') {
+                  stitchAbortRef.current?.();
+                  showToast('Menutup pemantauan stitching (proses Edge tetap berjalan).', 'info');
+                } else {
+                  setIsProcessing(false);
+                }
+              }}
+              className="mt-8 px-8 py-3 bg-red-600 rounded-full font-bold shadow-lg shadow-red-600/50 active:scale-95"
+            >
+              {t('cancel')}
+            </button>
           </div>
         </div>
       )}
@@ -887,9 +1133,17 @@ export default function ImageGatheringTab({
                   <Scan size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">LANJUTKAN KE IMAGE ANALYSIS</span><span className="sm:hidden">ANALISIS (1 Gbr)</span>
                 </button>
               ) : (
-                <button onClick={() => executeStitching()} disabled={validImageCount === 0} className="flex-1 py-3 sm:py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20 text-[11px] xs:text-xs sm:text-base px-2 text-center">
-                  <Grid3X3 size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">LANJUTKAN KE TILE STITCHING</span><span className="sm:hidden">STITCHING</span> ({validImageCount} Gbr)
-                </button>
+                <div className="flex-1 flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <div className="flex items-center gap-2 sm:w-64">
+                    <Cpu size={16} className="text-purple-400 shrink-0" />
+                    <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-10 px-2 rounded-lg border text-[11px] font-bold outline-none ${theme.input}`}>
+                      {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => executeStitching()} disabled={validImageCount < 2} className="flex-1 py-3 sm:py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20 text-[11px] xs:text-xs sm:text-base px-2 text-center">
+                    <Grid3X3 size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">TILE STITCHING</span><span className="sm:hidden">STITCHING</span> ({validImageCount})
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1016,6 +1270,118 @@ export default function ImageGatheringTab({
           </div>
         </div>
       )}
+
+      {/* ── MODAL: INPUT IMAGES (isi tiap sel grid) ── */}
+      {showInputModal && (
+        <div className={theme.overlay}>
+          <div className={`w-[95%] max-w-5xl h-[90vh] rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
+            <div className="p-4 sm:p-6 border-b border-gray-700 flex justify-between items-center bg-black/20 shrink-0">
+              <div className="flex items-center gap-3">
+                <Boxes size={24} className="text-blue-500" />
+                <h2 className={`text-xl sm:text-2xl font-bold ${theme.text}`}>Susun Grid {c} × {r}</h2>
+              </div>
+              <button onClick={() => setShowInputModal(false)} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={22} /></button>
+            </div>
+
+            <div className="p-3 sm:p-4 border-b border-gray-700 flex flex-col sm:flex-row gap-2 sm:items-center bg-black/10 shrink-0">
+              <span className={`text-xs font-bold flex items-center ${theme.textMuted}`}><Cpu size={14} className="mr-1.5" /> Model:</span>
+              <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`h-9 px-2 rounded-lg border text-xs font-bold outline-none flex-1 sm:max-w-xs ${theme.input}`}>
+                {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <span className={`text-xs font-bold sm:ml-auto ${theme.textMuted}`}>{Object.keys(inputTiles).length}/{c * r} sel terisi</span>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 sm:p-6 bg-black/5">
+              <div className="grid gap-3 mx-auto w-fit" style={{ gridTemplateColumns: `repeat(${c}, minmax(110px, 1fr))` }}>
+                {Array.from({ length: r }).map((_, gy) =>
+                  Array.from({ length: c }).map((__, gx) => {
+                    const key = `${gy}-${gx}`;
+                    const tile = inputTiles[key];
+                    return (
+                      <div key={key} className={`aspect-square rounded-lg border-2 relative flex flex-col items-center justify-center overflow-hidden ${tile ? 'border-blue-500' : 'border-dashed border-gray-500 bg-black/10'}`}>
+                        <span className="absolute top-1 left-1 z-20 text-[9px] font-mono font-bold px-1 rounded bg-black/60 text-white">r{gy} c{gx}</span>
+                        {tile ? (
+                          <>
+                            <img src={tile.preview || `${api.defaults.baseURL}${tile.url}`} className="absolute inset-0 w-full h-full object-cover" alt={key} />
+                            <button onClick={() => removeInputTile(gx, gy)} className="absolute top-1 right-1 z-20 p-1 bg-red-500 text-white rounded hover:bg-red-600"><X size={12} /></button>
+                          </>
+                        ) : (
+                          <button onClick={() => openCellSource(gx, gy)} className="w-full h-full flex flex-col items-center justify-center text-gray-400 hover:text-blue-400 hover:bg-blue-500/5">
+                            <Plus size={22} />
+                            <span className="text-[9px] font-bold mt-1">Isi</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-6 border-t border-gray-700 flex gap-3 bg-black/20 shrink-0">
+              <button onClick={() => { setInputTiles({}); showToast('Grid dikosongkan', 'info'); }} className="px-4 py-3 rounded-xl font-bold border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm">
+                <Trash2 size={16} className="inline mr-1" /> Kosongkan
+              </button>
+              <button onClick={executeStitchingInput} disabled={Object.keys(inputTiles).length < 2} className="flex-1 py-3 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg">
+                <Grid3X3 size={18} className="mr-2" /> MULAI TILE STITCHING ({Object.keys(inputTiles).length})
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-popup: pilih sumber untuk satu sel */}
+          {inputTarget && !showDbPicker && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120]" onClick={() => setInputTarget(null)}>
+              <div className={`w-[90%] max-w-xs rounded-2xl p-5 border ${theme.panel}`} onClick={(e) => e.stopPropagation()}>
+                <h3 className={`text-sm font-bold mb-4 ${theme.text}`}>Sumber gambar untuk sel (r{inputTarget.gy} c{inputTarget.gx})</h3>
+                <div className="flex flex-col gap-2">
+                  <button onClick={() => fileInputRef.current?.click()} disabled={inputBusy} className="py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center justify-center gap-2 active:scale-95"><Upload size={16} /> Dari Perangkat</button>
+                  <button onClick={openDbPicker} disabled={inputBusy} className={`py-3 rounded-xl font-bold flex items-center justify-center gap-2 border active:scale-95 ${theme.btnTouch} ${theme.text}`}><Database size={16} /> Dari Database</button>
+                  <button onClick={() => setInputTarget(null)} className={`py-2 text-xs font-bold ${theme.textMuted}`}>Batal</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sub-modal: pilih dari dataset folder */}
+          {showDbPicker && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[130] p-4" onClick={() => setShowDbPicker(false)}>
+              <div className={`w-[95%] max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden border ${theme.panel}`} onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-black/20">
+                  <h3 className={`font-bold ${theme.text}`}>{dbPickerFolder ? 'Pilih Gambar' : 'Pilih Folder Dataset'}</h3>
+                  <button onClick={() => dbPickerFolder ? setDbPickerFolder(null) : setShowDbPicker(false)} className={`p-1.5 rounded-lg border ${theme.btnTouch} ${theme.text}`}><X size={18} /></button>
+                </div>
+                <div className="p-4 overflow-auto">
+                  {!dbPickerFolder ? (
+                    <div className="grid gap-2">
+                      {availableFolders.length === 0 && <p className={`text-xs ${theme.textMuted}`}>Belum ada folder dataset.</p>}
+                      {availableFolders.map((f) => (
+                        <button key={f.id} onClick={() => loadDbFolderImages(f.id)} className={`p-3 rounded-xl border text-left flex items-center gap-2 hover:border-blue-500 ${theme.text}`}>
+                          <FolderPlus size={16} /> <span className="font-bold text-sm">{f.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : inputBusy ? (
+                    <p className={`text-xs ${theme.textMuted}`}>Memuat...</p>
+                  ) : dbPickerImages.length === 0 ? (
+                    <p className={`text-xs ${theme.textMuted}`}>Folder ini tidak punya gambar.</p>
+                  ) : (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {dbPickerImages.map((im) => (
+                        <button key={im.name} onClick={() => pickDbImage(im.name)} disabled={inputBusy} className="aspect-square rounded-lg border border-gray-600 overflow-hidden hover:border-blue-500 relative group">
+                          <img src={`${api.defaults.baseURL}/static/datasets/${dbPickerFolder}/${im.name}`} className="w-full h-full object-cover" alt={im.name} />
+                          <span className="absolute bottom-0 inset-x-0 text-[8px] font-mono bg-black/60 text-white truncate px-1">{im.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleInputFileChosen} />
 
       {vk.visible && globalVirtualKeyboard && (
         <div className="fixed inset-0 z-[110] pointer-events-none flex items-end justify-center pb-4">
