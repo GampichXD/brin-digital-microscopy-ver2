@@ -744,7 +744,7 @@ export default function ImageGatheringTab({
         <div className={`flex rounded-xl border p-1 shrink-0 ${theme.panel}`}>
           <button onClick={() => setGatherMode('AUTO')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors ${gatherMode === 'AUTO' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('autoGather')}</button>
           <button onClick={() => setGatherMode('MANUAL')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors ${gatherMode === 'MANUAL' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('manualGather')}</button>
-          <button onClick={() => setGatherMode('INPUT')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${gatherMode === 'INPUT' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><Boxes size={13}/> Input Images</button>
+          <button onClick={() => setGatherMode('INPUT')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${gatherMode === 'INPUT' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><Boxes size={13}/> INPUT IMAGES</button>
         </div>
 
         {gatherMode !== 'INPUT' && (
