@@ -5,9 +5,9 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch: {}      # tombol "Run workflow" di UI -> deploy TIP main terbaru
 
-# Hanya SATU deploy yang boleh aktif/antre. Push baru membatalkan run lama yang
-# belum selesai -> mencegah run commit LAMA menimpa deploy commit BARU.
+# Hanya SATU deploy aktif/antre. Run baru membatalkan run lama yang belum selesai.
 concurrency:
   group: vps-deploy
   cancel-in-progress: true
@@ -18,67 +18,57 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: 📥 Mengambil Kode Terbaru (Checkout)
+      - name: 📥 Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0     # full history -> hindari shallow/grafted yang bikin ref nyangkut
-          clean: false       # JANGAN git clean: backend/static/{datasets,uploads} di-bind-mount ke kontainer
+          fetch-depth: 0
+          clean: false       # backend/static/{datasets,uploads} di-bind-mount ke kontainer
 
-      - name: 🛑 Batalkan kalau commit ini BUKAN tip branch (ada push lebih baru)
+      - name: 🔁 SELALU deploy TIP branch (bukan commit pemicu run)
         run: |
-          TIP=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
-          echo "commit run ini : ${GITHUB_SHA}"
-          echo "tip remote     : ${TIP}"
-          if [ -n "$TIP" ] && [ "$TIP" != "${GITHUB_SHA}" ]; then
-            echo "::error::Sudah ada push lebih baru (${TIP}). Deploy commit usang dibatalkan."
-            exit 1
-          fi
+          # Kunci anti-"run lama menimpa deploy baru": apa pun commit yang
+          # memicu run ini, yang di-deploy SELALU tip origin/<branch> saat ini.
+          BR="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BR"
+          git reset --hard FETCH_HEAD
+          echo "Deploy tip $BR:"; git log --oneline -1
 
-      - name: 🔁 Paksa working tree = commit yang di-push
-        run: |
-          git fetch origin "${GITHUB_SHA}"
-          git reset --hard "${GITHUB_SHA}"
-          echo "Deploy commit:"; git log --oneline -1
+      - name: 🔐 .env production
+        run: cp ~/.env-production .env
 
-      - name: 🔐 Menyiapkan Environment Variables (.env)
-        run: |
-          # Menyalin konfigurasi production (.env) yang disimpan manual di VPS server
-          cp ~/.env-production .env
-
-      - name: 🐳 Build backend (no-cache, ringan)
+      - name: 🐳 Build backend
         run: docker compose build --no-cache backend
 
-      - name: 🐳 Build frontend (pakai layer cache — vite build boros RAM di VPS 2GB)
-        run: |
-          # TANPA --no-cache: layer 'npm install' dipakai ulang bila package*.json
-          # tak berubah; hanya 'COPY . .' + 'npm run build' yang rerun saat src ganti.
-          docker compose build frontend
+      - name: 🐳 Build frontend
+        run: docker compose build frontend      # pakai layer cache -> hemat RAM di VPS 2GB
 
-      - name: 🚀 Recreate Kontainer + Reload nginx
+      - name: 🚀 Recreate backend + frontend saja (hindari OOM seluruh stack)
         run: |
-          # --force-recreate memastikan kontainer memakai image yang baru dibangun,
-          # bukan yang lama walau tag-nya sama.
-          docker compose up -d --force-recreate --remove-orphans
-          # nginx pakai bind-mount config -> perlu reload eksplisit untuk
-          # menerapkan proxy_read_timeout dsb.
+          docker compose up -d --force-recreate --no-deps backend frontend
           docker compose restart nginx
           docker compose ps
 
-      - name: ✅ Verifikasi Build Marker
+      - name: ✅ Verifikasi kontainer = kode yang baru di-deploy
         run: |
-          # Tanpa python3/jq — cukup grep string di body JSON.
-          MARKER="2026-08-31-add-bruteforce-model"
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            curl -sf http://localhost:8000/ -o /tmp/health.json && break
-            echo "Menunggu backend siap... ($i/10)"; sleep 3
-          done
-          echo "--- Respon health backend ---"; cat /tmp/health.json; echo
-          if grep -qF "$MARKER" /tmp/health.json; then
-            echo "✅ Backend memuat build terbaru: $MARKER"
-          else
-            echo "::error::Backend BELUM memuat kode terbaru (build marker '$MARKER' tidak ditemukan)."
+          EXPECTED=$(sed -n 's/^BUILD_MARKER *= *"\([^"]*\)".*/\1/p' backend/app/main.py)
+          echo "marker diharapkan: $EXPECTED"
+          [ -n "$EXPECTED" ] || { echo "::error::BUILD_MARKER tak terbaca dari source"; exit 1; }
+
+          # a) kode DI DALAM kontainer harus marker ini
+          if ! docker exec mikroskop_backend sh -c "grep -qF '$EXPECTED' /app/app/main.py"; then
+            echo "::error::Kontainer mikroskop_backend TIDAK memuat $EXPECTED (recreate gagal / OOM)"
+            docker compose logs --tail=40 backend || true
             exit 1
           fi
 
-      - name: 🧹 Membersihkan Sampah Image Docker
+          # b) endpoint harus melaporkan marker ini
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -sf http://localhost:8000/api/version -o /tmp/v.json && break
+            echo "menunggu backend siap ($i/10)"; sleep 3
+          done
+          cat /tmp/v.json; echo
+          grep -qF "$EXPECTED" /tmp/v.json || { echo "::error::/api/version bukan $EXPECTED"; exit 1; }
+          echo "✅ Live: $EXPECTED"
+
+      - name: 🧹 Prune image lama
         run: docker image prune -f
