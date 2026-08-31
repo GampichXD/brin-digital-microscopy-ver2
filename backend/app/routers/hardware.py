@@ -35,7 +35,7 @@ if not os.path.exists(UPLOAD_DIR):
 DATASET_DIR = "./static/datasets"
 
 # Model tile stitching yang didukung -> backend cfg SP_LG.
-STITCH_MODELS = {"sp_lg_tensorrt", "sp_lg_pytorch", "sp_lg_onnx"}
+STITCH_MODELS = {"sp_lg_tensorrt", "sift_bfm", "sift_lg"}
 
 
 async def publish_hardware_command(payload: dict) -> None:
@@ -734,6 +734,10 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                 await redis.publish("microscope_scan_progress", json.dumps({
                     "event": "STITCH_FAILED", "detail": data.get("detail", "Proses AI gagal di Edge Device.")
                 }))
+
+            elif event_type == "STITCH_PROGRESS":
+                # Teruskan progres tile stitching real-time dari Edge ke browser.
+                await redis.publish("microscope_scan_progress", message)
                 
     except WebSocketDisconnect:
         print("[VPS ROUTER WARNING] Koneksi Jetson Orin Nano terputus dari sirkuit cloud.")

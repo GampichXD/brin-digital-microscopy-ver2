@@ -5,8 +5,8 @@ import { Camera, Grid3X3, Play, Crosshair, Settings2, Image as ImageIcon, MouseP
 
 const STITCH_MODELS = [
   { value: 'sp_lg_tensorrt', label: 'SuperPoint + LightGlue (TensorRT)' },
-  { value: 'sp_lg_pytorch', label: 'SuperPoint + LightGlue (PyTorch)' },
-  { value: 'sp_lg_onnx', label: 'SuperPoint + LightGlue (ONNX)' },
+  { value: 'sift_bfm', label: 'SIFT + BFMatcher' },
+  { value: 'sift_lg', label: 'SIFT + LightGlue' },
 ];
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';
@@ -263,6 +263,10 @@ export default function ImageGatheringTab({
       if (keepAlive) clearInterval(keepAlive);
       if (poller) clearInterval(poller);
       wsRef.current?.removeEventListener('message', onWsMessage);
+      // Kembalikan streaming video ke keadaan sesuai toggle kamera.
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ action: cameraActive ? 'START_STREAM' : 'STOP_STREAM' }));
+      }
     };
 
     const finishSuccess = (imgs: any[]) => {
@@ -332,6 +336,13 @@ export default function ImageGatheringTab({
     }, 5000);
 
     setScanSession(null);
+
+    // Matikan live-stream selama scan: kamera terus berpindah (video tak berguna)
+    // dan payload video bersaing dengan upload tile -> WS bisa putus untuk grid besar.
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'STOP_STREAM' }));
+    }
+
     try {
       const response = await api.post('/api/hardware/scan/grid', {
         columns: c, rows: r, step_x: sx, step_y: sy,
@@ -397,7 +408,7 @@ export default function ImageGatheringTab({
     setProcessKind('stitch');
     setProcessTask('AI Tile Stitching Berjalan di Edge Device...');
     setTimerTick(0);
-    setProgress(30);
+    setProgress(5);
     const stitchStart = Date.now();
     let finished = false;
 
@@ -425,7 +436,10 @@ export default function ImageGatheringTab({
     const onWs = (ev: MessageEvent) => {
       try {
         const m = JSON.parse(ev.data);
-        if (m.event === 'STITCH_COMPLETE') done(true);
+        if (m.event === 'STITCH_PROGRESS' && typeof m.pct === 'number') {
+          setProgress(Math.max(5, Math.min(97, m.pct)));
+          if (m.phase) setProcessTask(`Tile Stitching — ${m.phase}`);
+        } else if (m.event === 'STITCH_COMPLETE') done(true);
         else if (m.event === 'STITCH_FAILED') done(false, m.detail);
       } catch { /* ignore */ }
     };
