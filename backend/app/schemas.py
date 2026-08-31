@@ -40,12 +40,15 @@ class StitchPayload(BaseModel):
     tiles: Optional[List[Dict[str, Any]]] = None
     # Pilihan model/backend stitching: sp_lg_tensorrt | sp_lg_pytorch | sp_lg_onnx
     model: Optional[str] = "sp_lg_tensorrt"
+    # ID sesi -> Edge memakai folder tmp_images/<session> yang terisolasi.
+    session: Optional[str] = None
 
 class InputTileFromDataset(BaseModel):
     folder_id: str
     image_name: str
     grid_x: int
     grid_y: int
+    session: Optional[str] = "INPUT"
 
 class RetakePayload(BaseModel):
     coord_x: float

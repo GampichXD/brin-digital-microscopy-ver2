@@ -90,10 +90,14 @@ export default function ImageGatheringTab({
 
   // ── Tile stitching: pilihan model (dipakai AUTO/MANUAL/INPUT) ──
   const [stitchModel, setStitchModel] = useState<string>(STITCH_MODELS[0].value);
+  // ID sesi scan aktif (dari backend) -> Edge memakai folder tmp_images/<session>
+  // terisolasi, jadi tile antar-scan tidak pernah tercampur saat stitching.
+  const [scanSession, setScanSession] = useState<string | null>(null);
 
   // ── Mode INPUT IMAGES ──
   type InputTile = { gridX: number; gridY: number; filename: string; url: string; preview?: string };
   const [showInputModal, setShowInputModal] = useState(false);
+  const [inputSession, setInputSession] = useState<string>('');
   const [inputTiles, setInputTiles] = useState<Record<string, InputTile>>({});
   const [inputTarget, setInputTarget] = useState<{ gx: number; gy: number } | null>(null);
   const [showDbPicker, setShowDbPicker] = useState(false);
@@ -240,6 +244,7 @@ export default function ImageGatheringTab({
     const onWsMessage = (ev: MessageEvent) => {
       try {
         const m = JSON.parse(ev.data);
+        if (m.session) setScanSession(m.session);
         if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
           lastWsEventAt = Date.now();
           setProgress(Math.min(m.index, totalGrids));
@@ -326,12 +331,14 @@ export default function ImageGatheringTab({
       } catch { /* abaikan, coba lagi tick berikutnya */ }
     }, 5000);
 
+    setScanSession(null);
     try {
       const response = await api.post('/api/hardware/scan/grid', {
         columns: c, rows: r, step_x: sx, step_y: sy,
         delay_ms: parseInt(camDelay), unit: stepUnit,
         start_x: motorPos.x, start_y: motorPos.y
       });
+      if (response.data?.session) setScanSession(response.data.session);
       // Backend baru membalas cepat {status:"STARTED"}. Backend lama (sinkron)
       // membalas {status:"SUCCESS", images:[...]} -> langsung selesaikan.
       if (response.data?.status !== 'STARTED') {
@@ -381,7 +388,7 @@ export default function ImageGatheringTab({
   // Inti proses stitching — ASINKRON: backend balas cepat, hasil datang lewat
   // event WebSocket STITCH_COMPLETE / STITCH_FAILED (fallback polling).
   const runStitching = async (
-    tilesPayload: { images: (string | null)[]; tiles: any[] },
+    tilesPayload: { images: (string | null)[]; tiles: any[]; session?: string | null },
     scanTParam = 0,
   ) => {
     setShowReviewModal(false);
@@ -442,6 +449,7 @@ export default function ImageGatheringTab({
         images: tilesPayload.images,
         tiles: tilesPayload.tiles,
         model: stitchModel,
+        session: tilesPayload.session ?? null,
       }, { timeout: 30000 });
     } catch (error: any) {
       done(false, error?.response?.data?.detail);
@@ -452,6 +460,7 @@ export default function ImageGatheringTab({
     const valid = capturedImages.filter(img => img.filename !== null);
     if (valid.length < 2) { showToast('Butuh minimal 2 gambar untuk stitching', 'error'); return; }
     runStitching({
+      session: scanSession,
       images: valid.map(img => img.filename),
       tiles: valid.map(img => ({
         filename: img.filename,
@@ -465,6 +474,7 @@ export default function ImageGatheringTab({
     const tiles = Object.values(inputTiles);
     if (tiles.length < 2) { showToast('Isi minimal 2 sel grid dengan gambar', 'error'); return; }
     runStitching({
+      session: inputSession,
       images: tiles.map(tl => tl.filename),
       tiles: tiles.map(tl => ({
         filename: tl.filename, url: tl.url,
@@ -474,6 +484,13 @@ export default function ImageGatheringTab({
   };
 
   // ── Handler mode INPUT IMAGES ──
+  const openInputModal = () => {
+    // 1 sesi Input = 1 folder tmp_images/<session> terisolasi di Edge.
+    if (!inputSession) {
+      setInputSession('INPUT' + new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14));
+    }
+    setShowInputModal(true);
+  };
   const openCellSource = (gx: number, gy: number) => setInputTarget({ gx, gy });
 
   const handleInputFileChosen = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -487,7 +504,7 @@ export default function ImageGatheringTab({
       fd.append('file', file);
       fd.append('grid_x', String(gx));
       fd.append('grid_y', String(gy));
-      fd.append('session', 'input');
+      fd.append('session', inputSession || 'INPUT');
       const { data } = await api.post('/api/hardware/stitch/place', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setInputTiles(prev => ({
         ...prev,
@@ -524,6 +541,7 @@ export default function ImageGatheringTab({
     try {
       const { data } = await api.post('/api/hardware/stitch/place-from-dataset', {
         folder_id: dbPickerFolder, image_name: imageName, grid_x: gx, grid_y: gy,
+        session: inputSession || 'INPUT',
       });
       setInputTiles(prev => ({
         ...prev,
@@ -778,7 +796,7 @@ export default function ImageGatheringTab({
             </div>
 
             <div className="mt-auto pt-2">
-              <button onClick={() => setShowInputModal(true)} className="w-full py-4 rounded-2xl font-bold flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all">
+              <button onClick={openInputModal} className="w-full py-4 rounded-2xl font-bold flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all">
                 <Grid3X3 size={20} className="mr-2" /> SUSUN & ISI GRID ({Object.keys(inputTiles).length}/{c * r})
               </button>
             </div>
@@ -1319,7 +1337,7 @@ export default function ImageGatheringTab({
             </div>
 
             <div className="p-4 sm:p-6 border-t border-gray-700 flex gap-3 bg-black/20 shrink-0">
-              <button onClick={() => { setInputTiles({}); showToast('Grid dikosongkan', 'info'); }} className="px-4 py-3 rounded-xl font-bold border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm">
+              <button onClick={() => { setInputTiles({}); setInputSession(''); showToast('Grid dikosongkan', 'info'); }} className="px-4 py-3 rounded-xl font-bold border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm">
                 <Trash2 size={16} className="inline mr-1" /> Kosongkan
               </button>
               <button onClick={executeStitchingInput} disabled={Object.keys(inputTiles).length < 2} className="flex-1 py-3 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg">

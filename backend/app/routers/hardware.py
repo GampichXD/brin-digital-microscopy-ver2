@@ -254,17 +254,19 @@ async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(
 _scan_state = {
     "running": False, "index": 0, "total": 0,
     "images": [], "error": None, "started_at": None, "cancel": False,
+    "session": None,
 }
 _scan_task = None  # simpan referensi agar task tidak di-GC di tengah jalan
 
 
-def _tile_name(timestamp: str, row: int, col: int) -> str:
-    """Nama file per POSISI GRID (bukan urutan scan). Cocok pola SP_LG
-    'tile_r<row>_c<col>' sehingga stitching tidak bergantung urutan boustrophedon."""
-    return f"IMG_{timestamp}_r{row}_c{col}.jpg"
+def _tile_name(session_id: str, row: int, col: int) -> str:
+    """Nama file per POSISI GRID (bukan urutan scan) + prefix SESI unik.
+    Prefix sesi memastikan tile dari scan berbeda tidak pernah tercampur di
+    tmp_images; suffix r/c cocok pola SP_LG 'tile_r<row>_c<col>'."""
+    return f"IMG_{session_id}_r{row}_c{col}.jpg"
 
 
-async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: float, timestamp: str):
+async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: float, session_id: str):
     """Loop scan grid — dijalankan sebagai background task (BUKAN di dalam
     request HTTP) sehingga durasi berapa pun (mis. 680 gambar = puluhan menit)
     tidak kena batas 100–120 detik Cloudflare / proxy. Progres dikirim lewat
@@ -278,11 +280,11 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
 
     _scan_state.update({"running": True, "index": 0, "total": total_tiles,
                         "images": [], "error": None, "started_at": time.time(),
-                        "cancel": False})
+                        "cancel": False, "session": session_id})
     cancelled = False
     try:
         await redis.publish("microscope_scan_progress", json.dumps({
-            "event": "SCAN_STARTED", "total": total_tiles
+            "event": "SCAN_STARTED", "total": total_tiles, "session": session_id
         }))
 
         # Kunci mode ABSOLUT + gerak ke posisi awal (image ke-1 diambil tepat
@@ -304,7 +306,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
                 coord_x = origin_x + (actual_c * payload.step_x)
                 coord_y = origin_y + (r * payload.step_y)
-                filename = _tile_name(timestamp, r, actual_c)
+                filename = _tile_name(session_id, r, actual_c)
 
                 dx = coord_x - last_x
                 dy = coord_y - last_y
@@ -328,7 +330,8 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                     os.remove(file_path)
 
                 await redis.publish("hardware_commands", json.dumps({
-                    "action": "CAPTURE_IMAGE", "filename": filename
+                    "action": "CAPTURE_IMAGE", "filename": filename,
+                    "session": session_id, "grid_x": actual_c, "grid_y": r,
                 }))
                 await asyncio.sleep(0.5)
 
@@ -364,14 +367,14 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
         _scan_state["running"] = False
         if cancelled:
             await redis.publish("microscope_scan_progress", json.dumps({
-                "event": "SCAN_CANCELLED", "total": len(images), "images": images
+                "event": "SCAN_CANCELLED", "total": len(images), "images": images, "session": session_id
             }))
             print(f"[SCAN GRID] Dibatalkan setelah {len(images)} gambar.")
         else:
             await redis.publish("microscope_scan_progress", json.dumps({
-                "event": "SCAN_COMPLETE", "total": len(images), "images": images
+                "event": "SCAN_COMPLETE", "total": len(images), "images": images, "session": session_id
             }))
-            print(f"[SCAN GRID] Selesai: {len(images)} gambar.")
+            print(f"[SCAN GRID] Selesai: {len(images)} gambar (sesi {session_id}).")
     except Exception as exc:
         _scan_state["running"] = False
         _scan_state["error"] = str(exc)
@@ -399,7 +402,9 @@ async def scan_grid(payload: GridScanPayload):
     _scan_state["cancel"] = False
 
     from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    # ID sesi unik: 1 scan = 1 folder tmp_images/<session> di Edge, tidak
+    # pernah tercampur dengan scan lain.
+    session_id = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
     # ── Titik awal grid = POSISI MOTOR SAAT INI (bukan 0,0) ──
     if motor_driver.jetson_websocket is not None:
@@ -432,7 +437,7 @@ async def scan_grid(payload: GridScanPayload):
             cy = origin_y + (r * payload.step_y)
             planned.append({
                 "index": pidx,
-                "filename": _tile_name(timestamp, r, actual_c),
+                "filename": _tile_name(session_id, r, actual_c),
                 "coordX": round(cx, 2), "coordY": round(cy, 2),
                 "gridX": actual_c, "gridY": r,
             })
@@ -440,9 +445,9 @@ async def scan_grid(payload: GridScanPayload):
 
     # Jalankan sebagai background task -> HTTP balas < 1 detik.
     global _scan_task
-    _scan_task = asyncio.create_task(_run_grid_scan(payload, origin_x, origin_y, timestamp))
+    _scan_task = asyncio.create_task(_run_grid_scan(payload, origin_x, origin_y, session_id))
 
-    return {"status": "STARTED", "total": total_tiles, "images": planned}
+    return {"status": "STARTED", "total": total_tiles, "images": planned, "session": session_id}
 
 
 @router.get("/scan/status")
@@ -455,6 +460,7 @@ async def scan_status():
         "error": _scan_state["error"],
         "images": _scan_state["images"],
         "cancelled": _scan_state["cancel"],
+        "session": _scan_state["session"],
     }
 
 
@@ -570,11 +576,12 @@ async def stitch_images(payload: StitchPayload):
             "images": payload.images,
             "tiles": tiles,
             "model": model,
+            "session": payload.session,
         }))
     finally:
         await redis.close()
 
-    return {"status": "STARTED", "model": model}
+    return {"status": "STARTED", "model": model, "session": payload.session}
 
 
 @router.get("/stitch/status")
@@ -608,7 +615,8 @@ async def stitch_place_from_dataset(payload: InputTileFromDataset):
     src = os.path.join(DATASET_DIR, payload.folder_id, payload.image_name)
     if not os.path.exists(src):
         raise HTTPException(status_code=404, detail="Gambar dataset tidak ditemukan.")
-    filename = f"IMG_INPUT_r{payload.grid_y}_c{payload.grid_x}.jpg"
+    safe_session = "".join(ch for ch in (payload.session or "INPUT") if ch.isalnum() or ch in "-_")[:24] or "INPUT"
+    filename = f"IMG_{safe_session.upper()}_r{payload.grid_y}_c{payload.grid_x}.jpg"
     dst = os.path.join(UPLOAD_DIR, filename)
     shutil.copy2(src, dst)
     return {"filename": filename, "url": f"/static/uploads/{filename}",
