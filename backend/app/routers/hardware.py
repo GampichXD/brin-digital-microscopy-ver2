@@ -306,7 +306,11 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                 actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
                 coord_x = origin_x + (actual_c * payload.step_x)
                 coord_y = origin_y + (r * payload.step_y)
-                filename = _tile_name(session_id, r, actual_c)
+                # Label grid DIBALIK: tile di posisi AWAL motor = r(rows-1)_c(cols-1),
+                # tile di sudut TERJAUH = r0_c0 (sesuai orientasi stage & stitching).
+                grid_r = payload.rows - 1 - r
+                grid_c = payload.columns - 1 - actual_c
+                filename = _tile_name(session_id, grid_r, grid_c)
 
                 dx = coord_x - last_x
                 dy = coord_y - last_y
@@ -331,7 +335,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
 
                 await redis.publish("hardware_commands", json.dumps({
                     "action": "CAPTURE_IMAGE", "filename": filename,
-                    "session": session_id, "grid_x": actual_c, "grid_y": r,
+                    "session": session_id, "grid_x": grid_c, "grid_y": grid_r,
                 }))
                 await asyncio.sleep(0.5)
 
@@ -353,7 +357,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                 images.append({
                     "index": idx, "filename": filename,
                     "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
-                    "gridX": actual_c, "gridY": r,
+                    "gridX": grid_c, "gridY": grid_r,
                 })
                 idx += 1
                 _scan_state["index"] = idx
@@ -435,11 +439,13 @@ async def scan_grid(payload: GridScanPayload):
             actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
             cx = origin_x + (actual_c * payload.step_x)
             cy = origin_y + (r * payload.step_y)
+            grid_r = payload.rows - 1 - r          # label dibalik (lihat _run_grid_scan)
+            grid_c = payload.columns - 1 - actual_c
             planned.append({
                 "index": pidx,
-                "filename": _tile_name(session_id, r, actual_c),
+                "filename": _tile_name(session_id, grid_r, grid_c),
                 "coordX": round(cx, 2), "coordY": round(cy, 2),
-                "gridX": actual_c, "gridY": r,
+                "gridX": grid_c, "gridY": grid_r,
             })
             pidx += 1
 
