@@ -6,6 +6,12 @@ on:
       - main
       - master
 
+# Hanya SATU deploy yang boleh aktif/antre. Push baru membatalkan run lama yang
+# belum selesai -> mencegah run commit LAMA menimpa deploy commit BARU.
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: Build & Deploy via Self-Hosted Runner
@@ -17,6 +23,16 @@ jobs:
         with:
           fetch-depth: 0     # full history -> hindari shallow/grafted yang bikin ref nyangkut
           clean: false       # JANGAN git clean: backend/static/{datasets,uploads} di-bind-mount ke kontainer
+
+      - name: 🛑 Batalkan kalau commit ini BUKAN tip branch (ada push lebih baru)
+        run: |
+          TIP=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
+          echo "commit run ini : ${GITHUB_SHA}"
+          echo "tip remote     : ${TIP}"
+          if [ -n "$TIP" ] && [ "$TIP" != "${GITHUB_SHA}" ]; then
+            echo "::error::Sudah ada push lebih baru (${TIP}). Deploy commit usang dibatalkan."
+            exit 1
+          fi
 
       - name: 🔁 Paksa working tree = commit yang di-push
         run: |
@@ -48,7 +64,7 @@ jobs:
       - name: ✅ Verifikasi Build Marker
         run: |
           # Tanpa python3/jq — cukup grep string di body JSON.
-          MARKER="2026-08-30-grid-label-reversed"
+          MARKER="2026-08-30-grid-label-reversed-2"
           for i in 1 2 3 4 5 6 7 8 9 10; do
             curl -sf http://localhost:8000/ -o /tmp/health.json && break
             echo "Menunggu backend siap... ($i/10)"; sleep 3
