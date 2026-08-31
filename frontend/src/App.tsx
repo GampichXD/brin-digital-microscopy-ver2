@@ -285,7 +285,7 @@ export default function App() {
           />
         )}
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
-          <AdminControlTab roomState={roomState} />
+          <AdminControlTab roomState={roomState} lastEchoGCode={lastEchoGCode} />
         )}
       </main>
 

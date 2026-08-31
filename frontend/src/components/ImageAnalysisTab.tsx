@@ -21,17 +21,15 @@ interface ImageAnalysisTabProps {
   onRefreshFolders?: () => void;
 }
 
-interface ColonyPosition {
-  x: number;
-  y: number;
-}
-
 interface AnalysisState {
   id: number;
   processName: string;
   cssFilter: string;
-  colonies: ColonyPosition[] | null;
+  // Jumlah koloni hasil YOLO (angka nyata dari Jetson). Anotasi bounding-box
+  // sudah tergambar di imageSrc oleh Edge — tidak ada marker palsu di overlay.
+  colonyCount: number | null;
   stats?: any;
+  processedBy?: string;
   imageSrc: string | null;
 }
 
@@ -85,7 +83,7 @@ export default function ImageAnalysisTab({
             id: 1,
             processName: 'Original Image',
             cssFilter: 'brightness(1) contrast(1) blur(0px)',
-            colonies: null,
+            colonyCount: null,
             imageSrc: `${API_BASE_URL}/static/uploads/${targetImage}?t=${new Date().getTime()}`
           }
         ]);
@@ -128,7 +126,7 @@ export default function ImageAnalysisTab({
       id: 1, 
       processName: `Loaded from ${folderName}`, 
       cssFilter: 'brightness(1) contrast(1) blur(0px)', 
-      colonies: null,
+      colonyCount: null,
       imageSrc: `${API_BASE_URL}/static/datasets/${folderId}/${fileName}` 
     }]);
     setHistoryIndex(0);
@@ -220,7 +218,7 @@ export default function ImageAnalysisTab({
         id: 1, 
         processName: 'Original Image', 
         cssFilter: 'brightness(1) contrast(1) blur(0px)', 
-        colonies: null,
+        colonyCount: null,
         imageSrc: `${API_BASE_URL}${response.data.url}`
       }]);
       setHistoryIndex(0);
@@ -335,33 +333,33 @@ export default function ImageAnalysisTab({
       const response = await api.post(`${API_BASE_URL}/api/analysis/${endpointPath}`, {
         filename: currentImage,
         current_src: currentState.imageSrc,
-        ...params
+        params,
       });
-      let coloniesData = response.data.colonies || null;
-      if (typeof coloniesData === 'number') {
-        const count = coloniesData;
-        coloniesData = Array.from({length: count}).map(() => ({
-          x: 20 + Math.random() * 60,
-          y: 20 + Math.random() * 60
-        }));
-      }
+      const rawCount = response.data.colonies;
+      const colonyCount = typeof rawCount === 'number' ? rawCount : null;
+      const processedBy = response.data.processed_by || '';
 
       const newState: AnalysisState = {
         id: history.length + 1,
         processName: toolName,
         cssFilter: isAI ? 'brightness(1)' : response.data.css_filter || 'brightness(1)',
-        colonies: coloniesData,
+        colonyCount,
         stats: response.data.stats || null,
-        imageSrc: `${API_BASE_URL}${response.data.url}`
+        processedBy,
+        // cache-bust supaya <img> memuat hasil terbaru, bukan versi lama
+        imageSrc: `${API_BASE_URL}${response.data.url}?t=${Date.now()}`,
       };
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
-      logSystemAction(`Analisis Citra (${toolName}) Selesai`, 'SUCCESS');
-    } catch (error) {
+      if (processedBy && processedBy !== 'edge') {
+        showToast(`Diproses di ${processedBy} (Jetson tidak terhubung).`, 'warning');
+      }
+      logSystemAction(`Analisis Citra (${toolName}) Selesai [${processedBy || 'edge'}]`, 'SUCCESS');
+    } catch (error: any) {
       console.error(error);
-      showToast(`Gagal memproses metode ${toolName}. Periksa log tensor server.`, "error");
-      // alert(`Gagal memproses metode ${toolName}. Periksa log tensor server.`);
+      const detail = error?.response?.data?.detail || 'Periksa log Edge Device / server.';
+      showToast(`Gagal memproses ${toolName}: ${detail}`, 'error');
       logSystemAction(`Analisis Citra (${toolName}) Gagal`, 'ERROR');
     } finally {
       setIsProcessing(false);
@@ -532,23 +530,15 @@ export default function ImageAnalysisTab({
                   </div>
                 )}
 
-                {activeState?.colonies && activeState.colonies.map((colony, i) => (
-                  <div 
-                    key={i} 
-                    className="absolute border-2 border-green-400 bg-green-400/20 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.5)] flex items-center justify-center"
-                    style={{ left: `${colony.x}%`, top: `${colony.y}%`, width: '20px', height: '20px', transform: 'translate(-50%, -50%)' }}
-                  >
-                    <span className="text-[6px] font-bold text-green-300 absolute -top-3">{t('cell')}</span>
-                  </div>
-                ))}
               </div>
 
-              {activeState?.colonies && (
+              {typeof activeState?.colonyCount === 'number' && (
                 <div className="absolute bottom-6 left-6 px-4 py-3 bg-green-900/80 border border-green-500 rounded-xl backdrop-blur-md flex items-center shadow-2xl">
                    <Activity size={24} className="text-green-400 mr-3" />
                    <div className="flex flex-col">
                      <span className="text-xs text-green-300 font-bold uppercase">{t('modelDetectionResults')}</span>
-                     <span className="text-xl font-black text-white">{activeState.colonies.length} Koloni Ditemukan</span>
+                     <span className="text-xl font-black text-white">{activeState.colonyCount} Koloni Ditemukan</span>
+                     <span className="text-[9px] text-green-300/70 font-mono mt-0.5">anotasi digambar di Jetson (YOLO Seg)</span>
                    </div>
                 </div>
               )}
@@ -558,7 +548,7 @@ export default function ImageAnalysisTab({
                    <span className="text-xs text-blue-300 font-bold uppercase mb-2 border-b border-blue-500/50 pb-1">{t('morphologyStats')}</span>
                    <div className="flex justify-between items-center mb-1">
                      <span className="text-sm text-gray-300">{t('totalObjects')}</span>
-                     <span className="text-lg font-bold text-white">{activeState.stats?.total_cells || activeState.colonies?.length || 0}</span>
+                     <span className="text-lg font-bold text-white">{activeState.stats?.total_cells ?? activeState.colonyCount ?? 0}</span>
                    </div>
                    <div className="flex justify-between items-center mb-1">
                      <span className="text-sm text-gray-300">{t('avgArea')}</span>
@@ -627,6 +617,7 @@ export default function ImageAnalysisTab({
             <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
             <h2 className="text-2xl font-bold mb-2">{processTask}</h2>
             <p className="text-sm text-blue-300 font-mono">{t('aiProcessing')}</p>
+            <p className="text-[11px] text-gray-400 font-mono mt-1">Computer Vision dieksekusi di Jetson Orin Nano</p>
           </div>
         </div>
       )}

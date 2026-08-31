@@ -1,19 +1,34 @@
 import uuid
 import os
+import json
 import shutil
 import zipfile
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, Query
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from datetime import datetime
 from sqlalchemy.orm import Session
 from ..schemas import FolderCreate, FolderUpdate, FolderResponse, ImageCountIncrement, DeleteImagesPayload
-from typing import List
+from typing import List, Optional
 from ..database import get_db
 from .. import models
 
 
 DATASET_DIR = "./static/datasets"
 os.makedirs(DATASET_DIR, exist_ok=True)
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
+
+async def _notify_edge(payload: dict) -> None:
+    """Beri tahu Jetson (via Redis 'hardware_commands') untuk menyingkronkan
+    penghapusan — hapus salinan lokal di local_datasets/ tanpa menunggu
+    retensi orphan 7 hari milik vps_syncer.py."""
+    try:
+        from ..redis_mock import get_redis_client
+        redis_client = await get_redis_client(REDIS_URL)
+        await redis_client.publish("hardware_commands", json.dumps(payload))
+    except Exception as e:
+        print(f"[DATASET] Gagal kirim notifikasi ke Edge: {e}")
 
 router = APIRouter(
     prefix="/api/dataset",
@@ -170,16 +185,18 @@ def update_folder(folder_id: str, payload: FolderUpdate, db: Session = Depends(g
 
 # --- ENDPOINT 3: HAPUS FOLDER DATASET PERMANEN ---
 @router.delete("/folders/{folder_id}")
-def delete_dataset_folder(folder_id: str, db: Session = Depends(get_db)):
+async def delete_dataset_folder(folder_id: str, db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
-    
+
     # Hapus direktori fisik
     shutil.rmtree(os.path.join(DATASET_DIR, folder_id), ignore_errors=True)
-    
+
     db.delete(folder)
     db.commit()
+    # Beri tahu Jetson agar hapus local_datasets/<folder_id> juga.
+    await _notify_edge({"action": "PURGE_DATASET_FOLDER", "folder_id": folder_id})
     return {"message": "Folder dataset beserta metadata di dalamnya berhasil dihapus"}
 
 # --- ENDPOINT 4: TAMBAH JUMLAH GAMBAR SECARA DINAMIS PASCA GRID SCAN ---
@@ -253,7 +270,17 @@ def upload_files(folder_id: str, files: List[UploadFile] = File(...), db: Sessio
             with open(file_location, "wb") as f:
                 shutil.copyfileobj(file.file, f)
             saved_count += 1
-            
+            # Endpoint ini adalah pintu masuk upstream-sync dari Jetson
+            # (vps_syncer.py) maupun unggah manual browser. Tandai .synced agar
+            # UI bisa membedakan file yang sudah melewati pipa sinkron Edge<->VPS
+            # dengan file hasil grid-scan (masuk lewat /add-images) yang masih
+            # menunggu di-mirror TURUN ke Jetson.
+            try:
+                with open(file_location + ".synced", "w") as marker:
+                    marker.write("SYNCED_OK")
+            except Exception:
+                pass
+
     folder.image_count += saved_count
     db.commit()
     db.refresh(folder)
@@ -267,14 +294,14 @@ def download_single_file(folder_id: str, filename: str):
     return FileResponse(path=file_path, filename=filename)
 
 @router.delete("/folders/{folder_id}/images")
-def delete_images(folder_id: str, payload: DeleteImagesPayload, db: Session = Depends(get_db)):
+async def delete_images(folder_id: str, payload: DeleteImagesPayload, db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
-    
+
     folder_path = os.path.join(DATASET_DIR, folder_id)
     deleted_count = 0
-    
+
     for filename in payload.filenames:
         file_path = os.path.join(folder_path, filename)
         if os.path.exists(file_path):
@@ -284,34 +311,66 @@ def delete_images(folder_id: str, payload: DeleteImagesPayload, db: Session = De
             synced_marker = file_path + ".synced"
             if os.path.exists(synced_marker):
                 os.remove(synced_marker)
-            
+
     # Pastikan count tidak kurang dari 0
     folder.image_count = max(0, folder.image_count - deleted_count)
     db.commit()
     db.refresh(folder)
+    # Beri tahu Jetson agar hapus salinan lokalnya juga (tak perlu tunggu retensi 7 hari).
+    await _notify_edge({"action": "PURGE_DATASET_FILES", "folder_id": folder_id, "filenames": payload.filenames})
     return {"message": f"{deleted_count} gambar berhasil dihapus", "current_image_count": folder.image_count}
 
 @router.get("/folders/{folder_id}/download")
-def download_folder_zip(folder_id: str, db: Session = Depends(get_db)):
+def download_folder_zip(
+    folder_id: str,
+    db: Session = Depends(get_db),
+    files: Optional[List[str]] = Query(None, description="Batasi ke file tertentu (bisa berulang)"),
+    export_format: Optional[str] = Query(None, alias="format", description="'yolo' -> struktur images/ + labels/ + data.yaml"),
+):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
-        
+
     folder_path = os.path.join(DATASET_DIR, folder_id)
     if not os.path.exists(folder_path) or not os.listdir(folder_path):
         raise HTTPException(status_code=400, detail="Folder dataset kosong, tidak ada yang bisa diunduh.")
-        
-    zip_filename = f"{folder.name}.zip"
-    zip_filepath = os.path.join(DATASET_DIR, f"{folder_id}_{zip_filename}")
-    
-    # Buat file zip sementara
+
+    # Kumpulan file yang akan di-zip
+    all_files = [f for f in os.listdir(folder_path)
+                 if not f.endswith('.synced') and os.path.isfile(os.path.join(folder_path, f))]
+    if files:
+        wanted = set(files)
+        pick = [f for f in all_files if f in wanted]
+        if not pick:
+            raise HTTPException(status_code=404, detail="File yang diminta tidak ada di folder.")
+    else:
+        pick = all_files
+
+    is_yolo = (export_format or "").lower() == "yolo"
+    suffix = "_YOLO" if is_yolo else ("_pilihan" if files else "")
+    zip_filename = f"{folder.name}{suffix}.zip"
+    zip_filepath = os.path.join(DATASET_DIR, f"{folder_id}_{uuid.uuid4().hex[:6]}_{zip_filename}")
+
+    img_exts = ('.png', '.jpg', '.jpeg', '.bmp')
     with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                # Jangan sertakan file penanda sync (.synced) ke dalam zip
-                if not file.endswith('.synced'):
-                    zipf.write(os.path.join(root, file), file)
-                
+        if is_yolo:
+            cls = (folder.object_type or "object").strip()
+            imgs = [f for f in pick if f.lower().endswith(img_exts)]
+            for f in imgs:
+                zipf.write(os.path.join(folder_path, f), f"images/{f}")
+                # Label kosong (sistem ini belum menyimpan anotasi bounding box).
+                zipf.writestr(f"labels/{os.path.splitext(f)[0]}.txt", "")
+            zipf.writestr("classes.txt", cls + "\n")
+            zipf.writestr("data.yaml",
+                          f"path: .\ntrain: images\nval: images\nnc: 1\nnames: ['{cls}']\n")
+            zipf.writestr("README.txt",
+                          "Struktur YOLO. File labels/*.txt sengaja KOSONG karena sistem "
+                          "akuisisi ini belum menyimpan anotasi bounding box — isi manual "
+                          "(mis. pakai LabelImg) sebelum training.\n")
+        else:
+            for f in pick:
+                zipf.write(os.path.join(folder_path, f), f)
+
     return FileResponse(path=zip_filepath, filename=zip_filename, media_type='application/zip')
 
 # --- MOCK VPS ENDPOINT UNTUK PENGUJIAN HYBRID SYNCING ---

@@ -1,9 +1,20 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from ..schemas import UserRegister, UserLogin, RoleUpdate, PasswordChange
 from ..services.auth_service import hash_password, verify_password, create_access_token
+from ..services import presence
+
+
+def _set_setting(db: Session, key: str, value: str):
+    row = db.query(models.SystemSetting).filter_by(key=key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(models.SystemSetting(key=key, value=value))
+    db.commit()
 
 router = APIRouter(
     prefix="/api/auth",
@@ -42,6 +53,14 @@ def login_user(credentials: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="ID Operator atau Password salah!")
 
+    # Catat waktu login terakhir (in-memory + persist ke SystemSetting).
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    presence.record_login(user.username, now_str)
+    try:
+        _set_setting(db, f"lastlogin:{user.username}", now_str)
+    except Exception:
+        pass
+
     # Bungkus informasi penting (username & role) ke dalam token akses
     token_payload = {"sub": user.username, "role": user.role}
     access_token = create_access_token(data=token_payload)
@@ -57,17 +76,20 @@ def login_user(credentials: UserLogin, db: Session = Depends(get_db)):
 @router.get("/operators")
 def get_all_operators(db: Session = Depends(get_db)):
     users = db.query(models.User).all()
-    # Petakan response agar struktur data cocok dengan interface LabOperator frontend
-    return [
-        {
+    settings = {s.key: s.value for s in db.query(models.SystemSetting).all()}
+    result = []
+    for u in users:
+        last = presence.get_last_login(u.username) or settings.get(f"lastlogin:{u.username}", "")
+        result.append({
             "id": u.id,
             "username": u.username,
             "role": u.role,
-            "status": "ACTIVE", # Status default instrumen
-            "last_login": "Hari ini" if u.role == "ADMIN" else "N/A"
-        }
-        for u in users
-    ]
+            # ONLINE = ada koneksi WebSocket klien aktif untuk user ini.
+            "status": "ONLINE" if presence.is_online(u.username) else "OFFLINE",
+            "online": presence.is_online(u.username),
+            "last_login": last or "—",
+        })
+    return result
 
 # --- ENDPOINT 4: UBAH TINGKAT HAK AKSES OPERATOR (RBAC MUTASI) ---
 @router.put("/operators/{user_id}/role")

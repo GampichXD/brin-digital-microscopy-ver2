@@ -23,6 +23,15 @@ class CncSettingsPayload(BaseModel):
     acceleration: float
     settle_time: int
 
+class SoftLimitsPayload(BaseModel):
+    enabled: bool = False
+    x_min: Optional[float] = None
+    x_max: Optional[float] = None
+    y_min: Optional[float] = None
+    y_max: Optional[float] = None
+    z_min: Optional[float] = None
+    z_max: Optional[float] = None
+
 class GridScanPayload(BaseModel):
     columns: int
     rows: int
@@ -55,10 +64,16 @@ class RetakePayload(BaseModel):
     coord_y: float
     filename: str
     delay_ms: int
+    # Kalau retake tile hasil GRID scan: kirim sesi + posisi grid supaya Edge
+    # menimpa tmp_images/<session>/tile_r<gy>_c<gx>.jpg (bukan file flat),
+    # sehingga stitching ulang memakai gambar retake, bukan tile lama.
+    session: Optional[str] = None
+    grid_x: Optional[int] = None
+    grid_y: Optional[int] = None
 
 class AiConfigPayload(BaseModel):
-    model: str
     confThreshold: int
+    model: Optional[str] = None   # deprecated, diabaikan
 
 class NetworkConfigPayload(BaseModel):
     ipBinding: str
@@ -67,6 +82,11 @@ class NetworkConfigPayload(BaseModel):
 class AdminRoomActionPayload(BaseModel):
     cid: str
     action: str
+
+class SetPositionPayload(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
 
 
 # ==========================================
@@ -143,6 +163,17 @@ class ReportPayload(BaseModel):
     object_type: str = ""
     operator: str = ""
     date: str = ""
+    # ── Pengisian laporan (baru) ──
+    author: str = ""                     # nama peneliti/penyusun
+    institution: str = "BRIN × Universitas Diponegoro"
+    doc_number: str = ""                 # nomor dokumen / klasifikasi arsip
+    abstract: str = ""                   # ringkasan / abstrak (teks bebas)
+    conclusion: str = ""                 # kesimpulan (teks bebas)
+    supervisor: str = ""                 # "mengetahui" pada blok tanda tangan
+    include_gallery: bool = True
+    include_technical: bool = True       # tabel metadata teknis akuisisi
+    include_table: bool = True           # tabel rincian per-citra
+    max_images: int = 12                 # batas gambar di galeri (0 = semua)
 
 # ==========================================
 # LOGS SCHEMAS (logs.py)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Square, Video, Crosshair, CameraOff, Maximize, Save, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon, Folder, ChevronDown, Camera } from 'lucide-react';
+import { Settings, Square, Video, Crosshair, CameraOff, Maximize, Save, Activity, Thermometer, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Move, Gamepad2, MousePointerSquareDashed, RotateCcw, Aperture, AlertOctagon, Folder, ChevronDown, Camera, Ban } from 'lucide-react';
 import api from '../utils/api';
 import type { KeypadConfig } from '../App';
 import { useTranslation } from '../hooks/useTranslation';
@@ -106,6 +106,12 @@ export default function LiveStreamTab({
   const [iso, setIso] = useState<string>("200");
   const [targetFps, setTargetFps] = useState<string>("30");
 
+  // ── Soft Limit Switch ──
+  const [softLimitEnabled, setSoftLimitEnabled] = useState(false);
+  const [softLimit, setSoftLimit] = useState({ xMin: '', xMax: '', yMin: '', yMax: '', zMin: '', zMax: '' });
+  const [atLimit, setAtLimit] = useState<Record<string, boolean>>({});
+  const num = (s: string): number | null => (s === '' || s == null || isNaN(parseFloat(s)) ? null : parseFloat(s));
+
   const [showFps, setShowFps] = useState(true);
   const [showCoordinates, setShowCoordinates] = useState(true);
   const [showFpsGraph, setShowFpsGraph] = useState(false);
@@ -150,6 +156,62 @@ export default function LiveStreamTab({
     }
     return () => clearInterval(interval);
   }, [cameraActive]);
+
+  // Muat konfigurasi soft limit + CNC/kamera dari server saat mount
+  useEffect(() => {
+    api.get<Record<string, string>>('/api/hardware/config').then(({ data }) => {
+      if (data.softLimitsEnabled != null) setSoftLimitEnabled(data.softLimitsEnabled === '1');
+      setSoftLimit(prev => ({
+        xMin: data.softLimit_x_min ?? prev.xMin, xMax: data.softLimit_x_max ?? prev.xMax,
+        yMin: data.softLimit_y_min ?? prev.yMin, yMax: data.softLimit_y_max ?? prev.yMax,
+        zMin: data.softLimit_z_min ?? prev.zMin, zMax: data.softLimit_z_max ?? prev.zMax,
+      }));
+      if (data.feedRate) setFeedRate(data.feedRate);
+      if (data.backlash) setBacklash(data.backlash);
+      if (data.acceleration) setAcceleration(data.acceleration);
+      if (data.settle_time) setSettleTime(data.settle_time);
+    }).catch(() => {});
+  }, []);
+
+  // Dengar TELEMETRY_DATA dari WS untuk status "sedang menyentuh batas"
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    const onMsg = (ev: MessageEvent) => {
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.event === 'TELEMETRY_DATA' && m.at_limit) setAtLimit(m.at_limit);
+      } catch { /* ignore */ }
+    };
+    ws.addEventListener('message', onMsg);
+    return () => ws.removeEventListener('message', onMsg);
+  }, [wsRef, wsRef.current]);
+
+  const applySoftLimits = async (enabled: boolean, sl = softLimit) => {
+    try {
+      await api.post('/api/hardware/cnc/soft-limits', {
+        enabled,
+        x_min: num(sl.xMin), x_max: num(sl.xMax),
+        y_min: num(sl.yMin), y_max: num(sl.yMax),
+        z_min: num(sl.zMin), z_max: num(sl.zMax),
+      });
+      showToast('Soft limit diterapkan ke Jetson.', 'success');
+    } catch {
+      showToast('Gagal menerapkan soft limit.', 'error');
+    }
+  };
+
+  // Pre-check di frontend: potong / blokir sebelum kirim ke motor.
+  // return: {value, blocked}  (value = nilai gerak yang sudah dipotong)
+  const clampToLimit = (axis: 'X' | 'Y' | 'Z', current: number, target: number) => {
+    if (!softLimitEnabled) return { value: target, hit: 0 as -1 | 0 | 1 };
+    const lo = num(axis === 'X' ? softLimit.xMin : axis === 'Y' ? softLimit.yMin : softLimit.zMin);
+    const hi = num(axis === 'X' ? softLimit.xMax : axis === 'Y' ? softLimit.yMax : softLimit.zMax);
+    if (lo != null && target < lo) return { value: lo, hit: -1 as const };
+    if (hi != null && target > hi) return { value: hi, hit: 1 as const };
+    void current;
+    return { value: target, hit: 0 as const };
+  };
 
   // Anti-AFK PING jika kamera menyala
   useEffect(() => {
@@ -270,9 +332,21 @@ export default function LiveStreamTab({
     const backlashMm = axis === 'Z' ? 0 : Math.max(0, parseFloat(backlash) || 0);
     const lastDirection = lastMoveDirectionRef.current[axis];
     const compensatedValue = direction === '+' ? stepMm : -stepMm;
-    const adjustedValue = axis !== 'Z' && lastDirection && lastDirection !== direction
+    let adjustedValue = axis !== 'Z' && lastDirection && lastDirection !== direction
       ? compensatedValue + (direction === '+' ? backlashMm : -backlashMm)
       : compensatedValue;
+
+    // ── SOFT LIMIT (pre-check) ──
+    const curAxis = motorPos[axis.toLowerCase() as 'x' | 'y' | 'z'];
+    const { value: clampedTarget, hit } = clampToLimit(axis, curAxis, curAxis + adjustedValue);
+    if (hit !== 0) {
+      adjustedValue = parseFloat((clampedTarget - curAxis).toFixed(3));
+      if (Math.abs(adjustedValue) < 1e-3) {
+        showToast(`Batas ${hit < 0 ? '-' : '+'}${axis} tercapai — motor tidak digerakkan.`, 'error');
+        return;
+      }
+      showToast(`Gerak dipotong: berhenti di batas ${hit < 0 ? '-' : '+'}${axis} (${clampedTarget}).`, 'info');
+    }
 
     const gcodeStr = axis === 'Z'
       ? `G1 Z${adjustedValue.toFixed(3)} F200`
@@ -343,9 +417,18 @@ export default function LiveStreamTab({
       return;
     }
 
-    const gcodeStr = `G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)}`;
+    // ── SOFT LIMIT (pre-check) — potong target ke dalam batas ──
+    const cx = clampToLimit('X', motorPos.x, x);
+    const cy = clampToLimit('Y', motorPos.y, y);
+    const cz = clampToLimit('Z', motorPos.z, z);
+    if (cx.hit || cy.hit || cz.hit) {
+      showToast('Target di luar soft limit — dipotong ke batas.', 'info');
+    }
+    const tx = cx.value, ty = cy.value, tz = cz.value;
 
-    setMotorPos({ x, y, z });
+    const gcodeStr = `G0 X${tx.toFixed(3)} Y${ty.toFixed(3)} Z${tz.toFixed(3)}`;
+
+    setMotorPos({ x: tx, y: ty, z: tz });
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setGrblStatus('MOVING...');
@@ -371,10 +454,10 @@ export default function LiveStreamTab({
   const isControlsDisabled = isLockedOut || isSpectator || streamRole === 'DISCONNECTED' || !isSystemHardwareEnabled;
 
   return (
-    <div className={`h-full flex flex-col xl:flex-row gap-4 xl:gap-6 ${isLockedOut ? 'opacity-80' : ''}`}>
+    <div className={`h-full flex flex-col lg:flex-row gap-3 lg:gap-4 ${isLockedOut ? 'opacity-80' : ''}`}>
 
       {/* KIRI: VIDEO & HUD LAYER */}
-      <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-[60%] h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive && !isLockedOut ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
+      <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-3/5 h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive && !isLockedOut ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {isLockedOut ? (
           <div className="flex flex-col items-center text-center p-6 bg-slate-900/90 w-full h-full justify-center text-slate-200">
             <AlertOctagon className="w-16 h-16 text-yellow-500 mb-4 animate-pulse" />
@@ -573,8 +656,8 @@ export default function LiveStreamTab({
         </button>
       </div>
 
-      {/* KANAN: PANEL KONTROL ASLI */}
-      <div className={`w-full xl:w-96 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar ${isControlsDisabled ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
+      {/* KANAN: PANEL KONTROL — mentok kanan, side-by-side untuk tablet & desktop */}
+      <div className={`w-full lg:w-2/5 lg:h-full flex flex-col gap-3 lg:gap-4 overflow-y-auto lg:pr-1 custom-scrollbar ${isControlsDisabled ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
 
         {/* ROOM STATE PANEL (Informasi Sesi di Luar Video) */}
         {roomState && (
@@ -972,6 +1055,70 @@ export default function LiveStreamTab({
             </div>
             <div className="px-3 py-1 bg-blue-500/20 text-blue-500 rounded-lg text-[10px] font-bold uppercase">{grblStatus}</div>
           </div>
+        </div>
+
+        {/* 5. SOFT LIMIT SWITCH */}
+        <div className={`p-4 rounded-2xl border shrink-0 mb-4 ${themeClasses.panel}`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${themeClasses.text}`}>
+              <Ban size={16} className="mr-2 text-red-400" /> Soft Limit Switch
+            </h3>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <span className={`text-[10px] font-bold ${themeClasses.textMuted}`}>{softLimitEnabled ? 'AKTIF' : 'NONAKTIF'}</span>
+              <input
+                type="checkbox"
+                checked={softLimitEnabled}
+                onChange={(e) => { setSoftLimitEnabled(e.target.checked); applySoftLimits(e.target.checked); }}
+                className="w-9 h-5 rounded-full appearance-none bg-gray-500 checked:bg-red-500 relative transition-colors cursor-pointer
+                           before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4"
+              />
+            </label>
+          </div>
+
+          <p className={`text-[10px] mb-3 ${themeClasses.textMuted}`}>
+            Kosongkan = tanpa batas. Saat aktif, motor berhenti tepat di batas dan tidak bisa didorong lewat.
+          </p>
+
+          <div className="space-y-2">
+            {(['X', 'Y', 'Z'] as const).map((ax) => {
+              const minKey = (ax.toLowerCase() + 'Min') as keyof typeof softLimit;
+              const maxKey = (ax.toLowerCase() + 'Max') as keyof typeof softLimit;
+              const unit = ax === 'Z' ? 'stp' : 'mm';
+              return (
+                <div key={ax} className="flex items-center gap-2">
+                  <span className={`w-4 text-xs font-bold ${ax === 'X' ? 'text-red-400' : ax === 'Y' ? 'text-green-400' : 'text-blue-400'}`}>{ax}</span>
+                  <div className="flex items-center gap-1 flex-1">
+                    <input
+                      type="number" placeholder="-∞" value={softLimit[minKey]}
+                      onChange={(e) => setSoftLimit(p => ({ ...p, [minKey]: e.target.value }))}
+                      className={`w-full h-8 px-2 text-right rounded border text-xs font-bold outline-none ${themeClasses.input} ${atLimit['-' + ax] ? 'ring-2 ring-red-500' : ''}`}
+                    />
+                    <span className={`text-[9px] ${themeClasses.textMuted}`}>≤ {motorPos[ax.toLowerCase() as 'x'|'y'|'z']} ≤</span>
+                    <input
+                      type="number" placeholder="+∞" value={softLimit[maxKey]}
+                      onChange={(e) => setSoftLimit(p => ({ ...p, [maxKey]: e.target.value }))}
+                      className={`w-full h-8 px-2 text-right rounded border text-xs font-bold outline-none ${themeClasses.input} ${atLimit['+' + ax] ? 'ring-2 ring-red-500' : ''}`}
+                    />
+                    <span className={`text-[9px] w-6 ${themeClasses.textMuted}`}>{unit}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => applySoftLimits(softLimitEnabled)}
+            className="mt-3 w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center active:scale-95 transition-colors"
+          >
+            <Save size={14} className="mr-1" /> Terapkan Batas ke Jetson
+          </button>
+
+          {softLimitEnabled && Object.entries(atLimit).some(([, v]) => v) && (
+            <div className="mt-2 text-[10px] font-bold text-red-400 flex items-center">
+              <AlertOctagon size={12} className="mr-1" />
+              Menyentuh batas: {Object.entries(atLimit).filter(([, v]) => v).map(([k]) => k).join(', ')}
+            </div>
+          )}
         </div>
 
       </div>

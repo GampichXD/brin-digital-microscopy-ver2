@@ -135,19 +135,34 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
     return matchSearch && matchObj && matchOp && matchDate;
   });
 
-  const handleSimulateDownload = (fileName: string, folderId?: string) => {
+  const buildFolderDownloadUrl = (folderId: string, opts?: { files?: string[]; format?: string }) => {
+    const params = new URLSearchParams();
+    (opts?.files || []).forEach(f => params.append('files', f));
+    if (opts?.format) params.append('format', opts.format);
+    const qs = params.toString();
+    return `${api.defaults.baseURL}/api/dataset/folders/${folderId}/download${qs ? `?${qs}` : ''}`;
+  };
+
+  // opts diberikan  -> unduh ZIP folder (opsional: subset file / format YOLO)
+  // opts kosong + nama diakhiri .zip/.csv -> ZIP seluruh folder
+  // selain itu -> unduh 1 file gambar/video
+  const handleSimulateDownload = (
+    fileName: string,
+    folderId?: string,
+    opts?: { files?: string[]; format?: string },
+  ) => {
     const targetFolderId = folderId || activeFolder?.id;
     if (!targetFolderId) return;
-    
+
     showToast(`Mempersiapkan unduhan ${fileName}...`, 'info');
-    
+
     const a = document.createElement('a');
-    if (fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
-      a.href = `${api.defaults.baseURL}/api/dataset/folders/${targetFolderId}/download`;
+    if (opts || fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
+      a.href = buildFolderDownloadUrl(targetFolderId, opts);
     } else {
       a.href = `${api.defaults.baseURL}/api/dataset/folders/${targetFolderId}/files/${fileName}/download`;
     }
-    
+
     a.download = fileName;
     document.body.appendChild(a);
     a.click();
@@ -271,7 +286,11 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
 
   const handleBatchDownload = () => {
     if (selectedImages.length === 0) return;
-    handleSimulateDownload(`Dataset_${activeFolder?.name}_${selectedImages.length}_Images.zip`);
+    handleSimulateDownload(
+      `Dataset_${activeFolder?.name}_${selectedImages.length}_Images.zip`,
+      activeFolder?.id,
+      { files: selectedImages },
+    );
     setSelectedImages([]);
     setIsSelectMode(false);
   };
@@ -409,7 +428,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
                   <ListChecks size={16} className="sm:mr-2" /> <span className="hidden sm:inline">PILIH</span>
                 </button>
                 <div className="w-px bg-gray-600/50 mx-1"></div>
-                <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_YOLO_Format.zip`)} className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
+                <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_YOLO_Format.zip`, activeFolder?.id, { format: 'yolo' })} className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
                   <Box size={16} className="sm:mr-2" /> <span className="hidden sm:inline">YOLO</span>
                 </button>
                 <button onClick={() => handleSimulateDownload(`${activeFolder?.name}_Archive.zip`)} className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 text-sm transition-transform">
@@ -512,6 +531,17 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
                       {isSelected ? <CheckSquare size={20} className="bg-white rounded" /> : <Square size={20} />}
                     </div>
                   )}
+
+                  {/* Status sinkronisasi Edge<->VPS (penanda .synced di server).
+                      EDGE  = sudah melewati pipa sinkron Jetson (upstream/mirror).
+                      CLOUD = hasil grid-scan di VPS, menunggu di-mirror ke Jetson. */}
+                  <div
+                    className={`absolute top-2 right-2 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold backdrop-blur-sm ${imgObj.synced ? 'bg-green-500/80 text-white' : 'bg-blue-500/80 text-white'}`}
+                    title={imgObj.synced ? 'Tersinkron dengan Jetson (Edge<->VPS)' : 'Ada di VPS, menunggu di-mirror ke Jetson'}
+                  >
+                    {imgObj.synced ? <Check size={10} /> : <UploadCloud size={10} />}
+                    <span className="hidden sm:inline">{imgObj.synced ? 'EDGE' : 'CLOUD'}</span>
+                  </div>
 
                   <div className={`absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent z-10 flex flex-col items-center`}>
                     <span className={`text-[10px] font-mono ${isSelected ? 'text-blue-300 font-bold' : 'text-gray-200'}`}>{fileName}</span>

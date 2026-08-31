@@ -596,7 +596,14 @@ export default function ImageGatheringTab({
     setTimerTick(0);
     // Pakai ulang nama file tile ini supaya posisinya di grid tidak berubah.
     const existing = capturedImages.find(im => im.index === index);
-    const newFilename = existing?.filename || `IMG_${String(index + 1).padStart(4, '0')}.jpg`;
+    // Retake tile GRID -> sertakan sesi + posisi grid supaya Edge menimpa tile
+    // di folder sesi (kalau tidak, stitching ulang tetap pakai tile lama).
+    const isGridTile = !!scanSession && (existing?.gridX ?? -1) >= 0 && (existing?.gridY ?? -1) >= 0;
+    // Tile yang gagal punya filename=null -> rekonstruksi nama dari sesi + posisi.
+    const newFilename =
+      existing?.filename ||
+      (isGridTile ? `IMG_${scanSession}_r${existing!.gridY}_c${existing!.gridX}.jpg`
+                  : `IMG_${String(index + 1).padStart(4, '0')}.jpg`);
 
     try {
       setIsRetaking(true);
@@ -604,7 +611,8 @@ export default function ImageGatheringTab({
         coord_x: cx,
         coord_y: cy,
         filename: newFilename,
-        delay_ms: parseInt(camDelay)
+        delay_ms: parseInt(camDelay),
+        ...(isGridTile ? { session: scanSession, grid_x: existing!.gridX, grid_y: existing!.gridY } : {}),
       });
       setTimeout(() => setIsRetaking(false), 400);
       setCapturedImages(prev => prev.map(img => img.index === index ? { ...img, filename: newFilename, timestamp: Date.now() } : img));

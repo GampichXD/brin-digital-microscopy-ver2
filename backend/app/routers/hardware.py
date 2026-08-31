@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from ..services.auth_service import SECRET_KEY, ALGORITHM
-from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, NetworkConfigPayload, AdminRoomActionPayload, InputTileFromDataset
+from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, SoftLimitsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, AdminRoomActionPayload, InputTileFromDataset, SetPositionPayload
 import time
 import json
 import asyncio
@@ -18,6 +18,8 @@ from redis import asyncio as aioredis  # Driver Redis Asinkron untuk ekosistem D
 from ..hardware.motor_driver import motor_driver
 from ..hardware.camera_driver import cam_driver as camera_driver
 from ..redis_mock import get_redis_client
+from ..services import cv_bus
+from ..services import presence
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 
@@ -108,15 +110,10 @@ async def get_system_config(db: Session = Depends(get_db)):
 
 @router.put("/config/ai")
 async def set_ai_config(payload: AiConfigPayload, db: Session = Depends(get_db)):
-    save_setting(db, "aiModel", payload.model)
+    # Hanya ambang keyakinan (confidence). Pemilihan model YOLO dihapus —
+    # Edge memakai bobot tunggal best_Seg_1280_int8.engine.
     save_setting(db, "confThreshold", str(payload.confThreshold))
-    return {"message": "AI Config updated"}
-
-@router.put("/config/network")
-async def set_network_config(payload: NetworkConfigPayload, db: Session = Depends(get_db)):
-    save_setting(db, "ipBinding", payload.ipBinding)
-    save_setting(db, "apiPort", payload.apiPort)
-    return {"message": "Network Config updated"}
+    return {"message": "AI confidence threshold updated", "confThreshold": payload.confThreshold}
 
 @router.post("/config/{section}/default")
 async def reset_config_default(section: str, db: Session = Depends(get_db)):
@@ -127,7 +124,7 @@ async def reset_config_default(section: str, db: Session = Depends(get_db)):
     if section.lower() == 'cnc':
         keys_to_delete = ['feedRate', 'backlash', 'acceleration', 'settle_time']
     elif section.lower() == 'camera':
-        keys_to_delete = ['cameraRes', 'cameraFps', 'exposure', 'videoSource']
+        keys_to_delete = ['cameraRes', 'cameraFps', 'exposure', 'videoSource', 'shutter_speed']
     elif section.lower() == 'ai':
         keys_to_delete = ['aiModel', 'confThreshold']
     elif section.lower() == 'network':
@@ -215,14 +212,40 @@ async def unlock_motor(request: Request):
     return {"status": "SUCCESS", "mode": "REMOTE", "action": "UNLOCK"}
 
 
+@router.post("/motor/set-position")
+async def set_motor_position(payload: SetPositionPayload):
+    """ADMIN: tulis ulang koordinat kerja (motor_position.json di Edge) tanpa
+    menggerakkan motor. Edge mengirim G92 ke GRBL lalu mem-persist JSON."""
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    await publish_hardware_command({
+        "action": "SET_POSITION", "x": payload.x, "y": payload.y, "z": payload.z,
+    })
+    return {"status": "SUCCESS", "action": "SET_POSITION",
+            "position": {"X": payload.x, "Y": payload.y, "Z": payload.z}}
+
+
+@router.post("/edge/restart")
+async def restart_edge_service():
+    """ADMIN: minta layanan kontrol Edge (proses Python di Jetson) me-restart
+    dirinya sendiri (os.execv). Bukan reboot OS. Berguna memulihkan sensor
+    kamera / port serial yang macet tanpa SSH."""
+    if motor_driver.jetson_websocket is None:
+        raise HTTPException(status_code=409, detail="Jetson sedang offline — tidak ada yang bisa di-restart.")
+    await publish_hardware_command({"action": "RESTART_EDGE"})
+    return {"status": "SUCCESS", "action": "RESTART_EDGE",
+            "message": "Perintah restart dikirim. Edge akan terputus ±3-10 detik lalu tersambung lagi."}
+
+
 @router.post("/camera/settings")
 async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
 
     save_setting(db, "exposure", str(payload.iso))
-    # Misal kita simpan iso/shutter speed sesuai key UI
-    
+    if payload.shutter_speed is not None:
+        save_setting(db, "shutter_speed", str(payload.shutter_speed))
+
     await publish_hardware_command({
         "action": "APPLY_CAMERA_SETTINGS",
         "shutter_speed": payload.shutter_speed,
@@ -249,6 +272,30 @@ async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(
         "settle_time": payload.settle_time,
     })
     return {"status": "SUCCESS", "message": "Pengaturan CNC diterima dan disimpan."}
+
+
+@router.post("/cnc/soft-limits")
+async def apply_soft_limits(payload: SoftLimitsPayload, db: Session = Depends(get_db)):
+    """Kirim batas gerak (soft limit switch) ke Jetson. Jetson akan memotong
+    setiap gerak jog/absolut agar tidak melewati batas."""
+    if not hardware_bus_enabled:
+        raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+
+    d = payload.dict()
+    save_setting(db, "softLimitsEnabled", "1" if payload.enabled else "0")
+    for k in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max"):
+        save_setting(db, "softLimit_" + k, "" if d[k] is None else str(d[k]))
+
+    await publish_hardware_command({
+        "action": "APPLY_SOFT_LIMITS",
+        "enabled": payload.enabled,
+        "limits": {
+            "X": [payload.x_min, payload.x_max],
+            "Y": [payload.y_min, payload.y_max],
+            "Z": [payload.z_min, payload.z_max],
+        },
+    })
+    return {"status": "SUCCESS", "message": "Soft limit diterapkan ke Edge."}
 
 # ── State grid scan async (tahan ratusan gambar tanpa kena timeout proxy) ──
 _scan_state = {
@@ -337,10 +384,22 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                     "action": "CAPTURE_IMAGE", "filename": filename,
                     "session": session_id, "grid_x": grid_c, "grid_y": grid_r,
                 }))
-                await asyncio.sleep(0.5)
 
+                # Tunggu gambar asli dari Edge tiba (IMAGE_CAPTURED -> ditulis ke
+                # UPLOAD_DIR oleh WS handler). Beri tenggang beberapa detik: pada
+                # grid besar / koneksi lambat, encode+kirim+decode bisa > 1 dtk.
+                edge_online = motor_driver.jetson_websocket is not None
+                grace = 6.0 if edge_online else 0.8
+                waited = 0.0
                 file_path = os.path.join(UPLOAD_DIR, filename)
-                if not os.path.exists(file_path):
+                while not os.path.exists(file_path) and waited < grace:
+                    await asyncio.sleep(0.3)
+                    waited += 0.3
+
+                # Placeholder HANYA kalau Edge memang OFFLINE (tak ada WS Jetson).
+                # Kalau Edge online tapi 1 tile telat/gagal, biarkan kosong —
+                # user bisa "Retake" dari modal review; jangan sisipkan gambar palsu.
+                if not os.path.exists(file_path) and not edge_online:
                     try:
                         import cv2
                         import numpy as np
@@ -350,12 +409,19 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                         cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {filename}", (50, 360),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
                         cv2.imwrite(file_path, img)
-                        print(f"[BACKEND FALLBACK] Gambar cadangan: {file_path}")
+                        print(f"[BACKEND FALLBACK] Edge offline — gambar cadangan: {file_path}")
                     except Exception as e:
                         print(f"[BACKEND FALLBACK ERROR] {e}")
+                elif not os.path.exists(file_path):
+                    print(f"[SCAN GRID] Tile {filename} belum tiba dari Edge setelah {grace:.0f}s — "
+                          f"dibiarkan kosong (bisa di-Retake).")
 
+                # filename=None kalau tile tak pernah tiba (Edge online tapi gagal)
+                # -> modal review menampilkannya sebagai slot kosong + tombol Retake,
+                # bukan gambar rusak / palsu.
+                tile_ok = os.path.exists(file_path)
                 images.append({
-                    "index": idx, "filename": filename,
+                    "index": idx, "filename": filename if tile_ok else None,
                     "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
                     "gridX": grid_c, "gridY": grid_r,
                 })
@@ -516,11 +582,15 @@ async def retake_grid_image(payload: RetakePayload):
         if os.path.exists(file_path):
             os.remove(file_path)
             
-        # 3. Jepret
-        await redis.publish("hardware_commands", json.dumps({
-            "action": "CAPTURE_IMAGE",
-            "filename": payload.filename
-        }))
+        # 3. Jepret. Kalau ini retake tile GRID (ada session + posisi grid), kirim
+        #    metadata itu supaya Edge menimpa tile di folder sesi terisolasi
+        #    (tmp_images/<session>/tile_r<gy>_c<gx>.jpg), bukan sekadar file flat.
+        capture_cmd = {"action": "CAPTURE_IMAGE", "filename": payload.filename}
+        if payload.session and payload.grid_x is not None and payload.grid_y is not None:
+            capture_cmd["session"] = payload.session
+            capture_cmd["grid_x"] = payload.grid_x
+            capture_cmd["grid_y"] = payload.grid_y
+        await redis.publish("hardware_commands", json.dumps(capture_cmd))
         
         # 4. Beri sedikit waktu agar Edge & Websocket memproses Base64 upload
         await asyncio.sleep(2.0)
@@ -715,7 +785,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                 print(f"[VPS ROUTER FEEDBACK] Respon balik GRBL: {data.get('grbl_response')}")
                 await redis.publish("microscope_motor_feedback", message)
                 
-            elif event_type in ["IMAGE_CAPTURED", "STITCHING_COMPLETE", "COUNTING_COMPLETE", "EDIT_COMPLETE"]:
+            elif event_type in ["IMAGE_CAPTURED", "STITCHING_COMPLETE", "COUNTING_COMPLETE", "EDIT_COMPLETE", "CV_RESULT"]:
                 filename = data.get("filename", "output.jpg")
                 img_b64_data = data.get("image_data", "")
 
@@ -727,6 +797,19 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                         with open(file_path, "wb") as f:
                             f.write(image_bytes)
                         print(f"[VPS STORAGE SUCCESS] Berhasil menulis hasil AI ke disk: {file_path}", flush=True)
+
+                        # Hasil Image Analysis (CV_RESULT): tulis sidecar .json yang
+                        # dibaca analysis.py (colony_count / stats morfologi).
+                        if event_type == "CV_RESULT":
+                            cv_bus.clear(filename)
+                            json_path = os.path.splitext(file_path)[0] + ".json"
+                            if data.get("colonies") is not None:
+                                with open(json_path, "w") as jf:
+                                    json.dump({"colony_count": data["colonies"]}, jf)
+                            elif isinstance(data.get("stats"), dict):
+                                with open(json_path, "w") as jf:
+                                    json.dump(data["stats"], jf)
+
                         await redis.publish("microscope_analysis_result", message)
                     except Exception as err:
                         print(f"[VPS STORAGE ERROR] Gagal mendecode gambar Base64: {err}")
@@ -736,10 +819,17 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                         "event": "STITCH_COMPLETE", "filename": filename
                     }))
 
-            elif event_type in ["STITCHING_FAILED", "COUNTING_FAILED", "EDIT_FAILED"]:
-                await redis.publish("microscope_scan_progress", json.dumps({
-                    "event": "STITCH_FAILED", "detail": data.get("detail", "Proses AI gagal di Edge Device.")
-                }))
+            elif event_type in ["STITCHING_FAILED", "COUNTING_FAILED", "EDIT_FAILED", "CV_FAILED"]:
+                _detail = data.get("detail", "Proses AI gagal di Edge Device.")
+                if event_type == "CV_FAILED":
+                    cv_bus.mark_failed(data.get("output_name"), _detail)
+                    await redis.publish("microscope_analysis_result", json.dumps({
+                        "event": "CV_FAILED", "tool": data.get("tool"), "detail": _detail
+                    }))
+                else:
+                    await redis.publish("microscope_scan_progress", json.dumps({
+                        "event": "STITCH_FAILED", "detail": _detail
+                    }))
 
             elif event_type == "STITCH_PROGRESS":
                 # Teruskan progres tile stitching real-time dari Edge ke browser.
@@ -839,27 +929,33 @@ class RoomManager:
             await websocket.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": assigned_role}))
         except Exception:
             pass
-            
+
+        presence.mark_online(username)
+
         async with self.lock:
             await self.broadcast_state()
-            
+
         return user_data
 
     async def disconnect(self, websocket: WebSocket):
+        gone_username = None
         async with self.lock:
             found = False
             if self.pilot and self.pilot["ws"] == websocket:
+                gone_username = self.pilot["username"]
                 self.pilot = None
                 found = True
             else:
                 for u in self.spectators:
                     if u["ws"] == websocket:
+                        gone_username = u["username"]
                         self.spectators.remove(u)
                         found = True
                         break
                 if not found:
                     for u in self.queue:
                         if u["ws"] == websocket:
+                            gone_username = u["username"]
                             self.queue.remove(u)
                             found = True
                             break
@@ -884,6 +980,10 @@ class RoomManager:
                     pass
                     
             await self.broadcast_state()
+
+        # Di luar lock: kalau user ini tak punya koneksi lain -> tandai offline.
+        if gone_username and self.get_user_connection_count(gone_username) == 0:
+            presence.mark_offline(gone_username)
 
     async def takeover(self, websocket: WebSocket):
         async with self.lock:
@@ -952,6 +1052,12 @@ class RoomManager:
                 
             target_ws = target_user["ws"]
             
+        async def _notify(u, role):
+            try:
+                await u["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": role}))
+            except Exception:
+                pass
+
         if action == "KICK":
             try:
                 await target_ws.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "KICKED_BY_ADMIN"}))
@@ -960,22 +1066,64 @@ class RoomManager:
                 pass
             await self.disconnect(target_ws)
             return True
-            
-        elif action == "MAKE_PILOT":
-            # Pindahkan ke antrian terdepan dan lakukan takeover
-            async with self.lock:
-                if target_user in self.spectators:
-                    self.spectators.remove(target_user)
-                    self.queue.insert(0, target_user)
-                elif target_user in self.queue:
-                    self.queue.remove(target_user)
-                    self.queue.insert(0, target_user)
-                    
-            if target_ws:
-                await self.takeover(target_ws)
-            return True
-            
-        return False
+
+        if action not in ("MAKE_PILOT", "MAKE_SPECTATOR", "MAKE_QUEUE", "QUEUE_UP", "QUEUE_DOWN"):
+            return False
+
+        async with self.lock:
+            # Lepas target dari posisinya sekarang (kecuali reorder queue).
+            was_pilot = self.pilot is target_user
+            if action in ("QUEUE_UP", "QUEUE_DOWN"):
+                if target_user not in self.queue:
+                    return False
+                i = self.queue.index(target_user)
+                j = i - 1 if action == "QUEUE_UP" else i + 1
+                if 0 <= j < len(self.queue):
+                    self.queue[i], self.queue[j] = self.queue[j], self.queue[i]
+                await self.broadcast_state()
+                return True
+
+            if was_pilot:
+                self.pilot = None
+            elif target_user in self.spectators:
+                self.spectators.remove(target_user)
+            elif target_user in self.queue:
+                self.queue.remove(target_user)
+
+            if action == "MAKE_PILOT":
+                old = self.pilot
+                self.pilot = target_user
+                await _notify(target_user, "PILOT")
+                if old:
+                    if len(self.spectators) < 2:
+                        self.spectators.append(old)
+                        await _notify(old, "SPECTATOR")
+                    else:
+                        self.queue.insert(0, old)
+                        await _notify(old, "QUEUED")
+
+            elif action == "MAKE_SPECTATOR":
+                if len(self.spectators) >= 2:
+                    bumped = self.spectators.pop()
+                    self.queue.insert(0, bumped)
+                    await _notify(bumped, "QUEUED")
+                self.spectators.append(target_user)
+                await _notify(target_user, "SPECTATOR")
+                if self.pilot is None and self.spectators:
+                    self.pilot = self.spectators.pop(0)
+                    await _notify(self.pilot, "PILOT")
+
+            elif action == "MAKE_QUEUE":
+                # Turunkan ke antrian (paling belakang). TIDAK auto-backfill
+                # slot spectator supaya penempatan admin dihormati.
+                self.queue.append(target_user)
+                await _notify(target_user, "QUEUED")
+                if self.pilot is None and self.spectators:
+                    self.pilot = self.spectators.pop(0)
+                    await _notify(self.pilot, "PILOT")
+
+            await self.broadcast_state()
+        return True
 
     def get_role(self, websocket: WebSocket) -> str:
         if self.pilot and self.pilot["ws"] == websocket: return "PILOT"
@@ -1092,6 +1240,7 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         while True:
             client_msg = await websocket.receive_text()
             room_manager.update_activity(websocket)
+            presence.touch(username)
             try:
                 data = json.loads(client_msg)
                 if data.get("action") == "TAKEOVER":
