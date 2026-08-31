@@ -45,11 +45,14 @@ jobs:
           # Menyalin konfigurasi production (.env) yang disimpan manual di VPS server
           cp ~/.env-production .env
 
-      - name: 🐳 Membangun Ulang SELURUH Service (backend + frontend)
+      - name: 🐳 Build backend (no-cache, ringan)
+        run: docker compose build --no-cache backend
+
+      - name: 🐳 Build frontend (pakai layer cache — vite build boros RAM di VPS 2GB)
         run: |
-          # WAJIB sebut backend juga — kalau tidak, image backend tetap lama
-          # dan perubahan *.py tidak pernah masuk kontainer.
-          docker compose build --no-cache backend frontend
+          # TANPA --no-cache: layer 'npm install' dipakai ulang bila package*.json
+          # tak berubah; hanya 'COPY . .' + 'npm run build' yang rerun saat src ganti.
+          docker compose build frontend
 
       - name: 🚀 Recreate Kontainer + Reload nginx
         run: |
