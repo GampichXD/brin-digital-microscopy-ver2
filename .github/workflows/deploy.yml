@@ -14,6 +14,15 @@ jobs:
     steps:
       - name: 📥 Mengambil Kode Terbaru (Checkout)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # full history -> hindari shallow/grafted yang bikin ref nyangkut
+          clean: false       # JANGAN git clean: backend/static/{datasets,uploads} di-bind-mount ke kontainer
+
+      - name: 🔁 Paksa working tree = commit yang di-push
+        run: |
+          git fetch origin "${GITHUB_SHA}"
+          git reset --hard "${GITHUB_SHA}"
+          echo "Deploy commit:"; git log --oneline -1
 
       - name: 🔐 Menyiapkan Environment Variables (.env)
         run: |
