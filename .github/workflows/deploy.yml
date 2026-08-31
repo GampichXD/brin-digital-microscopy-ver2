@@ -67,7 +67,7 @@ jobs:
       - name: ✅ Verifikasi Build Marker
         run: |
           # Tanpa python3/jq — cukup grep string di body JSON.
-          MARKER="2026-08-30-grid-label-reversed-2"
+          MARKER="2026-08-31-add-bruteforce-model"
           for i in 1 2 3 4 5 6 7 8 9 10; do
             curl -sf http://localhost:8000/ -o /tmp/health.json && break
             echo "Menunggu backend siap... ($i/10)"; sleep 3

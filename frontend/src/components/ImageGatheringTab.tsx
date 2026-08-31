@@ -7,6 +7,7 @@ const STITCH_MODELS = [
   { value: 'sp_lg_tensorrt', label: 'SuperPoint + LightGlue (TensorRT)' },
   { value: 'sift_bfm', label: 'SIFT + BFMatcher' },
   { value: 'sift_lg', label: 'SIFT + LightGlue' },
+  { value: 'brute_force', label: 'Brute-Force (Subtraksi)' },
 ];
 import type { KeypadConfig } from '../App';
 import VirtualKeyboard from './VirtualKeyboard';

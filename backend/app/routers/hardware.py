@@ -35,7 +35,7 @@ if not os.path.exists(UPLOAD_DIR):
 DATASET_DIR = "./static/datasets"
 
 # Model tile stitching yang didukung -> backend cfg SP_LG.
-STITCH_MODELS = {"sp_lg_tensorrt", "sift_bfm", "sift_lg"}
+STITCH_MODELS = {"sp_lg_tensorrt", "sift_bfm", "sift_lg", "brute_force"}
 
 
 async def publish_hardware_command(payload: dict) -> None:
