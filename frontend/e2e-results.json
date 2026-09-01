@@ -1,0 +1,368 @@
+{
+  "config": {
+    "argv": [
+      "D:\\Productive\\Coding\\Node Js\\node.exe",
+      "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\node_modules\\@playwright\\test\\cli.js",
+      "test"
+    ],
+    "configFile": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\playwright.config.ts",
+    "rootDir": "D:/Work Data/Lecture/Tugas Akhir/Software/frontend/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/Work Data/Lecture/Tugas Akhir/Software/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "D:/Work Data/Lecture/Tugas Akhir/Software/frontend/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "html",
+        {
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "e2e-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "microscope.spec.ts",
+      "file": "microscope.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Autentikasi",
+          "file": "microscope.spec.ts",
+          "line": 29,
+          "column": 6,
+          "specs": [
+            {
+              "title": "login gagal dengan kredensial salah menampilkan pesan error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1121,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-01T05:06:29.683Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-2637a4ae7924e69953df",
+              "file": "microscope.spec.ts",
+              "line": 30,
+              "column": 3
+            },
+            {
+              "title": "registrasi operator baru lalu login berhasil masuk ke dashboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2505,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-01T05:06:31.011Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-fa445dd1dab99a974e7f",
+              "file": "microscope.spec.ts",
+              "line": 40,
+              "column": 3
+            },
+            {
+              "title": "logout mengembalikan pengguna ke halaman autentikasi",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3507,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-01T05:06:33.534Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-1db9c26abea3c4a7948e",
+              "file": "microscope.spec.ts",
+              "line": 46,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Notifikasi",
+          "file": "microscope.spec.ts",
+          "line": 56,
+          "column": 6,
+          "specs": [
+            {
+              "title": "submit form kosong menampilkan toast peringatan",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 5911,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Username dan password tidak boleh kosong!')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Username dan password tidak boleh kosong!')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Username dan password tidak boleh kosong!')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Username dan password tidak boleh kosong!')\u001b[22m\n\n    at D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts:64:7",
+                        "location": {
+                          "file": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts",
+                          "column": 7,
+                          "line": 64
+                        },
+                        "snippet": "  62 |     await expect(\n  63 |       page.getByText('Username dan password tidak boleh kosong!')\n> 64 |     ).toBeVisible({ timeout: 5000 });\n     |       ^\n  65 |   });\n  66 | });\n  67 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts",
+                            "column": 7,
+                            "line": 64
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Username dan password tidak boleh kosong!')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Username dan password tidak boleh kosong!')\u001b[22m\n\n\n  62 |     await expect(\n  63 |       page.getByText('Username dan password tidak boleh kosong!')\n> 64 |     ).toBeVisible({ timeout: 5000 });\n     |       ^\n  65 |   });\n  66 | });\n  67 |\n    at D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts:64:7"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-01T05:06:37.062Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\test-results\\microscope-Notifikasi-subm-222d7-enampilkan-toast-peringatan-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\test-results\\microscope-Notifikasi-subm-222d7-enampilkan-toast-peringatan-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\test-results\\microscope-Notifikasi-subm-222d7-enampilkan-toast-peringatan-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts",
+                        "column": 7,
+                        "line": 64
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-cb70115d5c55e9fa52eb",
+              "file": "microscope.spec.ts",
+              "line": 59,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Konfigurasi Sistem (RBAC)",
+          "file": "microscope.spec.ts",
+          "line": 68,
+          "column": 6,
+          "specs": [
+            {
+              "title": "operator biasa tidak melihat tab Admin Control",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2626,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-01T05:06:44.097Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-2c1906b7e0583d23828e",
+              "file": "microscope.spec.ts",
+              "line": 69,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Kontrol Aktuator",
+          "file": "microscope.spec.ts",
+          "line": 79,
+          "column": 6,
+          "specs": [
+            {
+              "title": "panel Kendali Motor menampilkan kontrol D-pad dan tombol unlock",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3290,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-01T05:06:46.938Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-972867a25b769b52135b",
+              "file": "microscope.spec.ts",
+              "line": 80,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-01T05:06:28.730Z",
+    "duration": 21689.315,
+    "expected": 5,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}
