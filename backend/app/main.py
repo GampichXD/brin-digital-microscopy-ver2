@@ -65,7 +65,7 @@ app.include_router(logs.router)
 # Penanda build — ganti string ini setiap deploy untuk memastikan kontainer
 # yang berjalan benar-benar memuat kode terbaru.
 # Cek publik lewat browser: https://e-eye.cloud/api/version
-BUILD_MARKER = "2026-09-01-admin-control-presence-roommove"
+BUILD_MARKER = "2026-09-02-stitch-resume-bigstitch-agdefaults"
 
 @app.get("/", tags=["Health Check"])
 async def root():

@@ -88,6 +88,24 @@ class SetPositionPayload(BaseModel):
     y: float = 0.0
     z: float = 0.0
 
+class AutoGatherDefaults(BaseModel):
+    columns: Optional[int] = None
+    rows: Optional[int] = None
+    step_x: Optional[float] = None
+    step_y: Optional[float] = None
+    z_step: Optional[float] = None
+    delay_ms: Optional[int] = None
+    unit: Optional[str] = None            # 'mm' | 'inch'
+    model: Optional[str] = None           # metode stitching default
+    auto_stitch: Optional[bool] = None
+
+class PlaceFolderPayload(BaseModel):
+    folder_id: str
+    rows: int
+    columns: int
+    session: Optional[str] = "INPUT"
+    order: Optional[str] = "row-major"    # 'row-major' | 'serpentine' | 'name'
+
 
 # ==========================================
 # AUTH SCHEMAS (auth.py)

@@ -46,6 +46,18 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
   // Restart edge
   const [confirmRestart, setConfirmRestart] = useState(false);
 
+  // Default Auto-Gather (dipakai tab Image Gathering saat dimuat)
+  const AG_MODELS = [
+    { value: 'sp_lg_tensorrt', label: 'SuperPoint + LightGlue (TensorRT)' },
+    { value: 'sift_bfm', label: 'SIFT + BFMatcher' },
+    { value: 'sift_lg', label: 'SIFT + LightGlue' },
+    { value: 'brute_force', label: 'Brute-Force (Subtraksi)' },
+  ];
+  const [ag, setAg] = useState({
+    columns: '5', rows: '4', step_x: '1', step_y: '1', z_step: '1',
+    delay_ms: '500', unit: 'mm', model: 'sp_lg_tensorrt', auto_stitch: false,
+  });
+
   const num = (s: string) => (s === '' || s === '-' || isNaN(parseFloat(s)) ? null : parseFloat(s));
 
   const theme = {
@@ -92,7 +104,35 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
         yMin: data.softLimit_y_min ?? '', yMax: data.softLimit_y_max ?? '',
         zMin: data.softLimit_z_min ?? '', zMax: data.softLimit_z_max ?? '',
       });
+      setAg(prev => ({
+        columns: data.ag_columns ?? prev.columns,
+        rows: data.ag_rows ?? prev.rows,
+        step_x: data.ag_step_x ?? prev.step_x,
+        step_y: data.ag_step_y ?? prev.step_y,
+        z_step: data.ag_z_step ?? prev.z_step,
+        delay_ms: data.ag_delay_ms ?? prev.delay_ms,
+        unit: data.ag_unit ?? prev.unit,
+        model: data.ag_model ?? prev.model,
+        auto_stitch: data.ag_auto_stitch === '1' || data.ag_auto_stitch === 'true',
+      }));
     } catch { /* ignore */ }
+  };
+
+  const saveAutoGatherDefaults = async () => {
+    try {
+      await api.put('/api/hardware/config/autogather', {
+        columns: parseInt(ag.columns) || 1,
+        rows: parseInt(ag.rows) || 1,
+        step_x: parseFloat(ag.step_x) || 0,
+        step_y: parseFloat(ag.step_y) || 0,
+        z_step: parseFloat(ag.z_step) || 0,
+        delay_ms: parseInt(ag.delay_ms) || 0,
+        unit: ag.unit,
+        model: ag.model,
+        auto_stitch: ag.auto_stitch,
+      });
+      showToast('Default Auto-Gather disimpan.', 'success');
+    } catch { showToast('Gagal menyimpan default Auto-Gather.', 'error'); }
   };
 
   useEffect(() => {
@@ -364,6 +404,50 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             <Save size={14} /> Terapkan Batas ke Jetson
           </button>
         </div>
+      </div>
+
+      {/* SECTION 2b: DEFAULT AUTO-GATHER */}
+      <div className={`p-4 rounded-2xl border shadow-sm shrink-0 ${theme.panel}`}>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl"><Scan size={20} /></div>
+          <div>
+            <h3 className={`font-black text-sm ${theme.text}`}>Default Auto-Gather</h3>
+            <p className="text-[10px] text-gray-500 font-bold uppercase">Nilai awal saat operator membuka tab Image Gathering</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {([
+            ['columns', 'Kolom'], ['rows', 'Baris'],
+            ['step_x', 'Step X'], ['step_y', 'Step Y'],
+            ['z_step', 'Step Z'], ['delay_ms', 'Camera Delay (ms)'],
+          ] as const).map(([key, label]) => (
+            <div key={key}>
+              <label className="text-[10px] text-gray-500 block mb-1">{label}</label>
+              <input type="number" value={(ag as any)[key]}
+                onChange={(e) => setAg(a => ({ ...a, [key]: e.target.value }))}
+                className={`w-full p-2 rounded-lg border text-sm font-bold font-mono ${theme.inputBg}`} />
+            </div>
+          ))}
+          <div>
+            <label className="text-[10px] text-gray-500 block mb-1">Satuan</label>
+            <select value={ag.unit} onChange={(e) => setAg(a => ({ ...a, unit: e.target.value }))} className={`w-full p-2 rounded-lg border text-xs font-bold outline-none ${theme.inputBg}`}>
+              <option value="mm">mm</option><option value="inch">inch</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 block mb-1">Model Stitching</label>
+            <select value={ag.model} onChange={(e) => setAg(a => ({ ...a, model: e.target.value }))} className={`w-full p-2 rounded-lg border text-[11px] font-bold outline-none ${theme.inputBg}`}>
+              {AG_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <label className="flex items-center gap-2 mt-3 cursor-pointer text-xs font-bold">
+          <input type="checkbox" checked={ag.auto_stitch} onChange={(e) => setAg(a => ({ ...a, auto_stitch: e.target.checked }))} className="w-4 h-4 accent-blue-500" />
+          <span className={theme.text}>Langsung Tile Stitching setelah scan (default)</span>
+        </label>
+        <button onClick={saveAutoGatherDefaults} className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 flex items-center justify-center gap-2">
+          <Save size={14} /> Simpan Default Auto-Gather
+        </button>
       </div>
 
       {/* SECTION 3: CAMERA (exposure runtime) + AI CONFIDENCE + RESTART EDGE */}

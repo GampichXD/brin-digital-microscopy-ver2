@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from ..services.auth_service import SECRET_KEY, ALGORITHM
-from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, SoftLimitsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, AdminRoomActionPayload, InputTileFromDataset, SetPositionPayload
+from ..schemas import MotorMovePayload, CameraSettingsPayload, HardwareBusTogglePayload, CncSettingsPayload, SoftLimitsPayload, GridScanPayload, StitchPayload, RetakePayload, AiConfigPayload, AdminRoomActionPayload, InputTileFromDataset, SetPositionPayload, AutoGatherDefaults, PlaceFolderPayload
 import time
 import json
 import asyncio
 import os
+import re
 import shutil
 import base64
 import psutil
@@ -114,6 +115,28 @@ async def set_ai_config(payload: AiConfigPayload, db: Session = Depends(get_db))
     # Edge memakai bobot tunggal best_Seg_1280_int8.engine.
     save_setting(db, "confThreshold", str(payload.confThreshold))
     return {"message": "AI confidence threshold updated", "confThreshold": payload.confThreshold}
+
+
+_AG_KEYS = {
+    "columns": "ag_columns", "rows": "ag_rows", "step_x": "ag_step_x",
+    "step_y": "ag_step_y", "z_step": "ag_z_step", "delay_ms": "ag_delay_ms",
+    "unit": "ag_unit", "model": "ag_model", "auto_stitch": "ag_auto_stitch",
+}
+
+
+@router.put("/config/autogather")
+async def set_autogather_defaults(payload: AutoGatherDefaults, db: Session = Depends(get_db)):
+    """ADMIN: simpan nilai default parameter Auto-Gather. Frontend Image
+    Gathering membacanya dari GET /config (kunci berawalan ag_) saat memuat tab."""
+    d = payload.dict()
+    saved = {}
+    for field, key in _AG_KEYS.items():
+        val = d.get(field)
+        if val is None:
+            continue
+        save_setting(db, key, ("1" if val else "0") if field == "auto_stitch" else str(val))
+        saved[key] = val
+    return {"message": "Default Auto-Gather disimpan.", "saved": saved}
 
 @router.post("/config/{section}/default")
 async def reset_config_default(section: str, db: Session = Depends(get_db)):
@@ -304,6 +327,30 @@ _scan_state = {
     "session": None,
 }
 _scan_task = None  # simpan referensi agar task tidak di-GC di tengah jalan
+
+# ── State tile stitching (dipakai untuk resume setelah refresh & polling) ──
+# Diperbarui dari /stitch (mulai) dan dari event WebSocket Edge (progres/selesai/gagal).
+_stitch_state = {
+    "running": False, "pct": 0, "phase": "", "model": None, "session": None,
+    "error": None, "done": False, "started_at": None, "updated_at": None,
+}
+
+
+def _stitch_reset(model=None, session=None):
+    _stitch_state.update({
+        "running": True, "pct": 3, "phase": "Menyiapkan tile", "model": model,
+        "session": session, "error": None, "done": False,
+        "started_at": time.time(), "updated_at": time.time(),
+    })
+
+
+def _stitch_finish(ok: bool, detail: str = ""):
+    _stitch_state.update({
+        "running": False, "done": ok, "updated_at": time.time(),
+        "pct": 100 if ok else _stitch_state.get("pct", 0),
+        "phase": "Selesai" if ok else "Gagal",
+        "error": None if ok else (detail or "Tile stitching gagal di Edge."),
+    })
 
 
 def _tile_name(session_id: str, row: int, col: int) -> str:
@@ -645,6 +692,8 @@ async def stitch_images(payload: StitchPayload):
             if fn and not t.get("url"):
                 t["url"] = f"/static/uploads/{fn}"
 
+    _stitch_reset(model, payload.session)
+
     redis = await get_redis_client(REDIS_URL)
     try:
         await redis.publish("hardware_commands", json.dumps({
@@ -662,9 +711,18 @@ async def stitch_images(payload: StitchPayload):
 
 @router.get("/stitch/status")
 async def stitch_status():
-    """Cadangan bila event WebSocket STITCH_COMPLETE terlewat."""
+    """Status tile stitching untuk polling & resume setelah refresh halaman.
+    `running` menandai proses masih jalan; `done` sukses; `error` bila gagal.
+    `output_exists` cadangan bila event WebSocket selesai terlewat total."""
     output_path = os.path.join(UPLOAD_DIR, STITCH_OUTPUT)
-    return {"done": os.path.exists(output_path), "filename": STITCH_OUTPUT}
+    output_exists = os.path.exists(output_path)
+    st = dict(_stitch_state)
+    st["output_exists"] = output_exists
+    st["filename"] = STITCH_OUTPUT
+    # Kompat: field lama `done` sebelumnya = "file hasil ada".
+    if not st["running"] and output_exists and not st["error"]:
+        st["done"] = True
+    return st
 
 
 @router.post("/stitch/place")
@@ -697,6 +755,72 @@ async def stitch_place_from_dataset(payload: InputTileFromDataset):
     shutil.copy2(src, dst)
     return {"filename": filename, "url": f"/static/uploads/{filename}",
             "gridX": payload.grid_x, "gridY": payload.grid_y}
+
+
+_GRIDPOS_RE = re.compile(r"_r(\d+)_c(\d+)", re.IGNORECASE)
+
+
+@router.post("/stitch/place-folder")
+async def stitch_place_folder(payload: PlaceFolderPayload):
+    """Mode 'Input Images': isi SELURUH grid sekaligus dari satu folder dataset.
+    Sistem mengenali posisi tiap gambar:
+      - jika nama berkas memuat pola '..._r<baris>_c<kolom>...' -> dipakai apa adanya;
+      - selain itu diisi berurutan (row-major / serpentine) menurut nama file terurut.
+    Tiap gambar disalin ke uploads dengan nama sesuai posisi grid, siap di-stitch."""
+    folder_dir = os.path.join(DATASET_DIR, payload.folder_id)
+    if not os.path.isdir(folder_dir):
+        raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan.")
+
+    rows, cols = max(1, payload.rows), max(1, payload.columns)
+    imgs = sorted(
+        f for f in os.listdir(folder_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg")) and not f.startswith("_temp_")
+        and os.path.isfile(os.path.join(folder_dir, f))
+    )
+    if not imgs:
+        raise HTTPException(status_code=400, detail="Folder ini tidak berisi gambar.")
+
+    safe_session = "".join(ch for ch in (payload.session or "INPUT") if ch.isalnum() or ch in "-_")[:24] or "INPUT"
+    safe_session = safe_session.upper()
+
+    # 1) Coba kenali dari nama berkas.
+    by_name = {}
+    for f in imgs:
+        m = _GRIDPOS_RE.search(f)
+        if m:
+            gy, gx = int(m.group(1)), int(m.group(2))
+            if 0 <= gy < rows and 0 <= gx < cols and (gy, gx) not in by_name:
+                by_name[(gy, gx)] = f
+
+    tiles = []
+    used = set()
+    if len(by_name) >= 2:
+        for (gy, gx), f in by_name.items():
+            fname = f"IMG_{safe_session}_r{gy}_c{gx}.jpg"
+            shutil.copy2(os.path.join(folder_dir, f), os.path.join(UPLOAD_DIR, fname))
+            tiles.append({"filename": fname, "url": f"/static/uploads/{fname}",
+                          "gridX": gx, "gridY": gy, "source": f})
+            used.add(f)
+        matched_by_name = True
+    else:
+        # 2) Isi berurutan.
+        matched_by_name = False
+        remaining = [f for f in imgs if f not in used][: rows * cols]
+        for idx, f in enumerate(remaining):
+            gy = idx // cols
+            actual_x = idx % cols
+            if payload.order == "serpentine" and gy % 2 == 1:
+                actual_x = cols - 1 - actual_x
+            fname = f"IMG_{safe_session}_r{gy}_c{actual_x}.jpg"
+            shutil.copy2(os.path.join(folder_dir, f), os.path.join(UPLOAD_DIR, fname))
+            tiles.append({"filename": fname, "url": f"/static/uploads/{fname}",
+                          "gridX": actual_x, "gridY": gy, "source": f})
+
+    return {
+        "status": "OK", "session": safe_session, "count": len(tiles),
+        "total_in_folder": len(imgs), "recognized_from_name": matched_by_name,
+        "rows": rows, "columns": cols, "tiles": tiles,
+    }
 
 
 @router.post("/bus/toggle")
@@ -815,6 +939,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                         print(f"[VPS STORAGE ERROR] Gagal mendecode gambar Base64: {err}")
 
                 if event_type == "STITCHING_COMPLETE":
+                    _stitch_finish(True)
                     await redis.publish("microscope_scan_progress", json.dumps({
                         "event": "STITCH_COMPLETE", "filename": filename
                     }))
@@ -827,13 +952,30 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                         "event": "CV_FAILED", "tool": data.get("tool"), "detail": _detail
                     }))
                 else:
+                    _stitch_finish(False, _detail)
                     await redis.publish("microscope_scan_progress", json.dumps({
                         "event": "STITCH_FAILED", "detail": _detail
                     }))
 
             elif event_type == "STITCH_PROGRESS":
-                # Teruskan progres tile stitching real-time dari Edge ke browser.
+                # Rekam progres untuk polling / resume, lalu teruskan ke browser.
+                try:
+                    if isinstance(data.get("pct"), (int, float)):
+                        _stitch_state["pct"] = max(_stitch_state.get("pct", 0), int(data["pct"]))
+                    if data.get("phase"):
+                        _stitch_state["phase"] = str(data["phase"])
+                    _stitch_state["running"] = True
+                    _stitch_state["updated_at"] = time.time()
+                except Exception:
+                    pass
                 await redis.publish("microscope_scan_progress", message)
+
+            elif event_type == "EDGE_RESTARTING":
+                if _stitch_state["running"]:
+                    _stitch_finish(False, "Layanan Edge di-restart saat stitching berjalan.")
+                    await redis.publish("microscope_scan_progress", json.dumps({
+                        "event": "STITCH_FAILED", "detail": _stitch_state["error"]
+                    }))
                 
     except WebSocketDisconnect:
         print("[VPS ROUTER WARNING] Koneksi Jetson Orin Nano terputus dari sirkuit cloud.")
@@ -844,7 +986,18 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                 await listener_task
             except asyncio.CancelledError:
                 pass
-        
+
+        # Kalau Jetson putus di tengah stitching, jangan biarkan status "running"
+        # menggantung — beri tahu web supaya berhenti menunggu.
+        if _stitch_state["running"]:
+            _stitch_finish(False, "Koneksi Edge terputus saat tile stitching berjalan.")
+            try:
+                await redis.publish("microscope_scan_progress", json.dumps({
+                    "event": "STITCH_FAILED", "detail": _stitch_state["error"]
+                }))
+            except Exception:
+                pass
+
         motor_driver.unregister_jetson()
         camera_driver.stop()
         try:

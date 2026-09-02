@@ -102,6 +102,7 @@ export default function ImageGatheringTab({
   const [inputTiles, setInputTiles] = useState<Record<string, InputTile>>({});
   const [inputTarget, setInputTarget] = useState<{ gx: number; gy: number } | null>(null);
   const [showDbPicker, setShowDbPicker] = useState(false);
+  const [dbPickerMode, setDbPickerMode] = useState<'cell' | 'grid'>('cell');
   const [dbPickerFolder, setDbPickerFolder] = useState<string | null>(null);
   const [dbPickerImages, setDbPickerImages] = useState<{ name: string }[]>([]);
   const [inputBusy, setInputBusy] = useState(false);
@@ -109,6 +110,10 @@ export default function ImageGatheringTab({
 
   const cancelRef = useRef(false);
   const stitchAbortRef = useRef<(() => void) | null>(null);
+  // Fungsi pembersih pemantau aktif (scan/stitch) — dipanggil saat tab dilepas
+  // supaya interval/listener tidak bocor & tidak setState pada komponen mati.
+  const monitorTeardownRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => { monitorTeardownRef.current?.(); }, []);
   const joystickRef = useRef<HTMLDivElement>(null);
   const joystickActive = useRef(false);
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
@@ -172,6 +177,113 @@ export default function ImageGatheringTab({
 
   const elapsedTimeText = `${String(Math.floor(timerTick / 60)).padStart(2, '0')}:${String(timerTick % 60).padStart(2, '0')}`;
 
+  // Pulihkan pemantauan scan yang masih jalan setelah halaman di-refresh.
+  const resumeScan = (status: any) => {
+    const totalGrids = status.total || (c * r) || 1;
+    setIsProcessing(true);
+    setProcessKind('scan');
+    setProgress(Math.min(status.index || 0, totalGrids));
+    setProcessTask(`Menyambungkan kembali… Tile ${status.index || 0}/${totalGrids}`);
+    setTimerTick(0);
+    if (status.session) setScanSession(status.session);
+    cancelRef.current = false;
+    let finished = false;
+    const fin = (imgs: any[], kind: 'ok' | 'cancel' | 'fail', detail?: string) => {
+      if (finished) return;
+      finished = true;
+      monitorTeardownRef.current = null;
+      clearInterval(poll); clearInterval(keep);
+      wsRef.current?.removeEventListener('message', onWs);
+      try { localStorage.removeItem('ig_resume'); } catch { /* ignore */ }
+      setIsProcessing(false);
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ action: cameraActive ? 'START_STREAM' : 'STOP_STREAM' }));
+      }
+      if (kind === 'fail') { showToast(detail || 'Pemindaian gagal.', 'error'); return; }
+      if (imgs.length) {
+        setCapturedImages(imgs.map((im: any) => ({ ...im, timestamp: Date.now() })));
+        setProcessTimes({ scan: 0, stitch: 0, total: 0 });
+        setShowReviewModal(true);
+      }
+      showToast(kind === 'ok' ? 'Pemindaian selesai (dipulihkan).' : 'Pemindaian dibatalkan.', kind === 'ok' ? 'success' : 'info');
+    };
+    const onWs = (ev: MessageEvent) => {
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
+          setProgress(Math.min(m.index, totalGrids));
+          setProcessTask(`Tile ${m.index}/${m.total ?? totalGrids}`);
+        } else if (m.event === 'SCAN_COMPLETE') fin(m.images || [], 'ok');
+        else if (m.event === 'SCAN_CANCELLED') fin(m.images || [], 'cancel');
+        else if (m.event === 'SCAN_FAILED') fin([], 'fail', m.detail);
+      } catch { /* ignore */ }
+    };
+    wsRef.current?.addEventListener('message', onWs);
+    const keep = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ action: 'PING' }));
+    }, 20000);
+    const poll = setInterval(async () => {
+      if (finished) return;
+      try {
+        const { data } = await api.get('/api/hardware/scan/status');
+        if (typeof data.index === 'number') setProgress(Math.min(data.index, totalGrids));
+        if (!data.running) {
+          if (data.error) fin([], 'fail', data.error);
+          else if (data.cancelled) fin(data.images || [], 'cancel');
+          else fin(data.images || [], 'ok');
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    monitorTeardownRef.current = () => {
+      finished = true;
+      clearInterval(poll); clearInterval(keep);
+      wsRef.current?.removeEventListener('message', onWs);
+    };
+  };
+
+  // ── Saat tab dimuat: (2) terapkan default Auto-Gather dari Admin,
+  //    (1) pulihkan overlay proses yang masih berjalan (scan / stitch). ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: cfg } = await api.get('/api/hardware/config');
+        if (!cancelled && cfg) {
+          if (cfg.ag_columns) setCols(String(cfg.ag_columns));
+          if (cfg.ag_rows) setRows(String(cfg.ag_rows));
+          if (cfg.ag_step_x) setStepX(String(cfg.ag_step_x));
+          if (cfg.ag_step_y) setStepY(String(cfg.ag_step_y));
+          if (cfg.ag_z_step) setZStep(String(cfg.ag_z_step));
+          if (cfg.ag_delay_ms) setCamDelay(String(cfg.ag_delay_ms));
+          if (cfg.ag_unit === 'mm' || cfg.ag_unit === 'inch') setStepUnit(cfg.ag_unit);
+          if (cfg.ag_model) setStitchModel(cfg.ag_model);
+          if (cfg.ag_auto_stitch != null) setAutoStitch(cfg.ag_auto_stitch === '1' || cfg.ag_auto_stitch === 'true');
+        }
+      } catch { /* ignore */ }
+
+      let hint: any = null;
+      try { hint = JSON.parse(localStorage.getItem('ig_resume') || 'null'); } catch { /* ignore */ }
+      try {
+        const [sc, st] = await Promise.all([
+          api.get('/api/hardware/scan/status').then(r => r.data).catch(() => null),
+          api.get('/api/hardware/stitch/status').then(r => r.data).catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (sc && sc.running) { resumeScan(sc); return; }
+        if (st && st.running) { attachStitchMonitor({ startPct: st.pct, startPhase: st.phase || 'menyambungkan kembali…' }); return; }
+        // Stitching selesai selagi halaman di-refresh -> tampilkan hasilnya sekali.
+        if (hint?.kind === 'stitch' && st && (st.done || st.output_exists) && !st.error) {
+          setProcessTimes(p => ({ ...p, stitch: 0 }));
+          setShowStitchModal(true);
+          showToast('Tile stitching selesai saat halaman dimuat ulang.', 'success');
+        }
+        if (hint) { try { localStorage.removeItem('ig_resume'); } catch { /* ignore */ } }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Sinkronisasi koordinat dengan Telemetry (dari WebSocket)
   useEffect(() => {
     if (lastEchoGCode && lastEchoGCode.startsWith("X:")) {
@@ -232,6 +344,10 @@ export default function ImageGatheringTab({
 
     const startTime = Date.now();
     const totalGrids = c * r;
+    // Penanda supaya overlay bisa dipulihkan bila halaman di-refresh.
+    try { localStorage.setItem('ig_resume', JSON.stringify({ kind: 'scan', total: totalGrids, cols: c, rows: r, ts: Date.now() })); } catch { /* ignore */ }
+    let lastIndex = 0;
+    let lastIndexAt = Date.now();
 
     // Scan berjalan ASINKRON di backend (background task). Frontend TIDAK
     // menunggu response HTTP panjang (Cloudflare memutus di ~120 dtk) — cukup
@@ -248,6 +364,7 @@ export default function ImageGatheringTab({
         if (m.session) setScanSession(m.session);
         if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
           lastWsEventAt = Date.now();
+          if (m.index !== lastIndex) { lastIndex = m.index; lastIndexAt = Date.now(); }
           setProgress(Math.min(m.index, totalGrids));
           setProcessTask(`Tile ${m.index}/${m.total} — X:${m.coordX} Y:${m.coordY}`);
         } else if (m.event === 'SCAN_COMPLETE') {
@@ -261,8 +378,10 @@ export default function ImageGatheringTab({
     };
 
     const cleanup = () => {
+      monitorTeardownRef.current = null;
       if (keepAlive) clearInterval(keepAlive);
       if (poller) clearInterval(poller);
+      try { localStorage.removeItem('ig_resume'); } catch { /* ignore */ }
       wsRef.current?.removeEventListener('message', onWsMessage);
       // Kembalikan streaming video ke keadaan sesuai toggle kamera.
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -313,6 +432,12 @@ export default function ImageGatheringTab({
     };
 
     wsRef.current?.addEventListener('message', onWsMessage);
+    monitorTeardownRef.current = () => {
+      finished = true;
+      if (keepAlive) clearInterval(keepAlive);
+      if (poller) clearInterval(poller);
+      wsRef.current?.removeEventListener('message', onWsMessage);
+    };
 
     // Jaga sesi tetap hidup selama scan panjang (idle-timeout server 10 menit).
     keepAlive = setInterval(() => {
@@ -324,10 +449,17 @@ export default function ImageGatheringTab({
     // Cadangan: kalau WS putus, tarik progres/hasil via HTTP.
     poller = setInterval(async () => {
       if (finished) return;
-      if (Date.now() - lastWsEventAt < 15000) return; // WS masih sehat, tak perlu polling
+      // Tetap tampilkan tanda "Edge lambat" walau WS sehat, jika indeks macet lama.
+      if (!finished && isProcessing && Date.now() - lastIndexAt > 25000) {
+        setProcessTask(prev => (prev.includes('menunggu Edge') ? prev : `${prev} · menunggu Edge…`));
+      }
+      if (Date.now() - lastWsEventAt < 15000) return; // WS masih sehat, tak perlu polling status
       try {
         const { data } = await api.get('/api/hardware/scan/status');
-        if (typeof data.index === 'number') setProgress(Math.min(data.index, totalGrids));
+        if (typeof data.index === 'number') {
+          if (data.index !== lastIndex) { lastIndex = data.index; lastIndexAt = Date.now(); }
+          setProgress(Math.min(data.index, totalGrids));
+        }
         if (!data.running) {
           if (data.error) finishError(data.error);
           else if (data.cancelled) finishCancelled(data.images || []);
@@ -397,34 +529,43 @@ export default function ImageGatheringTab({
     }
   };
 
-  // Inti proses stitching — ASINKRON: backend balas cepat, hasil datang lewat
-  // event WebSocket STITCH_COMPLETE / STITCH_FAILED (fallback polling).
-  const runStitching = async (
-    tilesPayload: { images: (string | null)[]; tiles: any[]; session?: string | null },
-    scanTParam = 0,
-  ) => {
+  // Pemantau tile stitching — dipakai baik saat memulai (runStitching) maupun
+  // saat memulihkan setelah refresh (resumeStitch). Event WS + polling status +
+  // "creep" halus + watchdog adaptif (5 menit sunyi total = gagal).
+  const attachStitchMonitor = (opts: { scanTParam?: number; startPct?: number; startPhase?: string }) => {
+    const scanTParam = opts.scanTParam ?? 0;
     setShowReviewModal(false);
     setShowInputModal(false);
     setIsProcessing(true);
     setProcessKind('stitch');
-    setProcessTask('AI Tile Stitching Berjalan di Edge Device...');
+    setProcessTask(`Tile Stitching — ${opts.startPhase || 'berjalan di Edge Device'}`);
     setTimerTick(0);
-    setProgress(5);
+    setProgress(Math.max(5, Math.min(97, opts.startPct || 5)));
     const stitchStart = Date.now();
     let finished = false;
+    let lastBeat = Date.now();
+    let ceiling = Math.max(12, opts.startPct || 12);
+    try { localStorage.setItem('ig_resume', JSON.stringify({ kind: 'stitch', ts: Date.now() })); } catch { /* ignore */ }
 
+    const bump = (pct: number, phase?: string) => {
+      lastBeat = Date.now();
+      if (typeof pct === 'number') { ceiling = Math.max(ceiling, Math.min(97, pct)); setProgress(p => Math.max(p, Math.min(97, pct))); }
+      if (phase) setProcessTask(`Tile Stitching — ${phase}`);
+    };
     const done = (ok: boolean, detail?: string) => {
       if (finished) return;
       finished = true;
       stitchAbortRef.current = null;
-      clearInterval(poll); clearInterval(keepAlive); clearTimeout(watchdog);
+      monitorTeardownRef.current = null;
+      clearInterval(poll); clearInterval(keepAlive); clearInterval(watchdog); clearInterval(creep);
       wsRef.current?.removeEventListener('message', onWs);
+      try { localStorage.removeItem('ig_resume'); } catch { /* ignore */ }
       setIsProcessing(false);
       setProgress(100);
       const stitchT = (Date.now() - stitchStart) / 1000;
       if (detail === '__ABORT__') return;
       if (ok) {
-        setProcessTimes({ scan: scanTParam, stitch: stitchT, total: scanTParam + stitchT });
+        setProcessTimes(prev => ({ scan: scanTParam || prev.scan, stitch: stitchT, total: (scanTParam || prev.scan) + stitchT }));
         setShowStitchModal(true);
         showToast('Proses tile stitching berhasil diselesaikan!', 'success');
         logSystemAction('Tile Stitching Mosaik Selesai', 'SUCCESS');
@@ -433,32 +574,50 @@ export default function ImageGatheringTab({
         logSystemAction('Tile Stitching Mosaik Gagal', 'ERROR');
       }
     };
-
     const onWs = (ev: MessageEvent) => {
       try {
         const m = JSON.parse(ev.data);
-        if (m.event === 'STITCH_PROGRESS' && typeof m.pct === 'number') {
-          setProgress(Math.max(5, Math.min(97, m.pct)));
-          if (m.phase) setProcessTask(`Tile Stitching — ${m.phase}`);
-        } else if (m.event === 'STITCH_COMPLETE') done(true);
+        if (m.event === 'STITCH_PROGRESS' && typeof m.pct === 'number') bump(m.pct, m.phase);
+        else if (m.event === 'STITCH_COMPLETE') done(true);
         else if (m.event === 'STITCH_FAILED') done(false, m.detail);
       } catch { /* ignore */ }
     };
     wsRef.current?.addEventListener('message', onWs);
-
+    const creep = setInterval(() => {
+      if (finished) return;
+      setProgress(p => (p < ceiling - 0.5 ? Math.min(ceiling - 0.5, p + 0.3) : p));
+    }, 1000);
     const poll = setInterval(async () => {
       if (finished) return;
       try {
         const { data } = await api.get('/api/hardware/stitch/status');
-        if (data.done) done(true);
+        if (data.running) bump(typeof data.pct === 'number' ? data.pct : ceiling, data.phase);
+        else if (data.done || data.output_exists) done(true);
+        else if (data.error) done(false, data.error);
       } catch { /* ignore */ }
     }, 4000);
     const keepAlive = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ action: 'PING' }));
     }, 20000);
-    const watchdog = setTimeout(() => done(false, 'Timeout menunggu Edge menyelesaikan stitching.'), 15 * 60 * 1000);
+    const watchdog = setInterval(() => {
+      if (!finished && Date.now() - lastBeat > 5 * 60 * 1000) {
+        done(false, 'Edge tidak mengirim kabar selama 5 menit — proses dianggap gagal.');
+      }
+    }, 30000);
     stitchAbortRef.current = () => done(false, '__ABORT__');
+    monitorTeardownRef.current = () => {
+      finished = true;
+      clearInterval(poll); clearInterval(keepAlive); clearInterval(watchdog); clearInterval(creep);
+      wsRef.current?.removeEventListener('message', onWs);
+    };
+    return done;
+  };
 
+  const runStitching = async (
+    tilesPayload: { images: (string | null)[]; tiles: any[]; session?: string | null },
+    scanTParam = 0,
+  ) => {
+    const done = attachStitchMonitor({ scanTParam });
     try {
       await api.post('/api/hardware/stitch', {
         images: tilesPayload.images,
@@ -534,7 +693,46 @@ export default function ImageGatheringTab({
     }
   };
 
-  const openDbPicker = () => { setShowDbPicker(true); setDbPickerFolder(null); setDbPickerImages([]); };
+  const openDbPicker = () => { setDbPickerMode('cell'); setShowDbPicker(true); setDbPickerFolder(null); setDbPickerImages([]); };
+
+  // Isi SELURUH grid dari satu folder database sekaligus. Sistem mengenali
+  // posisi tiap gambar dari nama berkas ('..._r<n>_c<n>...'); jika tidak,
+  // diisi berurutan (row-major). Setelah itu tinggal "MULAI TILE STITCHING".
+  const openFolderFill = () => {
+    if (!inputSession) setInputSession('INPUT' + new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14));
+    setShowInputModal(true);
+    setDbPickerMode('grid');
+    setShowDbPicker(true);
+    setDbPickerFolder(null);
+    setDbPickerImages([]);
+  };
+
+  const fillGridFromFolder = async (folderId: string) => {
+    const sess = inputSession || ('INPUT' + new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14));
+    if (!inputSession) setInputSession(sess);
+    setInputBusy(true);
+    try {
+      const { data } = await api.post('/api/hardware/stitch/place-folder', {
+        folder_id: folderId, rows: r, columns: c, session: sess,
+      });
+      const next: Record<string, InputTile> = {};
+      for (const tl of (data.tiles || [])) {
+        next[`${tl.gridY}-${tl.gridX}`] = { gridX: tl.gridX, gridY: tl.gridY, filename: tl.filename, url: tl.url };
+      }
+      setInputTiles(next);
+      setShowDbPicker(false);
+      setDbPickerMode('cell');
+      showToast(
+        data.recognized_from_name
+          ? `${data.count} gambar dikenali dari nama berkas & ditempatkan sesuai posisi grid.`
+          : `${data.count} dari ${data.total_in_folder} gambar diisi berurutan ke grid ${data.rows}×${data.columns}.`,
+        'success');
+    } catch (e: any) {
+      showToast(e?.response?.data?.detail || 'Gagal mengisi grid dari folder.', 'error');
+    } finally {
+      setInputBusy(false);
+    }
+  };
 
   const loadDbFolderImages = async (folderId: string) => {
     setDbPickerFolder(folderId);
@@ -818,10 +1016,14 @@ export default function ImageGatheringTab({
               </select>
             </div>
 
-            <div className="mt-auto pt-2">
-              <button onClick={openInputModal} className="w-full py-4 rounded-2xl font-bold flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all">
-                <Grid3X3 size={20} className="mr-2" /> SUSUN & ISI GRID ({Object.keys(inputTiles).length}/{c * r})
+            <div className="mt-auto pt-2 flex flex-col gap-2">
+              <button onClick={openFolderFill} className="w-full py-3 rounded-2xl font-bold flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95 transition-all">
+                <Database size={18} className="mr-2" /> ISI GRID DARI FOLDER DATABASE
               </button>
+              <button onClick={openInputModal} className="w-full py-3 rounded-2xl font-bold flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all">
+                <Grid3X3 size={18} className="mr-2" /> SUSUN MANUAL ({Object.keys(inputTiles).length}/{c * r})
+              </button>
+              <p className={`text-[10px] text-center ${theme.textMuted}`}>Folder: sistem menaruh gambar sesuai posisi grid otomatis (kenali dari nama <span className="font-mono">_r_c_</span>, atau berurutan).</p>
             </div>
           </>
         )}
@@ -1388,11 +1590,26 @@ export default function ImageGatheringTab({
             <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[130] p-4" onClick={() => setShowDbPicker(false)}>
               <div className={`w-[95%] max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden border ${theme.panel}`} onClick={(e) => e.stopPropagation()}>
                 <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-black/20">
-                  <h3 className={`font-bold ${theme.text}`}>{dbPickerFolder ? 'Pilih Gambar' : 'Pilih Folder Dataset'}</h3>
-                  <button onClick={() => dbPickerFolder ? setDbPickerFolder(null) : setShowDbPicker(false)} className={`p-1.5 rounded-lg border ${theme.btnTouch} ${theme.text}`}><X size={18} /></button>
+                  <h3 className={`font-bold ${theme.text}`}>
+                    {dbPickerMode === 'grid'
+                      ? `Isi grid ${c}×${r} dari folder`
+                      : (dbPickerFolder ? 'Pilih Gambar' : 'Pilih Folder Dataset')}
+                  </h3>
+                  <button onClick={() => (dbPickerMode === 'cell' && dbPickerFolder) ? setDbPickerFolder(null) : setShowDbPicker(false)} className={`p-1.5 rounded-lg border ${theme.btnTouch} ${theme.text}`}><X size={18} /></button>
                 </div>
                 <div className="p-4 overflow-auto">
-                  {!dbPickerFolder ? (
+                  {dbPickerMode === 'grid' ? (
+                    <div className="grid gap-2">
+                      {inputBusy && <p className={`text-xs ${theme.textMuted}`}>Menempatkan gambar ke grid…</p>}
+                      {!inputBusy && availableFolders.length === 0 && <p className={`text-xs ${theme.textMuted}`}>Belum ada folder dataset.</p>}
+                      {!inputBusy && availableFolders.map((f) => (
+                        <button key={f.id} onClick={() => fillGridFromFolder(f.id)} className={`p-3 rounded-xl border text-left flex items-center justify-between gap-2 hover:border-emerald-500 ${theme.text}`}>
+                          <span className="flex items-center gap-2"><FolderPlus size={16} /> <span className="font-bold text-sm">{f.name}</span></span>
+                          <span className="text-[10px] opacity-60">{f.object_type}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : !dbPickerFolder ? (
                     <div className="grid gap-2">
                       {availableFolders.length === 0 && <p className={`text-xs ${theme.textMuted}`}>Belum ada folder dataset.</p>}
                       {availableFolders.map((f) => (
