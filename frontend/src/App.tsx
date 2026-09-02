@@ -191,16 +191,43 @@ export default function App() {
     type: 'SUCCESS'
   });
 
+  // Diekstrak jadi node terpisah supaya toast juga tampil di halaman AuthPage
+  // (sebelumnya cuma dirender di return utama, jadi tak pernah muncul saat
+  // pengguna belum login -- ditemukan lewat pengujian black box Playwright).
+  const globalToastNode = globalToast && (
+    <div
+      key={globalToast.id}
+      className={`fixed top-[90px] right-4 z-[9999] px-4 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 max-w-[360px] w-max animate-in fade-in slide-in-from-top-4 duration-300 ${
+        globalToast.type === 'error' ? (isDarkMode ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-red-50 border-red-200 text-red-800') :
+        globalToast.type === 'success' ? (isDarkMode ? 'bg-green-950/90 border-green-900 text-green-200' : 'bg-green-50 border-green-200 text-green-800') :
+        (isDarkMode ? 'bg-blue-950/90 border-blue-900 text-blue-200' : 'bg-blue-50 border-blue-200 text-blue-800')
+      }`}
+    >
+      <div className="shrink-0">
+        {globalToast.type === 'error' ? <AlertCircle size={20} className="text-red-500" /> :
+         globalToast.type === 'success' ? <CheckCircle2 size={20} className="text-green-500" /> :
+         <Info size={20} className="text-blue-500" />}
+      </div>
+      <p className="text-[13px] font-medium leading-tight">{globalToast.message}</p>
+      <button onClick={() => setGlobalToast(null)} className="ml-2 p-1 hover:bg-black/10 rounded-full transition-colors shrink-0">
+        <X size={14} />
+      </button>
+    </div>
+  );
+
   if (!currentUser) {
     return (
-      <AuthPage 
-        onLoginSuccess={(username, role) => {
-          setCurrentUser(username);
-          setCurrentUserRole(role);
-          if (role === 'ADMIN') setActiveTab('Admin Control');
-          else setActiveTab('Live Stream');
-        }}
-      />
+      <>
+        <AuthPage
+          onLoginSuccess={(username, role) => {
+            setCurrentUser(username);
+            setCurrentUserRole(role);
+            if (role === 'ADMIN') setActiveTab('Admin Control');
+            else setActiveTab('Live Stream');
+          }}
+        />
+        {globalToastNode}
+      </>
     );
   }
 
@@ -335,26 +362,7 @@ export default function App() {
       )}
 
       {/* NEW SYSTEM TOAST NOTIFICATION UI */}
-      {globalToast && (
-        <div 
-          key={globalToast.id}
-          className={`fixed top-[90px] right-4 z-[9999] px-4 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 max-w-[360px] w-max animate-in fade-in slide-in-from-top-4 duration-300 ${
-            globalToast.type === 'error' ? (isDarkMode ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-red-50 border-red-200 text-red-800') :
-            globalToast.type === 'success' ? (isDarkMode ? 'bg-green-950/90 border-green-900 text-green-200' : 'bg-green-50 border-green-200 text-green-800') :
-            (isDarkMode ? 'bg-blue-950/90 border-blue-900 text-blue-200' : 'bg-blue-50 border-blue-200 text-blue-800')
-          }`}
-        >
-          <div className="shrink-0">
-            {globalToast.type === 'error' ? <AlertCircle size={20} className="text-red-500" /> :
-             globalToast.type === 'success' ? <CheckCircle2 size={20} className="text-green-500" /> :
-             <Info size={20} className="text-blue-500" />}
-          </div>
-          <p className="text-[13px] font-medium leading-tight">{globalToast.message}</p>
-          <button onClick={() => setGlobalToast(null)} className="ml-2 p-1 hover:bg-black/10 rounded-full transition-colors shrink-0">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      {globalToastNode}
 
       <UserProfileModal 
         isProfileOpen={isProfileOpen}

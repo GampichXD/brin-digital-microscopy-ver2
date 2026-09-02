@@ -80,7 +80,7 @@
         {
           "title": "Autentikasi",
           "file": "microscope.spec.ts",
-          "line": 29,
+          "line": 38,
           "column": 6,
           "specs": [
             {
@@ -99,12 +99,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1121,
+                      "duration": 1365,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-09-01T05:06:29.683Z",
+                      "startTime": "2026-09-02T03:20:19.792Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -114,7 +114,7 @@
               ],
               "id": "ffcf3371cb0c3f705145-2637a4ae7924e69953df",
               "file": "microscope.spec.ts",
-              "line": 30,
+              "line": 39,
               "column": 3
             },
             {
@@ -133,12 +133,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2505,
+                      "duration": 2566,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-09-01T05:06:31.011Z",
+                      "startTime": "2026-09-02T03:20:21.402Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -148,7 +148,7 @@
               ],
               "id": "ffcf3371cb0c3f705145-fa445dd1dab99a974e7f",
               "file": "microscope.spec.ts",
-              "line": 40,
+              "line": 49,
               "column": 3
             },
             {
@@ -167,12 +167,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3507,
+                      "duration": 3328,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-09-01T05:06:33.534Z",
+                      "startTime": "2026-09-02T03:20:23.991Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -182,7 +182,7 @@
               ],
               "id": "ffcf3371cb0c3f705145-1db9c26abea3c4a7948e",
               "file": "microscope.spec.ts",
-              "line": 46,
+              "line": 55,
               "column": 3
             }
           ]
@@ -190,12 +190,12 @@
         {
           "title": "Notifikasi",
           "file": "microscope.spec.ts",
-          "line": 56,
+          "line": 65,
           "column": 6,
           "specs": [
             {
               "title": "submit form kosong menampilkan toast peringatan",
-              "ok": false,
+              "ok": true,
               "tags": [],
               "tests": [
                 {
@@ -208,63 +208,23 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 5911,
-                      "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Username dan password tidak boleh kosong!')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Username dan password tidak boleh kosong!')\u001b[22m\n",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Username dan password tidak boleh kosong!')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Username dan password tidak boleh kosong!')\u001b[22m\n\n    at D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts:64:7",
-                        "location": {
-                          "file": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts",
-                          "column": 7,
-                          "line": 64
-                        },
-                        "snippet": "  62 |     await expect(\n  63 |       page.getByText('Username dan password tidak boleh kosong!')\n> 64 |     ).toBeVisible({ timeout: 5000 });\n     |       ^\n  65 |   });\n  66 | });\n  67 |"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts",
-                            "column": 7,
-                            "line": 64
-                          },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Username dan password tidak boleh kosong!')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Username dan password tidak boleh kosong!')\u001b[22m\n\n\n  62 |     await expect(\n  63 |       page.getByText('Username dan password tidak boleh kosong!')\n> 64 |     ).toBeVisible({ timeout: 5000 });\n     |       ^\n  65 |   });\n  66 | });\n  67 |\n    at D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts:64:7"
-                        }
-                      ],
+                      "status": "passed",
+                      "duration": 845,
+                      "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-09-01T05:06:37.062Z",
+                      "startTime": "2026-09-02T03:20:27.342Z",
                       "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\test-results\\microscope-Notifikasi-subm-222d7-enampilkan-toast-peringatan-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\test-results\\microscope-Notifikasi-subm-222d7-enampilkan-toast-peringatan-chromium\\error-context.md"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\test-results\\microscope-Notifikasi-subm-222d7-enampilkan-toast-peringatan-chromium\\trace.zip"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "D:\\Work Data\\Lecture\\Tugas Akhir\\Software\\frontend\\e2e\\microscope.spec.ts",
-                        "column": 7,
-                        "line": 64
-                      }
+                      "attachments": []
                     }
                   ],
-                  "status": "unexpected"
+                  "status": "expected"
                 }
               ],
               "id": "ffcf3371cb0c3f705145-cb70115d5c55e9fa52eb",
               "file": "microscope.spec.ts",
-              "line": 59,
+              "line": 68,
               "column": 3
             }
           ]
@@ -272,7 +232,7 @@
         {
           "title": "Konfigurasi Sistem (RBAC)",
           "file": "microscope.spec.ts",
-          "line": 68,
+          "line": 77,
           "column": 6,
           "specs": [
             {
@@ -288,15 +248,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2626,
+                      "duration": 2622,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-09-01T05:06:44.097Z",
+                      "startTime": "2026-09-02T03:20:28.212Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -306,7 +266,7 @@
               ],
               "id": "ffcf3371cb0c3f705145-2c1906b7e0583d23828e",
               "file": "microscope.spec.ts",
-              "line": 69,
+              "line": 78,
               "column": 3
             }
           ]
@@ -314,7 +274,7 @@
         {
           "title": "Kontrol Aktuator",
           "file": "microscope.spec.ts",
-          "line": 79,
+          "line": 88,
           "column": 6,
           "specs": [
             {
@@ -330,15 +290,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3290,
+                      "duration": 3312,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-09-01T05:06:46.938Z",
+                      "startTime": "2026-09-02T03:20:30.855Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -348,7 +308,663 @@
               ],
               "id": "ffcf3371cb0c3f705145-972867a25b769b52135b",
               "file": "microscope.spec.ts",
-              "line": 80,
+              "line": 89,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Kelola Dataset",
+          "file": "microscope.spec.ts",
+          "line": 119,
+          "column": 6,
+          "specs": [
+            {
+              "title": "membuat folder dataset baru lewat UI dan muncul di daftar",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8325,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:20:34.190Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-b7b175f8defc6ac1b60b",
+              "file": "microscope.spec.ts",
+              "line": 120,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Kelola Operator (RBAC) - Admin",
+          "file": "microscope.spec.ts",
+          "line": 144,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Admin melihat daftar operator dan dapat mereset password operator lain",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5812,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:20:42.539Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-c2d686d01b23dfbfab1d",
+              "file": "microscope.spec.ts",
+              "line": 145,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Konfigurasi Hardware Bus - Admin",
+          "file": "microscope.spec.ts",
+          "line": 169,
+          "column": 6,
+          "specs": [
+            {
+              "title": "toggle Power Bus dari UI benar-benar mengubah state di backend",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7631,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:20:48.377Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-196f096e7b272bf16e82",
+              "file": "microscope.spec.ts",
+              "line": 170,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Lihat Log Aktivitas",
+          "file": "microscope.spec.ts",
+          "line": 195,
+          "column": 6,
+          "specs": [
+            {
+              "title": "tabel log aktivitas tampil dan dapat dicari",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2783,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:20:56.033Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-e2b88f9e60ee9791a777",
+              "file": "microscope.spec.ts",
+              "line": 196,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Registrasi Operator",
+          "file": "microscope.spec.ts",
+          "line": 210,
+          "column": 6,
+          "specs": [
+            {
+              "title": "konfirmasi password tidak cocok menampilkan peringatan",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1109,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:20:58.840Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-b528f84d0ccfc47ea545",
+              "file": "microscope.spec.ts",
+              "line": 211,
+              "column": 3
+            },
+            {
+              "title": "username yang sudah terdaftar menampilkan pesan error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1815,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:20:59.970Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-5b0eeeb04528a47e99df",
+              "file": "microscope.spec.ts",
+              "line": 221,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Ubah Password Sendiri",
+          "file": "microscope.spec.ts",
+          "line": 244,
+          "column": 6,
+          "specs": [
+            {
+              "title": "operator dapat mengubah password akun miliknya sendiri",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5663,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:01.805Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-bb71a91f7280ef4c6491",
+              "file": "microscope.spec.ts",
+              "line": 245,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Konfigurasi & Pemeliharaan Edge Device - Admin",
+          "file": "microscope.spec.ts",
+          "line": 265,
+          "column": 6,
+          "specs": [
+            {
+              "title": "restart layanan Edge ditolak dengan jelas saat Jetson offline",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4961,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:07.498Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-26108bf1ae9b6114b8c3",
+              "file": "microscope.spec.ts",
+              "line": 266,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Buat Laporan Otomatis",
+          "file": "microscope.spec.ts",
+          "line": 285,
+          "column": 6,
+          "specs": [
+            {
+              "title": "memilih folder dan membuat laporan Word tidak menampilkan error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8227,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:12.487Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-0dfe9279cc8b573226d4",
+              "file": "microscope.spec.ts",
+              "line": 286,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Pantau Streaming & Telemetri",
+          "file": "microscope.spec.ts",
+          "line": 309,
+          "column": 6,
+          "specs": [
+            {
+              "title": "status Edge Device dan statistik RAM/ROM tampil di header",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2494,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:20.733Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-2868698364bde8edc3cc",
+              "file": "microscope.spec.ts",
+              "line": 310,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Kendali Motor - Go-To Coordinate",
+          "file": "microscope.spec.ts",
+          "line": 321,
+          "column": 6,
+          "specs": [
+            {
+              "title": "mengirim koordinat tujuan lewat mode manual tidak menimbulkan error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3563,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:23.248Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-2443aefae25b68fef989",
+              "file": "microscope.spec.ts",
+              "line": 322,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Atur Parameter Kamera & CNC",
+          "file": "microscope.spec.ts",
+          "line": 338,
+          "column": 6,
+          "specs": [
+            {
+              "title": "menerapkan pengaturan CNC (feed rate/backlash/dll) dari panel Live Stream",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4890,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:26.832Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-b5f2197264ee8c0b0eb6",
+              "file": "microscope.spec.ts",
+              "line": 339,
+              "column": 3
+            },
+            {
+              "title": "menerapkan pengaturan kamera (shutter/ISO) dari panel Live Stream",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5497,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:31.744Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-f075bb68623eeaafe714",
+              "file": "microscope.spec.ts",
+              "line": 351,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Kelola Penyimpanan & Sinkronisasi - Admin",
+          "file": "microscope.spec.ts",
+          "line": 362,
+          "column": 6,
+          "specs": [
+            {
+              "title": "panel Storage Management tampil dengan info kapasitas",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6647,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:37.264Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-c03a3b5912bb7953b1ae",
+              "file": "microscope.spec.ts",
+              "line": 363,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Konfigurasi & Pemeliharaan Edge Device - Admin (Vision AI & CNC)",
+          "file": "microscope.spec.ts",
+          "line": 375,
+          "column": 6,
+          "specs": [
+            {
+              "title": "panel Vision AI Inference dan CNC & GRBL Maintenance tampil untuk Admin",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4878,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:43.936Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-c55aeeb0dd8e6e1fd866",
+              "file": "microscope.spec.ts",
+              "line": 376,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Konfigurasi Sistem (RBAC) - Cakupan Tab Operator",
+          "file": "microscope.spec.ts",
+          "line": 390,
+          "column": 6,
+          "specs": [
+            {
+              "title": "operator melihat seluruh 5 tab non-admin secara lengkap",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2576,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-02T03:21:48.839Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ffcf3371cb0c3f705145-eb07a6903ab5c49bf287",
+              "file": "microscope.spec.ts",
+              "line": 391,
               "column": 3
             }
           ]
@@ -358,11 +974,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-09-01T05:06:28.730Z",
-    "duration": 21689.315,
-    "expected": 5,
+    "startTime": "2026-09-02T03:20:18.828Z",
+    "duration": 93143.89199999999,
+    "expected": 22,
     "skipped": 0,
-    "unexpected": 1,
+    "unexpected": 0,
     "flaky": 0
   }
 }
