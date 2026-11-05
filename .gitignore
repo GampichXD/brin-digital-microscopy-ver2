@@ -24,6 +24,7 @@ backend/*.sqlite3
 # Abaikan environment variables rahasia
 .env
 .env.*
+!.env.example
 backend/.env
 frontend/.env
 frontend/.env.local

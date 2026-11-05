@@ -29,6 +29,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/microscopy_db
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY belum diisi di .env}
     volumes:
       - ./backend/static/datasets:/app/static/datasets
       - ./backend/static/uploads:/app/static/uploads
