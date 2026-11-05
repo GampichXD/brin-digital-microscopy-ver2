@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 
 EDGE_HEARTBEAT_INTERVAL_S = 1.0
+RETAKE_TIMEOUT_S = 15.0
 
 # Saklar logis untuk menonaktifkan semua kontrol hardware dari panel admin.
 hardware_bus_enabled = True
@@ -462,23 +463,9 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
                     await asyncio.sleep(0.3)
                     waited += 0.3
 
-                # Placeholder HANYA kalau Edge memang OFFLINE (tak ada WS Jetson).
-                # Kalau Edge online tapi 1 tile telat/gagal, biarkan kosong —
-                # user bisa "Retake" dari modal review; jangan sisipkan gambar palsu.
-                if not os.path.exists(file_path) and not edge_online:
-                    try:
-                        import cv2
-                        import numpy as np
-                        import random
-                        img = np.zeros((720, 1280, 3), dtype=np.uint8)
-                        img[:] = (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
-                        cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {filename}", (50, 360),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
-                        cv2.imwrite(file_path, img)
-                        print(f"[BACKEND FALLBACK] Edge offline — gambar cadangan: {file_path}")
-                    except Exception as e:
-                        print(f"[BACKEND FALLBACK ERROR] {e}")
-                elif not os.path.exists(file_path):
+                # Tidak ada gambar pengganti. Tile yang tak tiba dibiarkan kosong; user bisa
+                # "Retake" dari modal review.
+                if not os.path.exists(file_path):
                     print(f"[SCAN GRID] Tile {filename} belum tiba dari Edge setelah {grace:.0f}s — "
                           f"dibiarkan kosong (bisa di-Retake).")
 
@@ -619,6 +606,8 @@ async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(
     ensure_pilot(user)  # retake juga menggerakkan motor
 
     safe_name(payload.filename)
+    if motor_driver.jetson_websocket is None:
+        raise HTTPException(status_code=504, detail="Edge tidak merespons, citra tidak diambil")
     redis = await get_redis_client(REDIS_URL)
     print(f"DEBUG RETAKE: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
     try:
@@ -644,13 +633,12 @@ async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(
 
         # 2. Tunggu stabilitas mekanik
         await asyncio.sleep(2.5 + (payload.delay_ms / 1000.0))
-        
-        # Hapus file gambar lama jika ada, agar Jetson terpaksa menimpa dengan file baru, 
-        # atau sistem Fallback ter-trigger dengan benar jika Jetson gagal merespon
+
+        # File lama sengaja TIDAK dihapus dulu: kalau Edge gagal, tile lama masih bisa
+        # dipakai. Citra baru dikenali dari waktu modifikasinya.
         file_path = safe_join(UPLOAD_DIR, payload.filename)
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            
+        old_mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else None
+
         # 3. Jepret. Kalau ini retake tile GRID (ada session + posisi grid), kirim
         #    metadata itu supaya Edge menimpa tile di folder sesi terisolasi
         #    (tmp_images/<session>/tile_r<gy>_c<gx>.jpg), bukan sekadar file flat.
@@ -660,31 +648,19 @@ async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(
             capture_cmd["grid_x"] = payload.grid_x
             capture_cmd["grid_y"] = payload.grid_y
         await redis.publish("hardware_commands", json.dumps(capture_cmd))
-        
-        # 4. Beri sedikit waktu agar Edge & Websocket memproses Base64 upload
-        await asyncio.sleep(2.0)
-        
-        # 🟢 FALLBACK: Jika Jetson gagal atau terputus, backend buatkan gambar mock otomatis!
-        file_path = safe_join(UPLOAD_DIR, payload.filename)
-        if not os.path.exists(file_path):
-            try:
-                import cv2
-                import numpy as np
-                import random
-                # Buat gambar random dengan warna acak agar terlihat perbedaannya setiap capture
-                img = np.zeros((720, 1280, 3), dtype=np.uint8)
-                img[:] = (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
-                cv2.putText(img, f"MOCK CAPTURE (NO EDGE) - {payload.filename}", (50, 360), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
-                cv2.imwrite(file_path, img)
-                print(f"[BACKEND FALLBACK] Meng-generate gambar cadangan karena Jetson tidak merespon: {file_path}")
-            except Exception as e:
-                print(f"[BACKEND FALLBACK ERROR] Gagal membuat gambar cadangan: {e}")
-                
+
+        # 4. Tunggu citra asli dari Edge (IMAGE_CAPTURED -> ditulis ke UPLOAD_DIR oleh WS
+        #    handler). Tidak ada gambar pengganti: kalau tidak tiba, laporkan kegagalan.
+        waited = 0.0
+        while waited < RETAKE_TIMEOUT_S:
+            if os.path.exists(file_path) and os.path.getmtime(file_path) != old_mtime:
+                return {"status": "SUCCESS", "filename": payload.filename}
+            await asyncio.sleep(0.2)
+            waited += 0.2
     finally:
         await redis.close()
-        
-    return {"status": "SUCCESS", "filename": payload.filename}
+
+    raise HTTPException(status_code=504, detail="Edge tidak merespons, citra tidak diambil")
 
 STITCH_OUTPUT = "stitched_ta_output.jpg"
 

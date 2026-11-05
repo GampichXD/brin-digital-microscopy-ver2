@@ -8,7 +8,9 @@ Cara menjalankan:
 Dengan coverage:
     .\\venv\\Scripts\\python.exe -m pytest test_api.py --cov=app --cov-report=term-missing --cov-branch -v
 """
+import asyncio
 import io
+import os
 import random
 import time
 import uuid
@@ -738,3 +740,39 @@ def test_feature_L05_edge_putus_membatalkan_scan_berjalan():
         assert _scan_state["cancel"] is True
     finally:
         _scan_state.update({"running": False, "cancel": False})
+
+
+def test_feature_G14_retake_edge_offline_504_tanpa_gambar_palsu():
+    """G14: Retake saat Edge offline harus 504 dan tidak boleh membuat gambar pengganti."""
+    name = f"retake_{uuid.uuid4().hex[:8]}.jpg"
+    response = client.post("/api/hardware/scan/retake", json={
+        "coord_x": 0.0, "coord_y": 0.0, "filename": name, "delay_ms": 0})
+    assert response.status_code == 504
+    assert not os.path.exists(os.path.join("static", "uploads", name))
+
+
+def test_feature_G15_retake_edge_tidak_kirim_citra_504(monkeypatch):
+    """G15: Edge online tetapi citra tidak tiba: 504, dan tile lama tetap utuh."""
+    from app.routers import hardware
+    monkeypatch.setattr(hardware, "RETAKE_TIMEOUT_S", 0.3)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(hardware.asyncio, "sleep", lambda s: real_sleep(min(s, 0.01)))
+    name = f"retake_{uuid.uuid4().hex[:8]}.jpg"
+    path = os.path.join("static", "uploads", name)
+    with open(path, "wb") as f:
+        f.write(b"lama")
+    monkeypatch.setattr(hardware.motor_driver, "jetson_websocket", object())
+    response = client.post("/api/hardware/scan/retake", json={
+        "coord_x": 0.0, "coord_y": 0.0, "filename": name, "delay_ms": 0})
+    assert response.status_code == 504
+    with open(path, "rb") as f:
+        assert f.read() == b"lama"
+
+
+def test_feature_E06_fallback_lokal_ditandai_source():
+    """E06: Respons fallback lokal saat Edge offline harus menyertakan source."""
+    upload = client.post("/api/analysis/upload", files={"file": ("a.jpg", _make_test_image_bytes(), "image/jpeg")})
+    response = client.post("/api/analysis/sobel", json={
+        "filename": upload.json()["filename"], "current_src": "", "params": {}})
+    assert response.status_code == 200
+    assert response.json()["source"] == "local_fallback"

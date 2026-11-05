@@ -152,13 +152,16 @@ async def apply_tool(tool_name: str, payload: ToolPayload, db: Session = Depends
         task.add_done_callback(_cv_tasks.discard)
         processed_by = "server (edge offline)"
 
-    return {
+    response = {
         "status": "STARTED",
         "tool": tool_name,
         "output": expected_output,
         "url": f"/static/uploads/{expected_output}",
         "processed_by": processed_by,
     }
+    if not edge_online:
+        response["source"] = "local_fallback"
+    return response
 
 
 @router.get("/status")
