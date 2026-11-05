@@ -362,9 +362,12 @@ test.describe('Kendali Motor - Go-To Coordinate', () => {
 });
 
 test.describe('Atur Parameter Kamera & CNC', () => {
-  test('menerapkan pengaturan CNC (feed rate/backlash/dll) dari panel Live Stream', async ({ page }) => {
+  test('menerapkan pengaturan CNC (feed rate/backlash/dll) dari panel Live Stream', async ({ page, request }) => {
     const username = uniqueUsername('e2e_cncset');
-    await registerAndLogin(page, username, 'TestPassword123!');
+    const adminId = await registerAndPromoteAdmin(request, username, 'TestPassword123!');
+    await loginOnly(page, username, 'TestPassword123!');
+    // Admin mendarat di tab Admin Control setelah login.
+    await page.getByRole('button', { name: 'Live Stream' }).click();
     await expect(page.getByText('Kendali Motor')).toBeVisible({ timeout: 15000 });
 
     await expect(page.getByText('Motor Speed / Feed')).toBeVisible({ timeout: 10000 });
@@ -372,6 +375,14 @@ test.describe('Atur Parameter Kamera & CNC', () => {
     await page.getByRole('button', { name: /TERAPKAN/i }).last().click();
     // Panel tetap utuh (tidak crash) setelah menerapkan pengaturan.
     await expect(page.getByText('Motor Speed / Feed')).toBeVisible();
+    await deleteOperatorViaApi(request, adminId);
+  });
+
+  test('operator tidak bisa menerapkan setelan CNC', async ({ page }) => {
+    await registerAndLogin(page, uniqueUsername('e2e_cnc_op'), 'TestPassword123!');
+    await expect(page.getByText('Kendali Motor')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTitle('Setelan CNC hanya untuk Admin')).toBeDisabled();
+    await expect(page.getByTitle('Soft limit hanya untuk Admin')).toBeDisabled();
   });
 
   test('menerapkan pengaturan kamera (shutter/ISO) dari panel Live Stream', async ({ page }) => {
@@ -499,9 +510,9 @@ test.describe('Jalankan Analisis Citra', () => {
     await expect(page.getByRole('button', { name: /Adaptive Thresholding/i })).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: /Adaptive Thresholding/i }).click();
 
-    // Backend memproses lokal (bukan di Jetson) -- kontrak UI-nya adalah toast
-    // peringatan eksplisit, bukan diam-diam menampilkan hasil seolah dari Edge.
-    await expect(page.getByText(/Diproses di .* \(Jetson tidak terhubung\)/i)).toBeVisible({ timeout: 20000 });
+    // Hasil terlihat dari status citra yang menetap. Toast "Jetson tidak terhubung" hanya
+    // tampil sesaat, jadi tidak andal untuk ditunggu. Penanda fallback diuji di E06 pytest.
+    await expect(page.getByText(/STATUS: ADAPTIVE THRESHOLDING/i)).toBeVisible({ timeout: 20000 });
   });
 });
 
