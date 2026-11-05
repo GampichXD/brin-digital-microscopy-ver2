@@ -720,3 +720,21 @@ def test_feature_J01_purge_cache():
 def test_feature_J02_purge_all():
     response = client.delete("/api/dataset/storage/purge-all")
     assert response.status_code == 200
+
+
+def test_feature_L04_edge_ws_menerima_heartbeat_ping():
+    """L04: VPS harus mengirim PING berkala ke Jetson; ini sumber data watchdog B2."""
+    with client.websocket_connect(EDGE_WS) as ws:
+        assert ws.receive_json() == {"action": "PING"}
+
+
+def test_feature_L05_edge_putus_membatalkan_scan_berjalan():
+    """L05: Saat Jetson putus, scan yang sedang berjalan harus dibatalkan."""
+    from app.routers.hardware import _scan_state
+    _scan_state.update({"running": True, "cancel": False})
+    try:
+        with client.websocket_connect(EDGE_WS):
+            pass
+        assert _scan_state["cancel"] is True
+    finally:
+        _scan_state.update({"running": False, "cancel": False})

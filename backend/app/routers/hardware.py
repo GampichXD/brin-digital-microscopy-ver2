@@ -29,6 +29,8 @@ router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 # URL Jaringan internal untuk kontainer Redis di dalam docker-compose.yml
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 
+EDGE_HEARTBEAT_INTERVAL_S = 1.0
+
 # Saklar logis untuk menonaktifkan semua kontrol hardware dari panel admin.
 hardware_bus_enabled = True
 
@@ -770,7 +772,7 @@ _GRIDPOS_RE = re.compile(r"_r(\d+)_c(\d+)", re.IGNORECASE)
 
 
 @router.post("/stitch/place-folder", dependencies=[Depends(get_current_user)])
-async def stitch_place_folder(payload: PlaceFolderPayload):
+def stitch_place_folder(payload: PlaceFolderPayload):
     """Mode 'Input Images': isi SELURUH grid sekaligus dari satu folder dataset.
     Sistem mengenali posisi tiap gambar:
       - jika nama berkas memuat pola '..._r<baris>_c<kolom>...' -> dipakai apa adanya;
@@ -890,8 +892,21 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
             await pubsub.unsubscribe("hardware_commands")
             await pubsub.close()
 
+    async def edge_heartbeat():
+        # Sumber "pesan masuk" untuk watchdog Jetson. Tanpa ini Jetson tidak bisa
+        # membedakan link putus dengan VPS yang memang sedang tidak punya perintah.
+        try:
+            while True:
+                await asyncio.sleep(EDGE_HEARTBEAT_INTERVAL_S)
+                await websocket.send_text(json.dumps({"action": "PING"}))
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[VPS HEARTBEAT] Berhenti: {e}")
+
     # Jalankan task dan simpan referensinya
     listener_task = asyncio.create_task(redis_listener())
+    heartbeat_task = asyncio.create_task(edge_heartbeat())
     
     try:
         while True:
@@ -1002,6 +1017,12 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
                 await listener_task
             except asyncio.CancelledError:
                 pass
+        heartbeat_task.cancel()
+
+        # Jetson menahan motor (feed hold) saat link putus. Scan jangan diteruskan saat
+        # Jetson tersambung lagi: operator yang memutuskan kapan gerak dimulai kembali.
+        if _scan_state["running"]:
+            _scan_state["cancel"] = True
 
         # Kalau Jetson putus di tengah stitching, jangan biarkan status "running"
         # menggantung — beri tahu web supaya berhenti menunggu.
@@ -1014,8 +1035,11 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
             except Exception:
                 pass
 
-        motor_driver.unregister_jetson()
-        camera_driver.stop()
+        # Jetson bisa reconnect sebelum koneksi lama selesai dibereskan: jangan sampai
+        # koneksi lama menghapus registrasi koneksi yang baru.
+        if motor_driver.jetson_websocket is websocket:
+            motor_driver.unregister_jetson()
+            camera_driver.stop()
         try:
             await redis.publish("microscope_telemetry", json.dumps({
                 "event": "TELEMETRY_DATA",

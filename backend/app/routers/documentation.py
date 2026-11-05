@@ -132,7 +132,7 @@ def _folder_meta(payload: ReportPayload):
 #  ENDPOINT
 # ─────────────────────────────────────────────────────────────────────
 @router.post("/generate")
-async def generate_report(
+def generate_report(
     payload: ReportPayload,
     format: str = Query(..., description="Format dokumen: WORD, EXCEL, atau PPT"),
 ):
