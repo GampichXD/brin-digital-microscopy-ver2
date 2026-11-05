@@ -62,6 +62,7 @@ export default function App() {
   const [roomState, setRoomState] = useState<any>(null);
 
   const frameCounterRef = useRef(0);
+  const globalToastTimer = useRef<number | null>(null);
 
   const wsRef = useHardwareSocket({
     isSystemHardwareEnabled,
@@ -127,7 +128,9 @@ export default function App() {
   useEffect(() => {
     const handleToast = (e: any) => {
       setGlobalToast({ message: e.detail.message, type: e.detail.type, id: Date.now() });
-      setTimeout(() => setGlobalToast(null), 4000);
+      // Timer toast sebelumnya dibatalkan, supaya tidak ikut menghapus toast yang baru muncul.
+      if (globalToastTimer.current) clearTimeout(globalToastTimer.current);
+      globalToastTimer.current = window.setTimeout(() => setGlobalToast(null), 4000);
     };
     window.addEventListener('show-toast', handleToast);
     return () => window.removeEventListener('show-toast', handleToast);
