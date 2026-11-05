@@ -1,5 +1,13 @@
+# Log kontainer dibatasi. Tanpa ini, log uvicorn tumbuh tanpa batas di disk VPS.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   postgres:
+    logging: *default-logging
     image: postgres:16-alpine
     container_name: mikroskop_postgres
     environment:
@@ -12,16 +20,19 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     container_name: mikroskop_redis
     ports:
       - "127.0.0.1:6380:6379" # Ubah host port ke 6380 untuk mencegah bentrok dengan Redis Windows lokal
 
   frontend:
+    logging: *default-logging
     build: ./frontend
     container_name: mikroskop_frontend
 
   backend:
+    logging: *default-logging
     build: ./backend
     container_name: mikroskop_backend
     ports:
@@ -49,6 +60,7 @@ services:
     #   - "/dev/video0:/dev/video0"
 
   nginx:
+    logging: *default-logging
     image: nginx:alpine
     container_name: mikroskop_nginx
     ports:
@@ -60,6 +72,7 @@ services:
       - backend
 
   ngrok:
+    logging: *default-logging
     image: ngrok/ngrok:latest
     container_name: mikroskop_ngrok
     restart: unless-stopped

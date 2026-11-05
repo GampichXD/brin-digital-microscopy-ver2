@@ -45,8 +45,7 @@ jobs:
 
       - name: 🚀 Recreate backend + frontend saja (hindari OOM seluruh stack)
         run: |
-          docker compose up -d --force-recreate --no-deps backend frontend
-          docker compose restart nginx
+          docker compose up -d --force-recreate --no-deps backend frontend nginx
           docker compose ps
 
       - name: ✅ Verifikasi kontainer = kode yang baru di-deploy
@@ -71,5 +70,11 @@ jobs:
           grep -qF "$EXPECTED" /tmp/v.json || { echo "::error::/api/version bukan $EXPECTED"; exit 1; }
           echo "✅ Live: $EXPECTED"
 
-      - name: 🧹 Prune image lama
-        run: docker image prune -f
+      # Tetap jalan walau verifikasi gagal. Cache build lebih dari 3 hari ikut dibuang, kalau
+      # tidak setiap build --no-cache menumpuk di disk VPS.
+      - name: 🧹 Prune image dan cache build lama
+        if: always()
+        run: |
+          docker image prune -f
+          docker builder prune -af --filter until=72h
+          df -h /

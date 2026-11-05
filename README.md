@@ -48,6 +48,10 @@ docker exec -it mikroskop_postgres psql -U postgres -c "ALTER USER postgres PASS
 
 Password dipakai di dalam `DATABASE_URL`, jadi gunakan karakter yang aman untuk URL, misalnya hasil `python -c "import secrets;print(secrets.token_urlsafe(32))"`.
 
+## Runner dan VM BRIN
+
+Repo punya dua self-hosted runner: `vps` (e-eye.cloud) dan `smartmicroscope-vm` (VM internal BRIN). Deploy hanya berjalan di runner berlabel `vps`, sehingga VM BRIN tidak menerima update. Kalau VM itu akan dipakai nanti: isi `~/.env-production` dengan secret sendiri, beri label pada runner-nya, lalu tambahkan job deploy untuk label itu. Secret VPS dan VM sebaiknya berbeda, dan Jetson hanya tersambung ke satu server dalam satu waktu.
+
 ## Pengujian
 
 ```bash
