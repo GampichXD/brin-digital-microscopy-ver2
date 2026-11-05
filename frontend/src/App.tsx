@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Delete, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useGlobalContext } from './context/GlobalContext';
 import { useHardwareSocket } from './hooks/useHardwareSocket';
@@ -60,6 +60,8 @@ export default function App() {
   const [streamRole, setStreamRole] = useState<'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED'>('DISCONNECTED');
   const [roomState, setRoomState] = useState<any>(null);
 
+  const frameCounterRef = useRef(0);
+
   const wsRef = useHardwareSocket({
     isSystemHardwareEnabled,
     cameraActive,
@@ -73,7 +75,8 @@ export default function App() {
     setEdgeTelemetry,
     setStreamRole,
     setRoomState,
-    currentUser
+    currentUser,
+    frameCounterRef
   });
 
   const fetchFolders = async () => {
@@ -260,6 +263,7 @@ export default function App() {
       <main className="flex-1 min-h-0 p-3 pb-20 md:pb-3 relative overflow-y-auto">
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
+            frameCounterRef={frameCounterRef}
             openKeypad={handleOpenKeypadGlobal} 
             cameraActive={cameraActive}
             setCameraActive={setCameraActive}

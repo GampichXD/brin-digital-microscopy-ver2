@@ -49,6 +49,7 @@ interface LiveStreamTabProps {
   cameraActive: boolean;
   setCameraActive: (val: boolean) => void;
   videoSrc: string | null;
+  frameCounterRef: { current: number };
   grblStatus: string;
   setGrblStatus: (val: string) => void;
   lastEchoGCode: string;
@@ -68,6 +69,7 @@ export default function LiveStreamTab({
   cameraActive,
   setCameraActive,
   videoSrc,
+  frameCounterRef,
   grblStatus,
   setGrblStatus,
   lastEchoGCode,
@@ -131,30 +133,23 @@ export default function LiveStreamTab({
   // Real-time FPS Calculation
   const [actualFps, setActualFps] = useState<number>(0);
   const [fpsHistory, setFpsHistory] = useState<number[]>(Array(20).fill(0));
-  const framesReceivedRef = useRef(0);
-
-  useEffect(() => {
-    if (videoSrc) {
-      framesReceivedRef.current += 1;
-    }
-  }, [videoSrc]);
 
   useEffect(() => {
     let interval: any;
     if (cameraActive) {
       interval = setInterval(() => {
-        const fps = framesReceivedRef.current;
-        framesReceivedRef.current = 0;
+        const fps = frameCounterRef.current;
+        frameCounterRef.current = 0;
         setActualFps(fps);
         setFpsHistory(prev => [...prev.slice(1), fps]);
       }, 1000);
     } else {
-      framesReceivedRef.current = 0;
+      frameCounterRef.current = 0;
       setActualFps(0);
       setFpsHistory(Array(20).fill(0));
     }
     return () => clearInterval(interval);
-  }, [cameraActive]);
+  }, [cameraActive, frameCounterRef]);
 
   // Muat konfigurasi soft limit + CNC/kamera dari server saat mount
   useEffect(() => {

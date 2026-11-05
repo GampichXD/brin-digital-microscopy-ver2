@@ -14,6 +14,7 @@ interface HardwareSocketProps {
   setStreamRole: (role: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED') => void;
   setRoomState?: (state: any) => void;
   currentUser: string | null;
+  frameCounterRef?: { current: number };
 }
 
 export function useHardwareSocket({
@@ -30,6 +31,7 @@ export function useHardwareSocket({
   setStreamRole,
   setRoomState,
   currentUser,
+  frameCounterRef,
 }: HardwareSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
@@ -119,6 +121,8 @@ export function useHardwareSocket({
           if (setRoomState) setRoomState(res);
         }
         else if (res.event === 'STREAM_DATA') {
+          // Dihitung per pesan: React bisa menggabungkan beberapa setVideoSrc dalam satu render.
+          if (frameCounterRef) frameCounterRef.current += 1;
           setVideoSrc(res.image);
         }
         else if (res.event === 'TELEMETRY_DATA') {
@@ -199,7 +203,7 @@ export function useHardwareSocket({
         setStreamRole('DISCONNECTED');
       }
     };
-  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState]);
+  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState, frameCounterRef]);
 
   return wsRef;
 }
