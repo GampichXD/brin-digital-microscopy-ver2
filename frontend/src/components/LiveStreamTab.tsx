@@ -174,7 +174,10 @@ export default function LiveStreamTab({
     const onMsg = (ev: MessageEvent) => {
       try {
         const m = JSON.parse(ev.data);
-        if (m.event === 'TELEMETRY_DATA' && m.at_limit) setAtLimit(m.at_limit);
+        if (m.event === 'TELEMETRY_DATA' && m.at_limit) {
+          // Hindari render ulang tab 5 kali per detik kalau statusnya tidak berubah.
+          setAtLimit(prev => (JSON.stringify(prev) === JSON.stringify(m.at_limit) ? prev : m.at_limit));
+        }
       } catch { /* ignore */ }
     };
     ws.addEventListener('message', onMsg);

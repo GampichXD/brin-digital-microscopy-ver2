@@ -36,6 +36,7 @@ export function useHardwareSocket({
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
   const lastInteractionTime = useRef<number>(Date.now());
+  const lastTempsRef = useRef<{ cpu: number | null; gpu: number | null } | null>(null);
 
   // Sync latest camera state to ref for websocket handlers
   useEffect(() => {
@@ -130,9 +131,15 @@ export function useHardwareSocket({
           
           let currentTemp = 0;
           if (res.jetson_temperatures) {
-            setJetsonTemperatures(res.jetson_temperatures);
+            // Objek baru tiap pesan (5 Hz) memaksa seluruh App render ulang walau nilainya sama.
+            const temps = res.jetson_temperatures;
+            if (temps.cpu !== lastTempsRef.current?.cpu || temps.gpu !== lastTempsRef.current?.gpu) {
+              lastTempsRef.current = temps;
+              setJetsonTemperatures(temps);
+            }
             currentTemp = res.jetson_temperatures.cpu || 0;
           } else {
+            lastTempsRef.current = null;
             setJetsonTemperatures({ cpu: typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : null, gpu: null });
             currentTemp = typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : 0;
           }
