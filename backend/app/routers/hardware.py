@@ -14,6 +14,7 @@ import shutil
 import base64
 import psutil
 import uuid
+import logging
 from redis import asyncio as aioredis  # Driver Redis Asinkron untuk ekosistem Docker
 
 from ..hardware.motor_driver import motor_driver
@@ -26,6 +27,7 @@ from ..services.safe_path import safe_join, safe_name
 from ..services.scan_planner import DEFAULT_FEED_RATE_MM_MIN, ROW_CHANGE_SETTLE_S, compute_delay, plan_serpentine
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
+logger = logging.getLogger(__name__)
 
 # URL Jaringan internal untuk kontainer Redis di dalam docker-compose.yml
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
@@ -630,7 +632,7 @@ async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(
     if motor_driver.jetson_websocket is None:
         raise HTTPException(status_code=504, detail="Edge tidak merespons, citra tidak diambil")
     redis = await get_redis_client(REDIS_URL)
-    print(f"DEBUG RETAKE: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
+    logger.debug("Retake: motor_driver id=%s jetson=%s", id(motor_driver), motor_driver.jetson_websocket)
     try:
         # 1. Gerakkan motor ke koordinat Retake — TANPA absolute move ke koordinat
         #    mentah (bisa jadi 0,0 dan bikin CNC "homing"). Kalau posisi live Edge
@@ -862,9 +864,7 @@ async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
 # ====================================================================
 @router.websocket("/ws")
 async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = Query(None)):
-    print("TRACE 1: Accepting websocket...", flush=True)
     await websocket.accept()
-    print("TRACE 2: Websocket accepted!", flush=True)
 
     # Accept dulu supaya Jetson bisa membaca kode 4003 dan tidak reconnect cepat.
     if not edge_token_valid(device_token) and edge_token_required():
@@ -872,23 +872,17 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
         await websocket.close(code=4003)
         return
 
-    try:
-        print(f"TRACE 3: Getting redis client for {REDIS_URL}", flush=True)
-        redis = await get_redis_client(REDIS_URL)
-        print(f"TRACE 4: Got redis client: {redis}", flush=True)
-        
-        motor_driver.register_jetson(websocket)
-        print(f"DEBUG WS: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
-        print("[VPS ROUTER] Sirkuit pipa WebSocket Jetson Orin Nano Berhasil Dibuka.", flush=True)
-    except Exception as e:
-        print(f"TRACE EXCEPTION: {e}", flush=True)
-        raise
+    logger.debug("Membuka koneksi Edge, redis=%s", REDIS_URL)
+    redis = await get_redis_client(REDIS_URL)
+    motor_driver.register_jetson(websocket)
+    logger.debug("motor_driver id=%s jetson=%s", id(motor_driver), motor_driver.jetson_websocket)
+    print("[VPS ROUTER] Sirkuit pipa WebSocket Jetson Orin Nano Berhasil Dibuka.", flush=True)
 
     # Simpan task agar bisa dibatalkan secara bersih saat disconnect
     listener_task = None
     
     async def redis_listener():
-        print("TRACE 5: Starting redis listener", flush=True)
+        logger.debug("Listener redis Edge dimulai")
         pubsub = redis.pubsub()
         await pubsub.subscribe("hardware_commands")
         try:
