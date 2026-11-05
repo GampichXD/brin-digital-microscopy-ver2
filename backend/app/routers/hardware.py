@@ -120,7 +120,9 @@ def edge_stats() -> dict:
 last_net_io = psutil.net_io_counters()
 last_net_time = time.time()
 
-@router.get("/telemetry/stats", dependencies=[Depends(get_current_user)])
+# Sengaja publik: frontend membaca hardwareBus dari sini sebelum login untuk menyalakan
+# kontrol dan WebSocket. Kalau diproteksi, semuanya tertunda hingga 3 detik setelah login.
+@router.get("/telemetry/stats")
 async def get_telemetry_stats():
     global last_net_io, last_net_time
     

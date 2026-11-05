@@ -29,7 +29,6 @@ PROTECTED = [
     ("POST", "/api/hardware/scan/grid"),
     ("POST", "/api/hardware/stitch"),
     ("GET", "/api/hardware/config"),
-    ("GET", "/api/hardware/telemetry/stats"),
     ("POST", "/api/hardware/bus/toggle"),
     ("POST", "/api/hardware/edge/restart"),
 ]
@@ -59,7 +58,7 @@ def test_M01_tanpa_token_401(method, path):
     assert client.request(method, path).status_code == 401
 
 
-@pytest.mark.parametrize("path", ["/", "/api/version"])
+@pytest.mark.parametrize("path", ["/", "/api/version", "/api/hardware/telemetry/stats"])
 def test_M01b_health_check_tetap_publik(path):
     assert client.get(path).status_code == 200
 

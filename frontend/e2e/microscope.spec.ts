@@ -104,22 +104,42 @@ test.describe('Kontrol Aktuator', () => {
 });
 
 // ── Helper API murni (tanpa UI) untuk skenario yang butuh akun Admin.
-// Endpoint backend saat ini tidak mewajibkan header otorisasi apapun
-// (temuan yang sudah didokumentasikan di Bab Analisis), jadi promosi
-// peran bisa dipanggil langsung -- ini bagian "Arrange" E2E yang sah,
-// bukan celah baru yang ditemukan di sini.
+// Semua endpoint kini terproteksi, jadi langkah "Arrange" memakai akun admin dari
+// backend/create_admin.py, lewat env E2E_ADMIN_USER dan E2E_ADMIN_PASS.
+let adminToken: string | null = null;
+
+async function getAdminToken(request: import('@playwright/test').APIRequestContext) {
+  if (adminToken) return adminToken;
+  const username = process.env.E2E_ADMIN_USER;
+  const password = process.env.E2E_ADMIN_PASS;
+  if (!username || !password) throw new Error('E2E_ADMIN_USER dan E2E_ADMIN_PASS wajib diisi.');
+  const res = await request.post('/api/auth/login', { data: { username, password } });
+  if (!res.ok()) throw new Error(`Login admin uji gagal: ${res.status()}`);
+  adminToken = (await res.json()).access_token as string;
+  return adminToken;
+}
+
+function api(request: import('@playwright/test').APIRequestContext) {
+  const send = (method: 'get' | 'post' | 'put' | 'delete') =>
+    async (url: string, options: { data?: unknown } = {}) => {
+      const headers = { Authorization: `Bearer ${await getAdminToken(request)}` };
+      return request[method](url, { ...options, headers });
+    };
+  return { get: send('get'), post: send('post'), put: send('put'), delete: send('delete') };
+}
+
 async function registerAndPromoteAdmin(request: import('@playwright/test').APIRequestContext, username: string, password: string) {
   const reg = await request.post('/api/auth/register', { data: { username, password } });
   if (!reg.ok()) throw new Error(`Gagal registrasi admin uji: ${reg.status()}`);
-  const operators = await (await request.get('/api/auth/operators')).json();
+  const operators = await (await api(request).get('/api/auth/operators')).json();
   const me = operators.find((o: { username: string }) => o.username === username);
   if (!me) throw new Error('Operator baru tidak ditemukan di /api/auth/operators');
-  await request.put(`/api/auth/operators/${me.id}/role`, { data: { role: 'ADMIN' } });
+  await api(request).put(`/api/auth/operators/${me.id}/role`, { data: { role: 'ADMIN' } });
   return me.id as number;
 }
 
 async function deleteOperatorViaApi(request: import('@playwright/test').APIRequestContext, userId: number) {
-  await request.delete(`/api/auth/operators/${userId}`).catch(() => {});
+  await api(request).delete(`/api/auth/operators/${userId}`).catch(() => {});
 }
 
 test.describe('Kelola Dataset', () => {
@@ -141,9 +161,9 @@ test.describe('Kelola Dataset', () => {
 
     // Cleanup lewat API (tombol hapus di kartu folder berupa ikon tanpa label,
     // jadi pembersihan dilakukan lewat endpoint yang sudah diverifikasi di pytest).
-    const folders = await (await request.get('/api/dataset/folders')).json();
+    const folders = await (await api(request).get('/api/dataset/folders')).json();
     const created = folders.find((f: { name: string }) => f.name === folderName);
-    if (created) await request.delete(`/api/dataset/folders/${created.id}`);
+    if (created) await api(request).delete(`/api/dataset/folders/${created.id}`);
   });
 });
 
@@ -151,10 +171,10 @@ test.describe('Kelola Operator (RBAC) - Admin', () => {
   test('Admin melihat daftar operator dan dapat mereset password operator lain', async ({ page, request }) => {
     const targetUsername = uniqueUsername('e2e_target');
     await registerAndPromoteAdmin(request, targetUsername, 'TestPassword123!');
-    const targetOperators = await (await request.get('/api/auth/operators')).json();
+    const targetOperators = await (await api(request).get('/api/auth/operators')).json();
     const targetId = targetOperators.find((o: { username: string }) => o.username === targetUsername)?.id;
     // Turunkan lagi jadi OPERATOR biasa supaya jadi target RBAC yang representatif.
-    await request.put(`/api/auth/operators/${targetId}/role`, { data: { role: 'OPERATOR' } });
+    await api(request).put(`/api/auth/operators/${targetId}/role`, { data: { role: 'OPERATOR' } });
 
     const adminUsername = uniqueUsername('e2e_admin');
     const adminId = await registerAndPromoteAdmin(request, adminUsername, 'AdminPass123!');
@@ -178,7 +198,7 @@ test.describe('Konfigurasi Hardware Bus - Admin', () => {
     const adminId = await registerAndPromoteAdmin(request, adminUsername, 'AdminPass123!');
 
     // Pastikan mulai dari kondisi aktif supaya arah toggle dapat diprediksi.
-    await request.post('/api/hardware/bus/toggle', { data: { enabled: true } });
+    await api(request).post('/api/hardware/bus/toggle', { data: { enabled: true } });
 
     await loginOnly(page, adminUsername, 'AdminPass123!');
     await page.getByRole('button', { name: 'Admin Control' }).click();
@@ -188,12 +208,12 @@ test.describe('Konfigurasi Hardware Bus - Admin', () => {
     await toggleButton.click();
 
     await expect(async () => {
-      const stats = await (await request.get('/api/hardware/telemetry/stats')).json();
+      const stats = await (await api(request).get('/api/hardware/telemetry/stats')).json();
       expect(stats.hardwareBus).toBe(false);
     }).toPass({ timeout: 5000 });
 
     // Kembalikan ke kondisi aktif supaya tidak mengganggu sesi/pengujian lain.
-    await request.post('/api/hardware/bus/toggle', { data: { enabled: true } });
+    await api(request).post('/api/hardware/bus/toggle', { data: { enabled: true } });
     await deleteOperatorViaApi(request, adminId);
   });
 });
@@ -262,9 +282,9 @@ test.describe('Ubah Password Sendiri', () => {
     await expect(page.getByText('Password berhasil diubah secara permanen.')).toBeVisible({ timeout: 10000 });
 
     // cleanup
-    const operators = await (await request.get('/api/auth/operators')).json();
+    const operators = await (await api(request).get('/api/auth/operators')).json();
     const me = operators.find((o: { username: string }) => o.username === username);
-    if (me) await request.delete(`/api/auth/operators/${me.id}`);
+    if (me) await api(request).delete(`/api/auth/operators/${me.id}`);
   });
 });
 
@@ -291,7 +311,7 @@ test.describe('Konfigurasi & Pemeliharaan Edge Device - Admin', () => {
 test.describe('Buat Laporan Otomatis', () => {
   test('memilih folder dan membuat laporan Word tidak menampilkan error', async ({ page, request }) => {
     const folderName = `e2e_report_${Date.now()}`;
-    const createRes = await request.post('/api/dataset/folders', {
+    const createRes = await api(request).post('/api/dataset/folders', {
       data: { name: folderName, object_type: 'Bakteri Uji E2E', date: '2026-09-02', operator: 'e2e' },
     });
     const folderId = (await createRes.json()).id;
@@ -308,7 +328,7 @@ test.describe('Buat Laporan Otomatis', () => {
     // (docx dibuat dari template) -- tidak boleh macet di state loading.
     await expect(page.getByText(/Menyusun Berkas/i)).toHaveCount(0, { timeout: 15000 });
 
-    await request.delete(`/api/dataset/folders/${folderId}`);
+    await api(request).delete(`/api/dataset/folders/${folderId}`);
   });
 });
 
@@ -415,7 +435,7 @@ test.describe('Konfigurasi Sistem (RBAC) - Cakupan Tab Operator', () => {
 
 test.describe('Kendali Motor - Jalankan Grid Scan Otomatis', () => {
   test('AUTO GATHER menjalankan grid scan sampai selesai memakai fallback gambar mock (Edge offline)', async ({ page, request }) => {
-    await request.post('/api/hardware/bus/toggle', { data: { enabled: true } });
+    await api(request).post('/api/hardware/bus/toggle', { data: { enabled: true } });
 
     const username = uniqueUsername('e2e_gridscan');
     await registerAndLogin(page, username, 'TestPassword123!');
@@ -440,8 +460,8 @@ test.describe('Kendali Motor - Jalankan Grid Scan Otomatis', () => {
 });
 
 test.describe('Kelola Hasil Pindai - Gabungkan Citra (Tile Stitching)', () => {
-  test('memulai tile stitching dari hasil grid scan dan pemantauannya dapat ditutup', async ({ page, request }) => {
-    await request.post('/api/hardware/bus/toggle', { data: { enabled: true } });
+  test('stitching terkunci kalau grid scan tidak menghasilkan citra (Edge offline)', async ({ page, request }) => {
+    await api(request).post('/api/hardware/bus/toggle', { data: { enabled: true } });
 
     const username = uniqueUsername('e2e_stitch');
     await registerAndLogin(page, username, 'TestPassword123!');
@@ -454,14 +474,10 @@ test.describe('Kelola Hasil Pindai - Gabungkan Citra (Tile Stitching)', () => {
     await page.getByRole('button', { name: /CAPTURE \d+ GAMBAR/i }).click();
     await expect(page.getByText('Hasil Tangkapan Gambar')).toBeVisible({ timeout: 60000 });
 
-    await page.getByRole('button', { name: /TILE STITCHING/i }).click();
-    await expect(page.getByText(/Tile Stitching Berjalan di Edge Device/i)).toBeVisible({ timeout: 10000 });
-
-    // Edge offline -> stitching sungguhan tak akan pernah selesai di sisi Edge;
-    // yang diuji di sini adalah kontrak "tutup pemantauan" (proses Edge tetap
-    // berjalan by design, sesuai komentar kode aslinya).
+    // Edge offline -> tidak ada citra asli yang tiba (gambar pengganti sudah dihapus),
+    // jadi stitching harus terkunci, bukan berjalan di atas tile kosong.
+    await expect(page.getByRole('button', { name: /TILE STITCHING/i })).toBeDisabled({ timeout: 10000 });
     await page.getByRole('button', { name: 'BATAL' }).click();
-    await expect(page.getByText(/Menutup pemantauan stitching/i)).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -491,7 +507,7 @@ test.describe('Jalankan Analisis Citra', () => {
 
 test.describe('Kelola Sesi Pemindaian Aktif', () => {
   test('operator dapat memantau progres dan membatalkan grid scan yang sedang berjalan', async ({ page, request }) => {
-    await request.post('/api/hardware/bus/toggle', { data: { enabled: true } });
+    await api(request).post('/api/hardware/bus/toggle', { data: { enabled: true } });
 
     const username = uniqueUsername('e2e_scansession');
     await registerAndLogin(page, username, 'TestPassword123!');
