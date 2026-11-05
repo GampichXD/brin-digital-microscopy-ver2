@@ -1,20 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { X, Delete, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useGlobalContext } from './context/GlobalContext';
 import { useHardwareSocket } from './hooks/useHardwareSocket';
 import api from './utils/api';
-import LiveStreamTab from './components/LiveStreamTab';
-import DatabaseTab from './components/DatabaseTab';
-import ImageGatheringTab from './components/ImageGatheringTab';
-import ImageAnalysisTab from './components/ImageAnalysisTab';
-import DocumentationTab from './components/DocumentationTab';
-import AdminControlTab from './components/AdminControlTab'; 
 import AuthPage from './components/AuthPage';
 
 import Header from './components/layout/Header';
 import StatusBar from './components/layout/StatusBar';
 import NavigationTabs, { type TabName } from './components/layout/NavigationTabs';
 import UserProfileModal from './components/profile/UserProfileModal';
+
+const LiveStreamTab = lazy(() => import('./components/LiveStreamTab'));
+const DatabaseTab = lazy(() => import('./components/DatabaseTab'));
+const ImageGatheringTab = lazy(() => import('./components/ImageGatheringTab'));
+const ImageAnalysisTab = lazy(() => import('./components/ImageAnalysisTab'));
+const DocumentationTab = lazy(() => import('./components/DocumentationTab'));
+const AdminControlTab = lazy(() => import('./components/AdminControlTab'));
 
 export type UserRole = 'ADMIN' | 'OPERATOR';
 
@@ -261,6 +262,7 @@ export default function App() {
 
       {/* APPLICATION CONTENT CONTAINER */}
       <main className="flex-1 min-h-0 p-3 pb-20 md:pb-3 relative overflow-y-auto">
+        <Suspense fallback={<div className="p-8">Memuat…</div>}>
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
             frameCounterRef={frameCounterRef}
@@ -318,6 +320,7 @@ export default function App() {
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
           <AdminControlTab roomState={roomState} lastEchoGCode={lastEchoGCode} />
         )}
+        </Suspense>
       </main>
 
       {/* GLOBAL VIRTUAL NUMPAD MELAYANG */}
