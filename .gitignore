@@ -45,3 +45,14 @@ backend/static/uploads/*
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
+
+# Keluaran pengujian
+backend/.coverage
+backend/.pytest_cache/
+backend/test.zip
+.hypothesis/
+frontend/test-results/
+frontend/playwright-report/
+frontend/e2e-results.json
+frontend/coverage/
+qa/results/
