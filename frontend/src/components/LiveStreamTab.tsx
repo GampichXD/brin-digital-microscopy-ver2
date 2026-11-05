@@ -87,7 +87,6 @@ export default function LiveStreamTab({
   const [controlMode, setControlMode] = useState<'dpad' | 'joystick'>('dpad');
   const joystickVectorRef = useRef({ x: 0, y: 0 });
   const joystickActiveRef = useRef(false);
-  const lastMoveDirectionRef = useRef<Record<'X' | 'Y' | 'Z', '+' | '-'>>({ X: '+', Y: '+', Z: '+' });
 
   const [xyStepUnit, setXyStepUnit] = useState<'mm' | 'inch'>('mm');
   const [xyStepValue, setXyStepValue] = useState<string>("1");
@@ -315,13 +314,9 @@ export default function LiveStreamTab({
   const sendMotorCommand = async (axis: 'X' | 'Y' | 'Z', direction: '+' | '-') => {
     if (!isSystemHardwareEnabled) return;
 
+    // Kompensasi backlash hanya di Jetson (jog_relative), yang tahu arah gerak terakhir.
     const stepMm = toMm(axis);
-    const backlashMm = axis === 'Z' ? 0 : Math.max(0, parseFloat(backlash) || 0);
-    const lastDirection = lastMoveDirectionRef.current[axis];
-    const compensatedValue = direction === '+' ? stepMm : -stepMm;
-    let adjustedValue = axis !== 'Z' && lastDirection && lastDirection !== direction
-      ? compensatedValue + (direction === '+' ? backlashMm : -backlashMm)
-      : compensatedValue;
+    let adjustedValue = direction === '+' ? stepMm : -stepMm;
 
     // ── SOFT LIMIT (pre-check) ──
     const curAxis = motorPos[axis.toLowerCase() as 'x' | 'y' | 'z'];
@@ -338,8 +333,6 @@ export default function LiveStreamTab({
     const gcodeStr = axis === 'Z'
       ? `G1 Z${adjustedValue.toFixed(3)} F200`
       : `G1 ${axis}${adjustedValue.toFixed(3)} F${feedRate}`;
-
-    lastMoveDirectionRef.current[axis] = direction;
 
     setMotorPos(prev => ({
       ...prev,
