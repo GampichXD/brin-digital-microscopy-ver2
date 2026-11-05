@@ -319,7 +319,15 @@ def test_feature_E04_apply_tool_colony_count_fallback_lokal():
         "filename": _shared["analysis_filename"], "current_src": "", "params": {}
     })
     assert response.status_code == 200
-    assert "colonies" in response.json()
+    # CV berjalan asinkron: POST hanya memulai, hasilnya dibaca lewat polling /status.
+    output = response.json()["output"]
+    for _ in range(50):
+        status = client.get("/api/analysis/status", params={"output": output}).json()
+        if status.get("done") or status.get("error"):
+            break
+        time.sleep(0.2)
+    assert status.get("done") is True
+    assert "colonies" in status
 
 def test_feature_E05_apply_tool_file_tidak_ditemukan():
     """E05: Menerapkan tool pada file yang tidak ada di server harus mengembalikan 404."""
@@ -669,6 +677,7 @@ def test_feature_L02_edge_ws_unregister_setelah_disconnect():
     melaporkan Edge Device Offline (motor_driver ter-unregister dengan benar)."""
     with client.websocket_connect("/api/hardware/ws"):
         pass  # koneksi langsung ditutup di akhir blok 'with'
+    time.sleep(0.6)  # lewati guard rate-limit 0.5 dtk dari perintah motor di tes sebelumnya
     response = client.post("/api/hardware/motor/move", json={
         "axis": "Z", "value": 1.0, "feed_rate": 100.0, "unit": "mm"
     })
