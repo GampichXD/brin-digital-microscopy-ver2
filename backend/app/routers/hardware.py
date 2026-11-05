@@ -336,6 +336,16 @@ async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = De
     return {"status": "SUCCESS", "message": "Pengaturan kamera diterima dan disimpan."}
 
 
+@router.post("/camera/flatfield", dependencies=[Depends(require_admin)])
+async def calibrate_flatfield(mode: str = Query(..., pattern="^(flat|dark)$")):
+    """ADMIN: ambil referensi flat-field di Edge. mode=flat: slide kosong, LED menyala;
+    mode=dark: LED mati. Koreksi tetap nonaktif sampai FLATFIELD_ENABLED=1 di Jetson."""
+    if motor_driver.jetson_websocket is None:
+        raise HTTPException(status_code=409, detail="Jetson sedang offline.")
+    await publish_hardware_command({"action": "CALIBRATE_FLATFIELD", "mode": mode})
+    return {"status": "SUCCESS", "action": "CALIBRATE_FLATFIELD", "mode": mode}
+
+
 @router.post("/cnc/settings", dependencies=[Depends(require_admin)])
 async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:

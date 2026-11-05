@@ -47,6 +47,7 @@ ADMIN_ONLY = [
     ("POST", "/api/hardware/edge/restart"),
     ("POST", "/api/hardware/room/admin_action"),
     ("POST", "/api/hardware/motor/set-position"),
+    ("POST", "/api/hardware/camera/flatfield?mode=flat"),
     ("PUT", "/api/hardware/config/ai"),
     ("PUT", "/api/hardware/config/autogather"),
     ("POST", "/api/hardware/config/cnc/default"),
