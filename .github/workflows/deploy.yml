@@ -70,11 +70,11 @@ jobs:
           grep -qF "$EXPECTED" /tmp/v.json || { echo "::error::/api/version bukan $EXPECTED"; exit 1; }
           echo "✅ Live: $EXPECTED"
 
-      # Tetap jalan walau verifikasi gagal. Cache build lebih dari 3 hari ikut dibuang, kalau
-      # tidak setiap build --no-cache menumpuk di disk VPS.
+      # Tetap jalan walau verifikasi gagal. Hanya cache yang dipakai deploy ini yang disimpan:
+      # build --no-cache menumpuk sampai 20 GB dan batas 3 hari terbukti tidak cukup.
       - name: 🧹 Prune image dan cache build lama
         if: always()
         run: |
           docker image prune -f
-          docker builder prune -af --filter until=72h
+          docker builder prune -af --filter until=1h
           df -h /
