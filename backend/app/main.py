@@ -65,7 +65,7 @@ app.include_router(logs.router)
 # Penanda build — ganti string ini setiap deploy untuk memastikan kontainer
 # yang berjalan benar-benar memuat kode terbaru.
 # Cek publik lewat browser: https://e-eye.cloud/api/version
-BUILD_MARKER = "2026-09-02-stitch-resume-bigstitch-agdefaults"
+BUILD_MARKER = "2026-11-05-security-and-safety"
 
 @app.get("/", tags=["Health Check"])
 async def root():
@@ -74,8 +74,8 @@ async def root():
         "message": "Sistem API Mikroskop Digital BRIN/UNDIP Berjalan Normal",
         "build": BUILD_MARKER,
         "hardware": {
-            "jetson_orin_nano": "CONNECTED",
-            "grbl_core": "READY"
+            "jetson_orin_nano": "CONNECTED" if hardware.motor_driver.jetson_websocket is not None else "OFFLINE",
+            "grbl_core": hardware.last_edge_telemetry.get("status", "OFFLINE"),
         }
     }
 

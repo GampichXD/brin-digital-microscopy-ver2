@@ -1,20 +1,21 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { X, Delete, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useGlobalContext } from './context/GlobalContext';
 import { useHardwareSocket } from './hooks/useHardwareSocket';
 import api from './utils/api';
-import LiveStreamTab from './components/LiveStreamTab';
-import DatabaseTab from './components/DatabaseTab';
-import ImageGatheringTab from './components/ImageGatheringTab';
-import ImageAnalysisTab from './components/ImageAnalysisTab';
-import DocumentationTab from './components/DocumentationTab';
-import AdminControlTab from './components/AdminControlTab'; 
 import AuthPage from './components/AuthPage';
 
 import Header from './components/layout/Header';
 import StatusBar from './components/layout/StatusBar';
 import NavigationTabs, { type TabName } from './components/layout/NavigationTabs';
 import UserProfileModal from './components/profile/UserProfileModal';
+
+const LiveStreamTab = lazy(() => import('./components/LiveStreamTab'));
+const DatabaseTab = lazy(() => import('./components/DatabaseTab'));
+const ImageGatheringTab = lazy(() => import('./components/ImageGatheringTab'));
+const ImageAnalysisTab = lazy(() => import('./components/ImageAnalysisTab'));
+const DocumentationTab = lazy(() => import('./components/DocumentationTab'));
+const AdminControlTab = lazy(() => import('./components/AdminControlTab'));
 
 export type UserRole = 'ADMIN' | 'OPERATOR';
 
@@ -55,10 +56,13 @@ export default function App() {
   const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
   const [jetsonTemperatures, setJetsonTemperatures] = useState<{cpu: number | null, gpu: number | null}>({ cpu: null, gpu: null });
   const [limitSwitchState, setLimitSwitchState] = useState<string>("N/A");
-  const [jetsonRam, setJetsonRam] = useState<string>("5.12/7.62 GB");
-  const [jetsonRom, setJetsonRom] = useState<string>("2.10/50.00 GB");
+  const [jetsonRam, setJetsonRam] = useState<string>("N/A");
+  const [jetsonRom, setJetsonRom] = useState<string>("N/A");
   const [streamRole, setStreamRole] = useState<'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED'>('DISCONNECTED');
   const [roomState, setRoomState] = useState<any>(null);
+
+  const frameCounterRef = useRef(0);
+  const globalToastTimer = useRef<number | null>(null);
 
   const wsRef = useHardwareSocket({
     isSystemHardwareEnabled,
@@ -73,7 +77,8 @@ export default function App() {
     setEdgeTelemetry,
     setStreamRole,
     setRoomState,
-    currentUser
+    currentUser,
+    frameCounterRef
   });
 
   const fetchFolders = async () => {
@@ -123,7 +128,9 @@ export default function App() {
   useEffect(() => {
     const handleToast = (e: any) => {
       setGlobalToast({ message: e.detail.message, type: e.detail.type, id: Date.now() });
-      setTimeout(() => setGlobalToast(null), 4000);
+      // Timer toast sebelumnya dibatalkan, supaya tidak ikut menghapus toast yang baru muncul.
+      if (globalToastTimer.current) clearTimeout(globalToastTimer.current);
+      globalToastTimer.current = window.setTimeout(() => setGlobalToast(null), 4000);
     };
     window.addEventListener('show-toast', handleToast);
     return () => window.removeEventListener('show-toast', handleToast);
@@ -209,7 +216,7 @@ export default function App() {
          <Info size={20} className="text-blue-500" />}
       </div>
       <p className="text-[13px] font-medium leading-tight">{globalToast.message}</p>
-      <button onClick={() => setGlobalToast(null)} className="ml-2 p-1 hover:bg-black/10 rounded-full transition-colors shrink-0">
+      <button aria-label="Tutup notifikasi" onClick={() => setGlobalToast(null)} className="ml-2 p-1 hover:bg-black/10 rounded-full transition-colors shrink-0">
         <X size={14} />
       </button>
     </div>
@@ -258,8 +265,10 @@ export default function App() {
 
       {/* APPLICATION CONTENT CONTAINER */}
       <main className="flex-1 min-h-0 p-3 pb-20 md:pb-3 relative overflow-y-auto">
+        <Suspense fallback={<div className="p-8">Memuat…</div>}>
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
+            frameCounterRef={frameCounterRef}
             openKeypad={handleOpenKeypadGlobal} 
             cameraActive={cameraActive}
             setCameraActive={setCameraActive}
@@ -314,6 +323,7 @@ export default function App() {
         {activeTab === 'Admin Control' && currentUserRole === 'ADMIN' && (
           <AdminControlTab roomState={roomState} lastEchoGCode={lastEchoGCode} />
         )}
+        </Suspense>
       </main>
 
       {/* GLOBAL VIRTUAL NUMPAD MELAYANG */}
@@ -338,7 +348,7 @@ export default function App() {
             {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0'].map((btn) => (
               <button key={btn} onClick={() => handleKeypadPress(btn)} className={`p-3 text-lg font-bold rounded-lg shadow-sm active:scale-95 transition-transform ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700 text-white' : 'bg-white hover:bg-gray-100 border'}`}>{btn}</button>
             ))}
-            <button onClick={handleKeypadDel} className={`p-3 text-lg font-bold rounded-lg shadow-sm active:scale-95 flex items-center justify-center ${isDarkMode ? 'bg-gray-700 text-red-400' : 'bg-gray-200 text-red-600'}`}><Delete size={20} /></button>
+            <button aria-label="Hapus" onClick={handleKeypadDel} className={`p-3 text-lg font-bold rounded-lg shadow-sm active:scale-95 flex items-center justify-center ${isDarkMode ? 'bg-gray-700 text-red-400' : 'bg-gray-200 text-red-600'}`}><Delete size={20} /></button>
             <button onClick={handleKeypadClear} className={`col-span-1 p-3 text-sm font-bold rounded-lg shadow-sm active:scale-95 text-yellow-500 ${isDarkMode ? 'bg-gray-800' : 'bg-white border'}`}>CLR</button>
             <button onClick={handleKeypadEnter} className="col-span-2 p-3 text-sm font-bold rounded-lg shadow-sm active:scale-95 bg-blue-600 text-white">ENTER</button>
           </div>
@@ -355,7 +365,7 @@ export default function App() {
             <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Status Hubungan Alat</span>
             <span className="text-xs font-bold text-gray-200 mt-0.5">{toast.message}</span>
           </div>
-          <button onClick={() => setToast(prev => ({ ...prev, visible: false }))} className="p-1 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
+          <button aria-label="Tutup notifikasi" onClick={() => setToast(prev => ({ ...prev, visible: false }))} className="p-1 hover:bg-white/10 rounded-lg text-gray-400 transition-colors">
             <X size={14} />
           </button>
         </div>

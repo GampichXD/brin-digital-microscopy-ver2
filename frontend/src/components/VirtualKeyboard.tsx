@@ -106,7 +106,7 @@ export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyb
 
         {/* BARIS HURUF/SIMBOL 3 + SHIFT + BACKSPACE */}
         <div className="flex gap-1 justify-center">
-          <button type="button" onClick={() => { setIsShift(!isShift); setIsSymbol(false); }} className={`w-14 h-11 rounded-lg flex items-center justify-center active:scale-95 transition-all shadow-sm ${isShift && !isSymbol ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>
+          <button aria-label="Shift" type="button" onClick={() => { setIsShift(!isShift); setIsSymbol(false); }} className={`w-14 h-11 rounded-lg flex items-center justify-center active:scale-95 transition-all shadow-sm ${isShift && !isSymbol ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>
             <ArrowUp size={18} />
           </button>
           
@@ -114,7 +114,7 @@ export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyb
             <button key={key} type="button" onClick={() => handleKeyPress(key)} className="flex-1 h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white font-bold rounded-lg text-sm transition-all shadow-sm">{key}</button>
           ))}
           
-          <button type="button" onClick={() => onInput('BACK')} className="w-14 h-11 bg-red-600/20 border border-red-500/30 hover:bg-red-600 text-red-400 hover:text-white font-bold rounded-lg flex items-center justify-center active:scale-95 transition-all shadow-sm">
+          <button aria-label="Hapus" type="button" onClick={() => onInput('BACK')} className="w-14 h-11 bg-red-600/20 border border-red-500/30 hover:bg-red-600 text-red-400 hover:text-white font-bold rounded-lg flex items-center justify-center active:scale-95 transition-all shadow-sm">
             <Delete size={18} />
           </button>
         </div>
@@ -124,7 +124,7 @@ export default function VirtualKeyboard({ title, onInput, onClose }: VirtualKeyb
           <button type="button" onClick={() => setIsSymbol(!isSymbol)} className={`flex-1 h-11 rounded-lg flex items-center justify-center active:scale-95 transition-all shadow-sm font-bold text-xs ${isSymbol ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
             <Hash size={14} className="mr-1"/> ?123
           </button>
-          <button type="button" onClick={() => handleKeyPress(' ')} className="flex-[3] h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white rounded-lg flex items-center justify-center transition-all shadow-sm">
+          <button aria-label="Spasi" type="button" onClick={() => handleKeyPress(' ')} className="flex-[3] h-11 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white rounded-lg flex items-center justify-center transition-all shadow-sm">
             <Space size={18} />
           </button>
           <button type="button" onClick={onClose} className="flex-[1.5] h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs tracking-wider active:scale-95 transition-all shadow-md uppercase">

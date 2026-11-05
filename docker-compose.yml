@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: microscopy_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
@@ -25,10 +25,16 @@ services:
     build: ./backend
     container_name: mikroskop_backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/microscopy_db
+      # Password harus aman untuk URL (token_urlsafe). Mengganti nilai ini TIDAK mengubah
+      # password volume yang sudah ada: jalankan ALTER USER dulu (lihat README).
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/microscopy_db
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY belum diisi di .env}
+      - EDGE_DEVICE_TOKEN=${EDGE_DEVICE_TOKEN:?EDGE_DEVICE_TOKEN belum diisi di .env}
+      # false hanya selama transisi, sampai Jetson memakai kode baru.
+      - EDGE_TOKEN_REQUIRED=${EDGE_TOKEN_REQUIRED:-true}
     volumes:
       - ./backend/static/datasets:/app/static/datasets
       - ./backend/static/uploads:/app/static/uploads

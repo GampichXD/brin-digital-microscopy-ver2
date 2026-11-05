@@ -1,10 +1,20 @@
+import os
 from typing import Optional
 from datetime import datetime, timedelta
 from jose import jwt
 import bcrypt
 
-# Konfigurasi Token JWT (Gunakan SECRET_KEY kustom untuk keamanan lab)
-SECRET_KEY = "UNDIP_BRIN_MICROSCOPY_SECRET_KEY_SUPER_SECURE"
+# SECRET_KEY wajib dari environment. Tanpa nilai ini server menolak start, kecuali
+# ENV=test, supaya rahasia tidak pernah kembali tertulis di kode sumber.
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    if os.environ.get("ENV") == "test":
+        SECRET_KEY = "dummy-key-khusus-pengujian"
+    else:
+        raise RuntimeError(
+            "JWT_SECRET_KEY belum diisi. Buat dengan: "
+            "python -c \"import secrets;print(secrets.token_urlsafe(48))\""
+        )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 720 # Token aktif selama 12 jam (instrumen lab, sesi panjang)
 

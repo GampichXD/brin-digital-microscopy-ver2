@@ -8,7 +8,9 @@ Cara menjalankan:
 Dengan coverage:
     .\\venv\\Scripts\\python.exe -m pytest test_api.py --cov=app --cov-report=term-missing --cov-branch -v
 """
+import asyncio
 import io
+import os
 import random
 import time
 import uuid
@@ -21,8 +23,14 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.main import app
 from app.services.auth_service import hash_password, verify_password, create_access_token
+from helpers import auth, token_for
 
 client = TestClient(app)
+# Kategori B-L menguji perilaku fungsional, jadi memakai sesi admin.
+# Autentikasi dan otorisasi sendiri diuji di tests/security/test_security.py.
+client.headers.update(auth(token_for("uji_admin", "ADMIN")))
+
+EDGE_WS = "/api/hardware/ws?device_token=token-edge-pengujian"
 
 # Penyimpanan state ringan antar-test dalam satu kategori (folder id, dsb.)
 # — bukan fixture pytest, sengaja dibuat sederhana mengikuti gaya file ini.
@@ -319,7 +327,15 @@ def test_feature_E04_apply_tool_colony_count_fallback_lokal():
         "filename": _shared["analysis_filename"], "current_src": "", "params": {}
     })
     assert response.status_code == 200
-    assert "colonies" in response.json()
+    # CV berjalan asinkron: POST hanya memulai, hasilnya dibaca lewat polling /status.
+    output = response.json()["output"]
+    for _ in range(50):
+        status = client.get("/api/analysis/status", params={"output": output}).json()
+        if status.get("done") or status.get("error"):
+            break
+        time.sleep(0.2)
+    assert status.get("done") is True
+    assert "colonies" in status
 
 def test_feature_E05_apply_tool_file_tidak_ditemukan():
     """E05: Menerapkan tool pada file yang tidak ada di server harus mengembalikan 404."""
@@ -498,7 +514,8 @@ def test_feature_H01_lifecycle_rbac_operator():
     # Ganti password sendiri (pakai password asli)
     change = client.put("/api/auth/profile/password", json={
         "username": username, "old_password": original_password, "new_password": "PasswordBaru456"
-    })
+    }, headers=auth(client.post("/api/auth/login", json={
+        "username": username, "password": original_password}).json()["access_token"]))
     assert change.status_code == 200
 
     # Ubah peran oleh Admin
@@ -660,15 +677,16 @@ def _wait_until_registered():
 def test_feature_L01_edge_ws_registrasi_meneruskan_perintah_motor():
     """L01: Selama Edge terhubung via WebSocket, perintah motor harus diteruskan
     (grbl_response == 'ok'), bukan lagi 'Edge Device Offline'."""
-    with client.websocket_connect("/api/hardware/ws"):
+    with client.websocket_connect(EDGE_WS):
         result = _wait_until_registered()
         assert result == "ok"
 
 def test_feature_L02_edge_ws_unregister_setelah_disconnect():
     """L02: Setelah koneksi Edge terputus, perintah motor harus kembali
     melaporkan Edge Device Offline (motor_driver ter-unregister dengan benar)."""
-    with client.websocket_connect("/api/hardware/ws"):
+    with client.websocket_connect(EDGE_WS):
         pass  # koneksi langsung ditutup di akhir blok 'with'
+    time.sleep(0.6)  # lewati guard rate-limit 0.5 dtk dari perintah motor di tes sebelumnya
     response = client.post("/api/hardware/motor/move", json={
         "axis": "Z", "value": 1.0, "feed_rate": 100.0, "unit": "mm"
     })
@@ -678,7 +696,7 @@ def test_feature_L02_edge_ws_unregister_setelah_disconnect():
 def test_feature_L03_edge_ws_kirim_telemetry_koneksi_tetap_hidup():
     """L03: Edge mengirim event TELEMETRY_DATA harus diproses tanpa memutus koneksi,
     dibuktikan dengan pengiriman event kedua yang masih berhasil setelahnya."""
-    with client.websocket_connect("/api/hardware/ws") as ws:
+    with client.websocket_connect(EDGE_WS) as ws:
         assert _wait_until_registered() == "ok"
         ws.send_json({"event": "TELEMETRY_DATA", "position": {"X": 1.0, "Y": 2.0, "Z": 0.0}})
         ws.send_json({"event": "MOTOR_MOVED", "grbl_response": "ok"})
@@ -704,3 +722,103 @@ def test_feature_J01_purge_cache():
 def test_feature_J02_purge_all():
     response = client.delete("/api/dataset/storage/purge-all")
     assert response.status_code == 200
+
+
+def test_feature_L04_edge_ws_menerima_heartbeat_ping():
+    """L04: VPS harus mengirim PING berkala ke Jetson; ini sumber data watchdog B2."""
+    with client.websocket_connect(EDGE_WS) as ws:
+        assert ws.receive_json() == {"action": "PING"}
+
+
+def test_feature_L05_edge_putus_membatalkan_scan_berjalan():
+    """L05: Saat Jetson putus, scan yang sedang berjalan harus dibatalkan."""
+    from app.routers.hardware import _scan_state
+    _scan_state.update({"running": True, "cancel": False})
+    try:
+        with client.websocket_connect(EDGE_WS):
+            pass
+        assert _scan_state["cancel"] is True
+    finally:
+        _scan_state.update({"running": False, "cancel": False})
+
+
+def test_feature_G14_retake_edge_offline_504_tanpa_gambar_palsu():
+    """G14: Retake saat Edge offline harus 504 dan tidak boleh membuat gambar pengganti."""
+    name = f"retake_{uuid.uuid4().hex[:8]}.jpg"
+    response = client.post("/api/hardware/scan/retake", json={
+        "coord_x": 0.0, "coord_y": 0.0, "filename": name, "delay_ms": 0})
+    assert response.status_code == 504
+    assert not os.path.exists(os.path.join("static", "uploads", name))
+
+
+def test_feature_G15_retake_edge_tidak_kirim_citra_504(monkeypatch):
+    """G15: Edge online tetapi citra tidak tiba: 504, dan tile lama tetap utuh."""
+    from app.routers import hardware
+    monkeypatch.setattr(hardware, "RETAKE_TIMEOUT_S", 0.3)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(hardware.asyncio, "sleep", lambda s: real_sleep(min(s, 0.01)))
+    name = f"retake_{uuid.uuid4().hex[:8]}.jpg"
+    path = os.path.join("static", "uploads", name)
+    with open(path, "wb") as f:
+        f.write(b"lama")
+    monkeypatch.setattr(hardware.motor_driver, "jetson_websocket", object())
+    response = client.post("/api/hardware/scan/retake", json={
+        "coord_x": 0.0, "coord_y": 0.0, "filename": name, "delay_ms": 0})
+    assert response.status_code == 504
+    with open(path, "rb") as f:
+        assert f.read() == b"lama"
+
+
+def test_feature_E06_fallback_lokal_ditandai_source():
+    """E06: Respons fallback lokal saat Edge offline harus menyertakan source."""
+    upload = client.post("/api/analysis/upload", files={"file": ("a.jpg", _make_test_image_bytes(), "image/jpeg")})
+    response = client.post("/api/analysis/sobel", json={
+        "filename": upload.json()["filename"], "current_src": "", "params": {}})
+    assert response.status_code == 200
+    assert response.json()["source"] == "local_fallback"
+
+
+def test_feature_C10_telemetri_edge_offline_null():
+    """C10: Tanpa Jetson, nilai edge harus null, bukan angka palsu."""
+    data = client.get("/api/hardware/telemetry/stats").json()
+    assert data["edgeOnline"] is False
+    assert data["edgeCpu"] is None and data["edgeRam"] is None and data["edgeTemp"] is None
+
+
+def test_feature_C11_telemetri_edge_nilai_asli_dari_jetson():
+    """C11: Nilai edge berasal dari TELEMETRY_DATA terakhir, dan hilang saat Jetson putus."""
+    with client.websocket_connect(EDGE_WS) as ws:
+        ws.send_json({"event": "TELEMETRY_DATA", "edge_cpu_usage": 12.5, "ram_usage": "2.00/8.00 GB",
+                      "jetson_temperatures": {"cpu": 51.0, "gpu": 48.0}, "position": {"X": 1, "Y": 2, "Z": 3}})
+        for _ in range(50):
+            data = client.get("/api/hardware/telemetry/stats").json()
+            if data["edgeCpu"] is not None:
+                break
+            time.sleep(0.05)
+        assert data["edgeOnline"] is True
+        assert (data["edgeCpu"], data["edgeRam"], data["edgeTemp"]) == (12.5, 25.0, 51.0)
+    data = client.get("/api/hardware/telemetry/stats").json()
+    assert data["edgeOnline"] is False and data["edgeCpu"] is None
+
+
+def test_feature_B10_health_melaporkan_status_nyata():
+    """B10: Tanpa Jetson, health check tidak boleh mengaku CONNECTED."""
+    hw = client.get("/").json()["hardware"]
+    assert hw == {"jetson_orin_nano": "OFFLINE", "grbl_core": "OFFLINE"}
+
+
+def test_feature_G16_scan_ditolak_kalau_cnc_offline():
+    """G16: Jetson tersambung tetapi CNC tidak: scan ditolak, kamera tidak memotret tempat yang sama."""
+    with client.websocket_connect(EDGE_WS) as ws:
+        ws.send_json({"event": "TELEMETRY_DATA", "status": "Offline", "position": {"X": 0, "Y": 0, "Z": 0}})
+        for _ in range(50):
+            if client.get("/").json()["hardware"]["grbl_core"] == "Offline":
+                break
+            time.sleep(0.05)
+        response = client.post("/api/hardware/scan/grid", json={
+            "columns": 1, "rows": 1, "step_x": 1.0, "step_y": 1.0, "delay_ms": 0,
+            "unit": "mm", "start_x": 0.0, "start_y": 0.0})
+        move = client.post("/api/hardware/motor/move", json={"axis": "X", "value": 1.0, "feed_rate": 250.0, "unit": "mm"})
+    assert response.status_code == 409
+    assert "CNC" in response.json()["detail"]
+    assert move.status_code == 409

@@ -1,7 +1,7 @@
 import os
 import io
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 # ── Library pembuatan dokumen ──────────────────────────────────────
@@ -42,12 +42,15 @@ except ImportError:
 
 DATASET_DIR = "./static/datasets"
 
+from ..schemas import ReportPayload
+from ..services.deps import get_current_user
+from ..services.safe_path import safe_join
+
 router = APIRouter(
     prefix="/api/documentation",
-    tags=["Documentation & Report Generator"]
+    tags=["Documentation & Report Generator"],
+    dependencies=[Depends(get_current_user)],
 )
-
-from ..schemas import ReportPayload
 
 # Palet warna konsisten lintas format
 C_PRIMARY = "1A56DB"   # biru
@@ -58,7 +61,7 @@ C_ROW_ALT = "F3F4F6"
 
 
 def _list_images(folder_id: str):
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     if not os.path.exists(folder_path):
         return []
     return [f for f in sorted(os.listdir(folder_path))
@@ -129,13 +132,13 @@ def _folder_meta(payload: ReportPayload):
 #  ENDPOINT
 # ─────────────────────────────────────────────────────────────────────
 @router.post("/generate")
-async def generate_report(
+def generate_report(
     payload: ReportPayload,
     format: str = Query(..., description="Format dokumen: WORD, EXCEL, atau PPT"),
 ):
     folder = _folder_meta(payload)
     images = _list_images(payload.folder_id)
-    folder_path = os.path.join(DATASET_DIR, payload.folder_id)
+    folder_path = safe_join(DATASET_DIR, payload.folder_id)
     if not os.path.exists(folder_path):
         raise HTTPException(status_code=404,
                             detail=f"Folder dataset '{payload.folder_id}' tidak ditemukan di server.")

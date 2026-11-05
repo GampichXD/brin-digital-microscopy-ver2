@@ -54,7 +54,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-600 mb-1">ID Operator</label>
-          <input 
+          <input aria-label="Masukkan username/ID" 
             className="border rounded p-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
             type="text" 
             placeholder="Masukkan username/ID" 
@@ -66,7 +66,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-600 mb-1">Password</label>
-          <input 
+          <input aria-label="••••••••" 
             className="border rounded p-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
             type="password" 
             placeholder="••••••••" 

@@ -123,3 +123,9 @@ code {
 
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+
+
+/* Kontras teks redup di tema gelap. Di tema terang gray-500 tetap dipakai karena gray-400 gagal kontras di atas putih. */
+[data-theme='dark'] .text-gray-500 {
+  color: var(--color-gray-400);
+}

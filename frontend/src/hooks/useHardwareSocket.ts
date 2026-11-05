@@ -14,6 +14,7 @@ interface HardwareSocketProps {
   setStreamRole: (role: 'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED') => void;
   setRoomState?: (state: any) => void;
   currentUser: string | null;
+  frameCounterRef?: { current: number };
 }
 
 export function useHardwareSocket({
@@ -30,10 +31,12 @@ export function useHardwareSocket({
   setStreamRole,
   setRoomState,
   currentUser,
+  frameCounterRef,
 }: HardwareSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
   const lastInteractionTime = useRef<number>(Date.now());
+  const lastTempsRef = useRef<{ cpu: number | null; gpu: number | null } | null>(null);
 
   // Sync latest camera state to ref for websocket handlers
   useEffect(() => {
@@ -64,9 +67,16 @@ export function useHardwareSocket({
 
     // Track user activity for PING mechanism
     const updateActivity = () => { lastInteractionTime.current = Date.now(); };
-    window.addEventListener('mousemove', updateActivity);
-    window.addEventListener('keydown', updateActivity);
-    window.addEventListener('click', updateActivity);
+    const activityEvents = ['mousemove', 'keydown', 'click', 'pointerdown', 'touchstart', 'wheel', 'scroll'];
+    activityEvents.forEach((name) => window.addEventListener(name, updateActivity, { passive: true }));
+
+    // HEARTBEAT = tanda koneksi hidup, dikirim tanpa syarat. Bukan interaksi:
+    // spectator yang hanya menonton tetap aman, Pilot yang diam tetap bisa diturunkan.
+    const heartbeatInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'HEARTBEAT' }));
+      }
+    }, 20000);
 
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -88,15 +98,35 @@ export function useHardwareSocket({
             return;
           }
           if (res.role === 'IDLE_TIMEOUT') {
-            alert('Sesi Berakhir: Anda tidak melakukan aktivitas selama 10 menit, sehingga peran Anda dicabut untuk memberikan kesempatan pada antrian lain.');
+            alert('Koneksi ke server terputus terlalu lama. Muat ulang halaman untuk tersambung kembali.');
             return;
           }
+          if (res.reason === 'IDLE') {
+            const message = res.role === 'SPECTATOR'
+              ? 'Anda tidak aktif lebih dari 10 menit. Anda kini Spectator.'
+              : 'Anda tidak aktif lebih dari 10 menit. Anda kini masuk antrean.';
+            window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type: 'info' } }));
+          }
           setStreamRole(res.role as 'PILOT' | 'SPECTATOR' | 'QUEUED');
+        }
+        else if (res.event === 'COMMAND_REJECTED') {
+          const messages: Record<string, string> = {
+            NOT_PILOT: 'Perintah ditolak: Anda bukan Pilot.',
+            BUS_DISABLED: 'Perintah ditolak: hardware bus sedang nonaktif.',
+            CNC_OFFLINE: 'CNC tidak tersambung ke Jetson.',
+            RATE_LIMIT: 'Perintah terlalu cepat. Beri jeda sedikit antar gerakan.',
+          };
+          // START_STREAM dikirim otomatis saat tersambung, termasuk oleh akun di antrean.
+          if (res.action === 'START_STREAM') return;
+          const message = messages[res.reason] || `Perintah ditolak server (${res.reason}).`;
+          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type: 'warning' } }));
         }
         else if (res.event === 'ROOM_STATE_UPDATE') {
           if (setRoomState) setRoomState(res);
         }
         else if (res.event === 'STREAM_DATA') {
+          // Dihitung per pesan: React bisa menggabungkan beberapa setVideoSrc dalam satu render.
+          if (frameCounterRef) frameCounterRef.current += 1;
           setVideoSrc(res.image);
         }
         else if (res.event === 'TELEMETRY_DATA') {
@@ -104,9 +134,15 @@ export function useHardwareSocket({
           
           let currentTemp = 0;
           if (res.jetson_temperatures) {
-            setJetsonTemperatures(res.jetson_temperatures);
+            // Objek baru tiap pesan (5 Hz) memaksa seluruh App render ulang walau nilainya sama.
+            const temps = res.jetson_temperatures;
+            if (temps.cpu !== lastTempsRef.current?.cpu || temps.gpu !== lastTempsRef.current?.gpu) {
+              lastTempsRef.current = temps;
+              setJetsonTemperatures(temps);
+            }
             currentTemp = res.jetson_temperatures.cpu || 0;
           } else {
+            lastTempsRef.current = null;
             setJetsonTemperatures({ cpu: typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : null, gpu: null });
             currentTemp = typeof res.jetson_temp_c === 'number' ? res.jetson_temp_c : 0;
           }
@@ -163,9 +199,8 @@ export function useHardwareSocket({
     };
 
     return () => {
-      window.removeEventListener('mousemove', updateActivity);
-      window.removeEventListener('keydown', updateActivity);
-      window.removeEventListener('click', updateActivity);
+      activityEvents.forEach((name) => window.removeEventListener(name, updateActivity));
+      clearInterval(heartbeatInterval);
       clearInterval(pingInterval);
 
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
@@ -178,7 +213,7 @@ export function useHardwareSocket({
         setStreamRole('DISCONNECTED');
       }
     };
-  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState]);
+  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState, frameCounterRef]);
 
   return wsRef;
 }

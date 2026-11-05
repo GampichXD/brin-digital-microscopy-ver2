@@ -11,6 +11,8 @@ from ..schemas import FolderCreate, FolderUpdate, FolderResponse, ImageCountIncr
 from typing import List, Optional
 from ..database import get_db
 from .. import models
+from ..services.deps import get_current_user, get_media_user, get_user_or_edge, require_admin
+from ..services.safe_path import safe_join, safe_name
 
 
 DATASET_DIR = "./static/datasets"
@@ -36,7 +38,7 @@ router = APIRouter(
 )
 
 # --- ENDPOINT 1: BUAT FOLDER DATASET BARU ---
-@router.post("/folders", response_model=FolderResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/folders", response_model=FolderResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(get_current_user)])
 def create_folder(folder_data: FolderCreate, db: Session = Depends(get_db)):
     # Cek unik: nama folder tidak boleh kembar di database server
     existing_folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.name == folder_data.name).first()
@@ -64,7 +66,7 @@ def create_folder(folder_data: FolderCreate, db: Session = Depends(get_db)):
     return new_folder
 
 # --- ENDPOINT 2: AMBIL SEMUA DAFTAR FOLDER DATASET ---
-@router.get("/folders", response_model=List[FolderResponse])
+@router.get("/folders", response_model=List[FolderResponse], dependencies=[Depends(get_current_user)])
 def get_all_folders(db: Session = Depends(get_db)):
     folders = db.query(models.DatasetFolder).all()
     
@@ -88,10 +90,10 @@ def get_all_folders(db: Session = Depends(get_db)):
     return folders
 
 # --- ENDPOINT 2.2: STREAMING VIDEO WITH PROPER HTTP RANGE SUPPORT ---
-@router.get("/video/{folder_id}/{filename}")
+@router.get("/video/{folder_id}/{filename}", dependencies=[Depends(get_media_user)])
 def stream_video(folder_id: str, filename: str, request: Request):
     """Serve video with HTTP 206 Range support for browser video players."""
-    file_path = os.path.join(DATASET_DIR, folder_id, filename)
+    file_path = safe_join(DATASET_DIR, folder_id, filename)
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Video tidak ditemukan")
@@ -154,7 +156,7 @@ def stream_video(folder_id: str, filename: str, request: Request):
         )
 
 
-@router.get("/storage-info")
+@router.get("/storage-info", dependencies=[Depends(get_current_user)])
 def get_storage_info():
     try:
         total, used, free = shutil.disk_usage(DATASET_DIR)
@@ -166,11 +168,11 @@ def get_storage_info():
             "used_gb": used_gb,
             "used_percentage": used_percentage
         }
-    except Exception:
-        return {"total_gb": 50.0, "used_gb": 10.0, "used_percentage": 20}
+    except OSError as e:
+        raise HTTPException(status_code=503, detail=f"Info penyimpanan tidak tersedia: {e}")
 
 # --- ENDPOINT 2.5: PERBARUI METADATA FOLDER ---
-@router.put("/folders/{folder_id}", response_model=FolderResponse)
+@router.put("/folders/{folder_id}", response_model=FolderResponse, dependencies=[Depends(get_current_user)])
 def update_folder(folder_id: str, payload: FolderUpdate, db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
@@ -184,14 +186,14 @@ def update_folder(folder_id: str, payload: FolderUpdate, db: Session = Depends(g
     return folder
 
 # --- ENDPOINT 3: HAPUS FOLDER DATASET PERMANEN ---
-@router.delete("/folders/{folder_id}")
+@router.delete("/folders/{folder_id}", dependencies=[Depends(get_current_user)])
 async def delete_dataset_folder(folder_id: str, db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
 
     # Hapus direktori fisik
-    shutil.rmtree(os.path.join(DATASET_DIR, folder_id), ignore_errors=True)
+    shutil.rmtree(safe_join(DATASET_DIR, folder_id), ignore_errors=True)
 
     db.delete(folder)
     db.commit()
@@ -200,24 +202,27 @@ async def delete_dataset_folder(folder_id: str, db: Session = Depends(get_db)):
     return {"message": "Folder dataset beserta metadata di dalamnya berhasil dihapus"}
 
 # --- ENDPOINT 4: TAMBAH JUMLAH GAMBAR SECARA DINAMIS PASCA GRID SCAN ---
-@router.put("/folders/{folder_id}/add-images")
+@router.put("/folders/{folder_id}/add-images", dependencies=[Depends(get_current_user)])
 def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
-    
+
+    # Validasi semua nama dulu, supaya request yang ditolak tidak mengubah apa pun.
+    filenames = [safe_name(f) for f in payload.filenames]
+
     folder.image_count += payload.count
     db.commit()
     db.refresh(folder)
 
     # Move files from static/uploads to static/datasets/{folder_id}
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     os.makedirs(folder_path, exist_ok=True)
     uploads_dir = os.path.join(DATASET_DIR, "..", "uploads")
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    for filename in payload.filenames:
+    for filename in filenames:
         src = os.path.join(uploads_dir, filename)
         
         base_name, ext = os.path.splitext(filename)
@@ -232,9 +237,9 @@ def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Sess
     return {"message": "Jumlah gambar berhasil dimutasi", "current_image_count": folder.image_count}
 
 
-@router.get("/folders/{folder_id}/images")
+@router.get("/folders/{folder_id}/images", dependencies=[Depends(get_current_user)])
 def get_folder_images(folder_id: str):
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     if not os.path.exists(folder_path):
         return []
     
@@ -254,19 +259,23 @@ def get_folder_images(folder_id: str):
     images.sort(key=lambda x: x["name"])
     return images
 
-@router.post("/folders/{folder_id}/files")
+@router.post("/folders/{folder_id}/files", dependencies=[Depends(get_user_or_edge)])
 def upload_files(folder_id: str, files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
     
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
+    # Validasi semua nama dulu, supaya batch yang ditolak tidak tertulis sebagian.
+    for file in files:
+        if file.filename:
+            safe_name(file.filename)
     os.makedirs(folder_path, exist_ok=True)
     
     saved_count = 0
     for file in files:
         if file.filename:
-            file_location = os.path.join(folder_path, file.filename)
+            file_location = safe_join(folder_path, file.filename)
             with open(file_location, "wb") as f:
                 shutil.copyfileobj(file.file, f)
             saved_count += 1
@@ -286,24 +295,26 @@ def upload_files(folder_id: str, files: List[UploadFile] = File(...), db: Sessio
     db.refresh(folder)
     return {"message": f"{saved_count} file berhasil diunggah", "current_image_count": folder.image_count}
 
-@router.get("/folders/{folder_id}/files/{filename}/download")
+@router.get("/folders/{folder_id}/files/{filename}/download", dependencies=[Depends(get_user_or_edge)])
 def download_single_file(folder_id: str, filename: str):
-    file_path = os.path.join(DATASET_DIR, folder_id, filename)
+    file_path = safe_join(DATASET_DIR, folder_id, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Gambar tidak ditemukan")
     return FileResponse(path=file_path, filename=filename)
 
-@router.delete("/folders/{folder_id}/images")
+@router.delete("/folders/{folder_id}/images", dependencies=[Depends(get_current_user)])
 async def delete_images(folder_id: str, payload: DeleteImagesPayload, db: Session = Depends(get_db)):
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
 
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     deleted_count = 0
+    # Validasi semua nama dulu, supaya request yang ditolak tidak menghapus sebagian.
+    filenames = [safe_name(f) for f in payload.filenames]
 
-    for filename in payload.filenames:
-        file_path = os.path.join(folder_path, filename)
+    for filename in filenames:
+        file_path = safe_join(folder_path, filename)
         if os.path.exists(file_path):
             os.remove(file_path)
             deleted_count += 1
@@ -320,7 +331,7 @@ async def delete_images(folder_id: str, payload: DeleteImagesPayload, db: Sessio
     await _notify_edge({"action": "PURGE_DATASET_FILES", "folder_id": folder_id, "filenames": payload.filenames})
     return {"message": f"{deleted_count} gambar berhasil dihapus", "current_image_count": folder.image_count}
 
-@router.get("/folders/{folder_id}/download")
+@router.get("/folders/{folder_id}/download", dependencies=[Depends(get_media_user)])
 def download_folder_zip(
     folder_id: str,
     db: Session = Depends(get_db),
@@ -331,7 +342,7 @@ def download_folder_zip(
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
 
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     if not os.path.exists(folder_path) or not os.listdir(folder_path):
         raise HTTPException(status_code=400, detail="Folder dataset kosong, tidak ada yang bisa diunduh.")
 
@@ -349,7 +360,8 @@ def download_folder_zip(
     is_yolo = (export_format or "").lower() == "yolo"
     suffix = "_YOLO" if is_yolo else ("_pilihan" if files else "")
     zip_filename = f"{folder.name}{suffix}.zip"
-    zip_filepath = os.path.join(DATASET_DIR, f"{folder_id}_{uuid.uuid4().hex[:6]}_{zip_filename}")
+    # folder.name bebas diisi pengguna, jadi tidak dipakai untuk path di disk.
+    zip_filepath = safe_join(DATASET_DIR, f"{folder_id}_{uuid.uuid4().hex[:6]}.zip")
 
     img_exts = ('.png', '.jpg', '.jpeg', '.bmp')
     with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -373,14 +385,8 @@ def download_folder_zip(
 
     return FileResponse(path=zip_filepath, filename=zip_filename, media_type='application/zip')
 
-# --- MOCK VPS ENDPOINT UNTUK PENGUJIAN HYBRID SYNCING ---
-@router.post("/vps-mock/sync")
-def mock_vps_sync(files: List[UploadFile] = File(...)):
-    # Digantikan oleh endpoint per folder /folders/{folder_id}/files
-    return {"message": f"Mock VPS berhasil menerima {len(files)} file dan menyimpannya ke Cloud.", "status": "success"}
-
 # --- ENDPOINT INDEX SINKRONISASI DUA ARAH (DOWNSTREAM MIRRORING) ---
-@router.get("/vps/sync-index")
+@router.get("/vps/sync-index", dependencies=[Depends(get_user_or_edge)])
 def get_vps_sync_index(db: Session = Depends(get_db)):
     folders = db.query(models.DatasetFolder).all()
     index = {}
@@ -399,7 +405,7 @@ def get_vps_sync_index(db: Session = Depends(get_db)):
     return {"folders": index}
 
 # --- ENDPOINT 13: EXPORT ALL STORAGE ---
-@router.get("/storage/export")
+@router.get("/storage/export", dependencies=[Depends(require_admin)])
 def export_all_dataset():
     zip_filename = "all_datasets_export.zip"
     zip_path = os.path.join(DATASET_DIR, zip_filename)
@@ -419,7 +425,7 @@ def export_all_dataset():
 import json
 import redis.asyncio as redis
 
-@router.delete("/storage/purge-cache")
+@router.delete("/storage/purge-cache", dependencies=[Depends(require_admin)])
 async def purge_temporary_cache():
     cleared_bytes = 0
     
@@ -451,7 +457,7 @@ async def purge_temporary_cache():
         
     return {"message": f"Cache purged. {cleared_bytes} bytes freed."}
 
-@router.delete("/storage/purge-all")
+@router.delete("/storage/purge-all", dependencies=[Depends(require_admin)])
 async def purge_all_datasets(db: Session = Depends(get_db)):
     cleared_bytes = 0
     

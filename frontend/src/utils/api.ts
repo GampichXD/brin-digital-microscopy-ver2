@@ -17,4 +17,12 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
+// <video src> dan <a href> tidak bisa membawa header Authorization, jadi URL yang
+// dibuka langsung oleh browser membawa token lewat query string.
+export const withToken = (url: string): string => {
+  const token = localStorage.getItem('token');
+  if (!token) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+};
+
 export default api;

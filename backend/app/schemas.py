@@ -126,7 +126,7 @@ class RoleUpdate(BaseModel):
     role: str
 
 class PasswordChange(BaseModel):
-    username: str
+    username: Optional[str] = None  # diabaikan server; username diambil dari token
     old_password: str
     new_password: str
 

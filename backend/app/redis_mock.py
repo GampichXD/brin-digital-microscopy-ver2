@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 
 class MockPubSub:
     def __init__(self, broker):
@@ -64,6 +65,9 @@ async def get_redis_client(redis_url: str):
         s.close()
         
         return await aioredis.from_url(redis_url)
-    except Exception as e:
-        # print(f"[REDIS MOCK] Redis server not found, falling back to in-memory MockRedis.")
+    except Exception:
+        # Saat REDIS_URL diisi (Docker/VPS), Redis yang mati harus terlihat sebagai error,
+        # bukan digantikan broker di memori. Cadangan ini hanya untuk tes dan dev lokal.
+        if os.getenv("REDIS_URL"):
+            raise
         return mock_redis_instance
