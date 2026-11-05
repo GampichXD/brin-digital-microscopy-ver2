@@ -15,7 +15,8 @@ concurrency:
 jobs:
   deploy:
     name: Build & Deploy via Self-Hosted Runner
-    runs-on: self-hosted
+    # Label khusus: repo punya lebih dari satu self-hosted runner, dan deploy hanya boleh di VPS.
+    runs-on: [self-hosted, vps]
 
     steps:
       - name: 📥 Checkout
