@@ -88,6 +88,32 @@ def ensure_pilot(user: models.User) -> None:
 # ====================================================================
 # 0. ROUTE HTTP GET: TELEMETRI & STATISTIK SERVER
 # ====================================================================
+# Telemetri terakhir yang diterima dari Jetson (event TELEMETRY_DATA di /ws).
+last_edge_telemetry = {}
+
+
+def _ram_percent(ram_usage):
+    """'5.12/7.62 GB' -> 67.2. None kalau formatnya tidak terbaca."""
+    try:
+        used, total = str(ram_usage).replace(" GB", "").split("/")
+        return round(float(used) / float(total) * 100, 1)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def edge_stats() -> dict:
+    online = motor_driver.jetson_websocket is not None
+    if not online or not last_edge_telemetry:
+        return {"edgeOnline": online, "edgeCpu": None, "edgeRam": None, "edgeTemp": None}
+    temps = last_edge_telemetry.get("jetson_temperatures") or {}
+    return {
+        "edgeOnline": True,
+        "edgeCpu": last_edge_telemetry.get("edge_cpu_usage"),
+        "edgeRam": _ram_percent(last_edge_telemetry.get("ram_usage")),
+        "edgeTemp": temps.get("cpu"),
+    }
+
+
 last_net_io = psutil.net_io_counters()
 last_net_time = time.time()
 
@@ -109,14 +135,12 @@ async def get_telemetry_stats():
     last_net_io = current_net_io
     last_net_time = current_time
 
-    """Mengembalikan statistik hardware real-time dari Edge Server (Jetson/Rpi)"""
+    """Statistik VPS + telemetri terakhir dari Jetson (null kalau Jetson offline)."""
     return {
         "serverCpu": psutil.cpu_percent(interval=None),
         "serverRam": psutil.virtual_memory().percent,
         "serverBandwidth": round(bandwidth_mbps, 2),
-        "edgeCpu": psutil.cpu_percent(interval=None),
-        "edgeRam": psutil.virtual_memory().percent,
-        "edgeTemp": 45.0, # Mock suhu karena psutil.sensors_temperatures() sering gagal di docker windows
+        **edge_stats(),
         "hardwareBus": hardware_bus_enabled
     }
 
@@ -912,6 +936,8 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
                     await redis.publish("microscope_video_stream", message)
                 
             elif event_type == "TELEMETRY_DATA":
+                last_edge_telemetry.clear()
+                last_edge_telemetry.update(data)
                 # Simpan posisi fisik terakhir Jetson untuk dipakai sebagai titik
                 # awal grid scan (mencegah CNC balik ke origin / terlihat homing).
                 pos = data.get("position")
@@ -1029,6 +1055,7 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
         # Jetson bisa reconnect sebelum koneksi lama selesai dibereskan: jangan sampai
         # koneksi lama menghapus registrasi koneksi yang baru.
         if motor_driver.jetson_websocket is websocket:
+            last_edge_telemetry.clear()
             motor_driver.unregister_jetson()
             camera_driver.stop()
         try:

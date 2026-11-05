@@ -776,3 +776,26 @@ def test_feature_E06_fallback_lokal_ditandai_source():
         "filename": upload.json()["filename"], "current_src": "", "params": {}})
     assert response.status_code == 200
     assert response.json()["source"] == "local_fallback"
+
+
+def test_feature_C10_telemetri_edge_offline_null():
+    """C10: Tanpa Jetson, nilai edge harus null, bukan angka palsu."""
+    data = client.get("/api/hardware/telemetry/stats").json()
+    assert data["edgeOnline"] is False
+    assert data["edgeCpu"] is None and data["edgeRam"] is None and data["edgeTemp"] is None
+
+
+def test_feature_C11_telemetri_edge_nilai_asli_dari_jetson():
+    """C11: Nilai edge berasal dari TELEMETRY_DATA terakhir, dan hilang saat Jetson putus."""
+    with client.websocket_connect(EDGE_WS) as ws:
+        ws.send_json({"event": "TELEMETRY_DATA", "edge_cpu_usage": 12.5, "ram_usage": "2.00/8.00 GB",
+                      "jetson_temperatures": {"cpu": 51.0, "gpu": 48.0}, "position": {"X": 1, "Y": 2, "Z": 3}})
+        for _ in range(50):
+            data = client.get("/api/hardware/telemetry/stats").json()
+            if data["edgeCpu"] is not None:
+                break
+            time.sleep(0.05)
+        assert data["edgeOnline"] is True
+        assert (data["edgeCpu"], data["edgeRam"], data["edgeTemp"]) == (12.5, 25.0, 51.0)
+    data = client.get("/api/hardware/telemetry/stats").json()
+    assert data["edgeOnline"] is False and data["edgeCpu"] is None
