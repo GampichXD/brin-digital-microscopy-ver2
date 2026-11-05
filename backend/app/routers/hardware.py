@@ -21,6 +21,7 @@ from ..hardware.camera_driver import cam_driver as camera_driver
 from ..redis_mock import get_redis_client
 from ..services import cv_bus
 from ..services import presence
+from ..services.safe_path import safe_join, safe_name
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 
@@ -597,6 +598,7 @@ async def retake_grid_image(payload: RetakePayload):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
 
+    safe_name(payload.filename)
     redis = await get_redis_client(REDIS_URL)
     print(f"DEBUG RETAKE: motor_driver ID is {id(motor_driver)}, jetson is {motor_driver.jetson_websocket}", flush=True)
     try:
@@ -625,7 +627,7 @@ async def retake_grid_image(payload: RetakePayload):
         
         # Hapus file gambar lama jika ada, agar Jetson terpaksa menimpa dengan file baru, 
         # atau sistem Fallback ter-trigger dengan benar jika Jetson gagal merespon
-        file_path = os.path.join(UPLOAD_DIR, payload.filename)
+        file_path = safe_join(UPLOAD_DIR, payload.filename)
         if os.path.exists(file_path):
             os.remove(file_path)
             
@@ -643,7 +645,7 @@ async def retake_grid_image(payload: RetakePayload):
         await asyncio.sleep(2.0)
         
         # 🟢 FALLBACK: Jika Jetson gagal atau terputus, backend buatkan gambar mock otomatis!
-        file_path = os.path.join(UPLOAD_DIR, payload.filename)
+        file_path = safe_join(UPLOAD_DIR, payload.filename)
         if not os.path.exists(file_path):
             try:
                 import cv2
@@ -686,9 +688,13 @@ async def stitch_images(payload: StitchPayload):
     # Lengkapi tiap tile dengan URL publik agar Edge bisa mengunduh gambar yang
     # tidak ada di memori lokalnya (mis. mode "Input Images" dari database/upload).
     tiles = payload.tiles
+    for name in payload.images or []:
+        safe_name(name)
     if tiles:
         for t in tiles:
             fn = t.get("filename")
+            if fn:
+                safe_name(fn)
             if fn and not t.get("url"):
                 t["url"] = f"/static/uploads/{fn}"
 
@@ -746,7 +752,7 @@ async def stitch_place_upload(
 async def stitch_place_from_dataset(payload: InputTileFromDataset):
     """Mode 'Input Images': taruh satu gambar dari DATABASE (dataset folder) ke
     sel grid. Disalin ke uploads dengan nama sesuai posisi grid."""
-    src = os.path.join(DATASET_DIR, payload.folder_id, payload.image_name)
+    src = safe_join(DATASET_DIR, payload.folder_id, payload.image_name)
     if not os.path.exists(src):
         raise HTTPException(status_code=404, detail="Gambar dataset tidak ditemukan.")
     safe_session = "".join(ch for ch in (payload.session or "INPUT") if ch.isalnum() or ch in "-_")[:24] or "INPUT"
@@ -767,7 +773,7 @@ async def stitch_place_folder(payload: PlaceFolderPayload):
       - jika nama berkas memuat pola '..._r<baris>_c<kolom>...' -> dipakai apa adanya;
       - selain itu diisi berurutan (row-major / serpentine) menurut nama file terurut.
     Tiap gambar disalin ke uploads dengan nama sesuai posisi grid, siap di-stitch."""
-    folder_dir = os.path.join(DATASET_DIR, payload.folder_id)
+    folder_dir = safe_join(DATASET_DIR, payload.folder_id)
     if not os.path.isdir(folder_dir):
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan.")
 
@@ -910,7 +916,8 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
                 await redis.publish("microscope_motor_feedback", message)
                 
             elif event_type in ["IMAGE_CAPTURED", "STITCHING_COMPLETE", "COUNTING_COMPLETE", "EDIT_COMPLETE", "CV_RESULT"]:
-                filename = data.get("filename", "output.jpg")
+                # Nama dari Edge tetap disaring: tidak boleh menulis di luar UPLOAD_DIR.
+                filename = os.path.basename(str(data.get("filename", "output.jpg"))) or "output.jpg"
                 img_b64_data = data.get("image_data", "")
 
                 if img_b64_data and "," in img_b64_data:

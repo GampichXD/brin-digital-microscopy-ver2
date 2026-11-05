@@ -11,6 +11,7 @@ from ..schemas import FolderCreate, FolderUpdate, FolderResponse, ImageCountIncr
 from typing import List, Optional
 from ..database import get_db
 from .. import models
+from ..services.safe_path import safe_join, safe_name
 
 
 DATASET_DIR = "./static/datasets"
@@ -91,7 +92,7 @@ def get_all_folders(db: Session = Depends(get_db)):
 @router.get("/video/{folder_id}/{filename}")
 def stream_video(folder_id: str, filename: str, request: Request):
     """Serve video with HTTP 206 Range support for browser video players."""
-    file_path = os.path.join(DATASET_DIR, folder_id, filename)
+    file_path = safe_join(DATASET_DIR, folder_id, filename)
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Video tidak ditemukan")
@@ -191,7 +192,7 @@ async def delete_dataset_folder(folder_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
 
     # Hapus direktori fisik
-    shutil.rmtree(os.path.join(DATASET_DIR, folder_id), ignore_errors=True)
+    shutil.rmtree(safe_join(DATASET_DIR, folder_id), ignore_errors=True)
 
     db.delete(folder)
     db.commit()
@@ -205,19 +206,22 @@ def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Sess
     folder = db.query(models.DatasetFolder).filter(models.DatasetFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
-    
+
+    # Validasi semua nama dulu, supaya request yang ditolak tidak mengubah apa pun.
+    filenames = [safe_name(f) for f in payload.filenames]
+
     folder.image_count += payload.count
     db.commit()
     db.refresh(folder)
 
     # Move files from static/uploads to static/datasets/{folder_id}
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     os.makedirs(folder_path, exist_ok=True)
     uploads_dir = os.path.join(DATASET_DIR, "..", "uploads")
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    for filename in payload.filenames:
+    for filename in filenames:
         src = os.path.join(uploads_dir, filename)
         
         base_name, ext = os.path.splitext(filename)
@@ -234,7 +238,7 @@ def increment_image_count(folder_id: str, payload: ImageCountIncrement, db: Sess
 
 @router.get("/folders/{folder_id}/images")
 def get_folder_images(folder_id: str):
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     if not os.path.exists(folder_path):
         return []
     
@@ -260,13 +264,17 @@ def upload_files(folder_id: str, files: List[UploadFile] = File(...), db: Sessio
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
     
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
+    # Validasi semua nama dulu, supaya batch yang ditolak tidak tertulis sebagian.
+    for file in files:
+        if file.filename:
+            safe_name(file.filename)
     os.makedirs(folder_path, exist_ok=True)
     
     saved_count = 0
     for file in files:
         if file.filename:
-            file_location = os.path.join(folder_path, file.filename)
+            file_location = safe_join(folder_path, file.filename)
             with open(file_location, "wb") as f:
                 shutil.copyfileobj(file.file, f)
             saved_count += 1
@@ -288,7 +296,7 @@ def upload_files(folder_id: str, files: List[UploadFile] = File(...), db: Sessio
 
 @router.get("/folders/{folder_id}/files/{filename}/download")
 def download_single_file(folder_id: str, filename: str):
-    file_path = os.path.join(DATASET_DIR, folder_id, filename)
+    file_path = safe_join(DATASET_DIR, folder_id, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Gambar tidak ditemukan")
     return FileResponse(path=file_path, filename=filename)
@@ -299,11 +307,13 @@ async def delete_images(folder_id: str, payload: DeleteImagesPayload, db: Sessio
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
 
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     deleted_count = 0
+    # Validasi semua nama dulu, supaya request yang ditolak tidak menghapus sebagian.
+    filenames = [safe_name(f) for f in payload.filenames]
 
-    for filename in payload.filenames:
-        file_path = os.path.join(folder_path, filename)
+    for filename in filenames:
+        file_path = safe_join(folder_path, filename)
         if os.path.exists(file_path):
             os.remove(file_path)
             deleted_count += 1
@@ -331,7 +341,7 @@ def download_folder_zip(
     if not folder:
         raise HTTPException(status_code=404, detail="Folder dataset tidak ditemukan!")
 
-    folder_path = os.path.join(DATASET_DIR, folder_id)
+    folder_path = safe_join(DATASET_DIR, folder_id)
     if not os.path.exists(folder_path) or not os.listdir(folder_path):
         raise HTTPException(status_code=400, detail="Folder dataset kosong, tidak ada yang bisa diunduh.")
 
@@ -349,7 +359,8 @@ def download_folder_zip(
     is_yolo = (export_format or "").lower() == "yolo"
     suffix = "_YOLO" if is_yolo else ("_pilihan" if files else "")
     zip_filename = f"{folder.name}{suffix}.zip"
-    zip_filepath = os.path.join(DATASET_DIR, f"{folder_id}_{uuid.uuid4().hex[:6]}_{zip_filename}")
+    # folder.name bebas diisi pengguna, jadi tidak dipakai untuk path di disk.
+    zip_filepath = safe_join(DATASET_DIR, f"{folder_id}_{uuid.uuid4().hex[:6]}.zip")
 
     img_exts = ('.png', '.jpg', '.jpeg', '.bmp')
     with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:

@@ -10,6 +10,7 @@ from app.redis_mock import get_redis_client
 from ..schemas import ToolPayload
 from ..services.cv_service import process_locally
 from ..services import cv_bus
+from ..services.safe_path import safe_join, safe_name
 from ..hardware.motor_driver import motor_driver
 from ..database import get_db
 from .. import models
@@ -62,8 +63,8 @@ def _tool_from_output(name: str) -> str:
 @router.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
     """Upload gambar untuk dianalisis."""
-    filename = f"analysis_{uuid.uuid4().hex}_{file.filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
+    filename = f"analysis_{uuid.uuid4().hex}_{safe_name(file.filename)}"
+    file_path = safe_join(UPLOAD_DIR, filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return {"filename": filename, "url": f"/static/uploads/{filename}"}
@@ -81,19 +82,20 @@ async def apply_tool(tool_name: str, payload: ToolPayload, db: Session = Depends
         raise HTTPException(status_code=400, detail="Metode Computer Vision tidak dikenali")
 
     action, prefix = _ACTION_MAP[tool_name]
-    target_filename = payload.filename
-    target_path = os.path.join(UPLOAD_DIR, target_filename)
+    target_filename = safe_name(payload.filename)
+    target_path = safe_join(UPLOAD_DIR, target_filename)
 
     # Resolusi path jika file berasal dari folder dataset (bukan uploads).
     if not os.path.exists(target_path):
         src = payload.current_src or ""
         split_key = "/static/datasets/"
         if split_key in src:
-            rel = "." + split_key + src.split(split_key)[-1]
+            # current_src hanya boleh menunjuk ke dalam static/datasets/.
+            rel = safe_join("./static/datasets", *src.split(split_key)[-1].split("?")[0].split("/"))
             if os.path.exists(rel):
                 shutil.copy(rel, target_path)
             else:
-                raise HTTPException(status_code=404, detail=f"File dataset tidak ditemukan: {rel}")
+                raise HTTPException(status_code=404, detail="File dataset tidak ditemukan")
         else:
             raise HTTPException(status_code=404, detail="File gambar tidak ditemukan di folder uploads")
 
