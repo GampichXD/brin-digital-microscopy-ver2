@@ -289,7 +289,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
 
   // Tombol aksi per-slot sesi
   const roleBtn = (cid: string, action: string, title: string, Icon: any, cls: string) => (
-    <button onClick={() => roomAction(cid, action)} title={title} className={`p-1.5 rounded-lg opacity-60 hover:opacity-100 transition-opacity ${cls}`}>
+    <button aria-label={title} onClick={() => roomAction(cid, action)} title={title} className={`p-1.5 rounded-lg opacity-60 hover:opacity-100 transition-opacity ${cls}`}>
       <Icon size={14} />
     </button>
   );
@@ -311,7 +311,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             <span className="text-xs font-bold flex items-center gap-2">
               {t('busStatus')} {isSystemHardwareEnabled ? <span className="text-green-500 font-black">{t('onlineNormal')}</span> : <span className="text-red-500 font-black">{t('interruptLocked')}</span>}
             </span>
-            <button onClick={handleToggleHardwareBus} className={isSystemHardwareEnabled ? 'text-green-500' : 'text-red-500'}>
+            <button aria-label="Saklar Power Bus" onClick={handleToggleHardwareBus} className={isSystemHardwareEnabled ? 'text-green-500' : 'text-red-500'}>
               {isSystemHardwareEnabled ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
             </button>
           </div>
@@ -328,7 +328,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             </div>
             <div className="flex flex-col items-end w-48">
               <span className="text-[10px] font-bold text-gray-500 mb-1">MAX FEED RATE: {feedRate} mm/min</span>
-              <input type="range" min={10} max={2000} step={10} value={feedRate} onChange={(e) => setFeedRate(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+              <input aria-label="Max feed rate" type="range" min={10} max={2000} step={10} value={feedRate} onChange={(e) => setFeedRate(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 mt-auto">
@@ -364,7 +364,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             {(['x', 'y', 'z'] as const).map(ax => (
               <div key={ax}>
                 <label className="text-[10px] text-gray-500 block mb-1 uppercase">{ax} (mm)</label>
-                <input type="number" value={(posForm as any)[ax]} onChange={(e) => setPosForm(p => ({ ...p, [ax]: e.target.value }))} className={`w-full p-2 rounded-lg border text-sm font-bold font-mono ${theme.inputBg}`} />
+                <input aria-label={`Koordinat ${ax.toUpperCase()}`} type="number" value={(posForm as any)[ax]} onChange={(e) => setPosForm(p => ({ ...p, [ax]: e.target.value }))} className={`w-full p-2 rounded-lg border text-sm font-bold font-mono ${theme.inputBg}`} />
               </div>
             ))}
           </div>
@@ -384,14 +384,14 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <span className="text-[10px] font-bold text-gray-500">{slEnabled ? 'AKTIF' : 'NONAKTIF'}</span>
-              <input type="checkbox" checked={slEnabled} onChange={(e) => setSlEnabled(e.target.checked)} className="w-9 h-5 accent-red-500" />
+              <input aria-label="Aktifkan soft limit" type="checkbox" checked={slEnabled} onChange={(e) => setSlEnabled(e.target.checked)} className="w-9 h-5 accent-red-500" />
             </label>
           </div>
           <div className="grid grid-cols-3 gap-2">
             {([['xMin', '-X'], ['yMin', '-Y'], ['zMin', '-Z'], ['xMax', '+X'], ['yMax', '+Y'], ['zMax', '+Z']] as const).map(([key, label]) => (
               <div key={key}>
                 <label className="text-[10px] text-gray-500 block mb-1">{label}</label>
-                <input
+                <input aria-label={`Soft limit ${label}`}
                   type="number" value={(sl as any)[key]}
                   onChange={(e) => setSl(s => ({ ...s, [key]: e.target.value }))}
                   placeholder={label.startsWith('-') ? '-∞' : '+∞'}
@@ -423,26 +423,26 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
           ] as const).map(([key, label]) => (
             <div key={key}>
               <label className="text-[10px] text-gray-500 block mb-1">{label}</label>
-              <input type="number" value={(ag as any)[key]}
+              <input aria-label={label} type="number" value={(ag as any)[key]}
                 onChange={(e) => setAg(a => ({ ...a, [key]: e.target.value }))}
                 className={`w-full p-2 rounded-lg border text-sm font-bold font-mono ${theme.inputBg}`} />
             </div>
           ))}
           <div>
             <label className="text-[10px] text-gray-500 block mb-1">Satuan</label>
-            <select value={ag.unit} onChange={(e) => setAg(a => ({ ...a, unit: e.target.value }))} className={`w-full p-2 rounded-lg border text-xs font-bold outline-none ${theme.inputBg}`}>
+            <select aria-label="Satuan" value={ag.unit} onChange={(e) => setAg(a => ({ ...a, unit: e.target.value }))} className={`w-full p-2 rounded-lg border text-xs font-bold outline-none ${theme.inputBg}`}>
               <option value="mm">mm</option><option value="inch">inch</option>
             </select>
           </div>
           <div>
             <label className="text-[10px] text-gray-500 block mb-1">Model Stitching</label>
-            <select value={ag.model} onChange={(e) => setAg(a => ({ ...a, model: e.target.value }))} className={`w-full p-2 rounded-lg border text-[11px] font-bold outline-none ${theme.inputBg}`}>
+            <select aria-label="Model Stitching" value={ag.model} onChange={(e) => setAg(a => ({ ...a, model: e.target.value }))} className={`w-full p-2 rounded-lg border text-[11px] font-bold outline-none ${theme.inputBg}`}>
               {AG_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
           </div>
         </div>
         <label className="flex items-center gap-2 mt-3 cursor-pointer text-xs font-bold">
-          <input type="checkbox" checked={ag.auto_stitch} onChange={(e) => setAg(a => ({ ...a, auto_stitch: e.target.checked }))} className="w-4 h-4 accent-blue-500" />
+          <input aria-label="Stitching otomatis" type="checkbox" checked={ag.auto_stitch} onChange={(e) => setAg(a => ({ ...a, auto_stitch: e.target.checked }))} className="w-4 h-4 accent-blue-500" />
           <span className={theme.text}>Langsung Tile Stitching setelah scan (default)</span>
         </label>
         <button onClick={saveAutoGatherDefaults} className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 flex items-center justify-center gap-2">
@@ -464,11 +464,11 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             <div className="space-y-4 text-xs font-bold">
               <div>
                 <div className="flex justify-between mb-1"><label className="text-[10px] text-gray-500">Shutter / Exposure</label><span className="text-pink-500">{shutterUs} µs</span></div>
-                <input type="range" min={100} max={33000} step={100} value={shutterUs} onChange={(e) => setShutterUs(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+                <input aria-label="Shutter (µs)" type="range" min={100} max={33000} step={100} value={shutterUs} onChange={(e) => setShutterUs(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
               </div>
               <div>
                 <div className="flex justify-between mb-1"><label className="text-[10px] text-gray-500">Gain (ISO)</label><span className="text-pink-500">{gainIso}</span></div>
-                <input type="range" min={100} max={2200} step={50} value={gainIso} onChange={(e) => setGainIso(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+                <input aria-label="Gain (ISO)" type="range" min={100} max={2200} step={50} value={gainIso} onChange={(e) => setGainIso(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
               </div>
               <p className="text-[9px] text-gray-500 font-medium">Menerapkan = pipeline GStreamer di Jetson di-restart ±1 dtk (aelock aktif).</p>
             </div>
@@ -487,7 +487,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             </div>
             <div className="text-xs font-bold">
               <div className="flex justify-between items-center mb-1"><label className="text-[10px] text-gray-500">Confidence Threshold</label><span className="text-cyan-500">{confThreshold}%</span></div>
-              <input type="range" min={1} max={99} value={confThreshold} onChange={(e) => setConfThreshold(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+              <input aria-label="Ambang keyakinan" type="range" min={1} max={99} value={confThreshold} onChange={(e) => setConfThreshold(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
               <p className="text-[9px] text-gray-500 mt-2 font-medium">Dipakai colony counter di tab Image Analysis (diteruskan ke <span className="font-mono">count_colonies(conf=…)</span> di Jetson).</p>
             </div>
           </div>
@@ -674,7 +674,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
               <ShieldAlert size={18} className="text-blue-500" />
               <div><h3 className={`font-black text-sm ${theme.text}`}>{t('rbac')}</h3><p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Login sync · hijau = online</p></div>
             </div>
-            <button onClick={fetchOperators} className="p-1.5 rounded-lg border border-gray-700 hover:bg-gray-800" title="Muat ulang"><RefreshCw size={14} /></button>
+            <button aria-label="Muat ulang" onClick={fetchOperators} className="p-1.5 rounded-lg border border-gray-700 hover:bg-gray-800" title="Muat ulang"><RefreshCw size={14} /></button>
           </div>
           <div className="overflow-auto flex-1 max-h-[280px]">
             <table className="w-full text-left relative">
@@ -705,9 +705,9 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
                     <td className="p-3 text-gray-500 font-medium font-mono text-[10px]">{user.last_login || '—'}</td>
                     <td className="p-3 px-4 text-right flex items-center justify-end gap-1">
                       <button onClick={() => toggleUserRole(user.id, user.role)} className="px-2 py-1 bg-gray-800 border border-gray-700 hover:border-blue-500 rounded-lg text-[10px] font-bold text-gray-300">TOGGLE</button>
-                      <button onClick={() => handleResetPassword(user.id)} className="p-1.5 text-yellow-500 hover:bg-yellow-500/10 rounded-lg" title="Reset Password"><Key size={14} /></button>
+                      <button aria-label="Reset Password" onClick={() => handleResetPassword(user.id)} className="p-1.5 text-yellow-500 hover:bg-yellow-500/10 rounded-lg" title="Reset Password"><Key size={14} /></button>
                       {user.username !== 'admin' && (
-                        <button onClick={() => handleDeleteOperator(user.id)} className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg" title="Hapus Akun"><Trash2 size={14} /></button>
+                        <button aria-label="Hapus Akun" onClick={() => handleDeleteOperator(user.id)} className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg" title="Hapus Akun"><Trash2 size={14} /></button>
                       )}
                     </td>
                   </tr>

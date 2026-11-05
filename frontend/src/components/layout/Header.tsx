@@ -75,7 +75,7 @@ export default function Header({
           </div>
 
           <div className="flex items-center space-x-2 shrink-0 md:order-3">
-            <button 
+            <button aria-label="Profil Akun & Pengaturan" 
               onClick={() => setIsProfileOpen(true)}
               className={`text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border flex items-center gap-1.5 shadow-inner hover:bg-black/40 transition-colors ${currentUserRole === 'ADMIN' ? 'border-red-500/30 text-red-400 hover:border-red-500/50' : 'border-gray-700/60 text-blue-400 hover:border-blue-500/50'}`}
               title="Profil Akun & Pengaturan"
@@ -88,7 +88,7 @@ export default function Header({
             {/* Desktop Buttons (Hidden on Mobile) */}
             <div className="hidden md:flex items-center space-x-2">
               {deferredPrompt && (
-                <button 
+                <button aria-label="Install Aplikasi PWA" 
                   onClick={handleInstallClick}
                   className="px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all bg-green-600 text-white hover:bg-green-700 border-green-500 shadow-lg shadow-green-500/20 mr-2"
                   title="Install Aplikasi PWA"
@@ -108,7 +108,7 @@ export default function Header({
                 {globalVirtualKeyboard ? <ToggleRight size={16} className="text-blue-500" /> : <ToggleLeft size={16} className="text-gray-500" />}
               </button>
 
-              <button 
+              <button aria-label="Switch Language / Ganti Bahasa" 
                 onClick={() => setLanguage(language === 'ID' ? 'EN' : 'ID')}
                 className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all ${
                   isDarkMode ? 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700' : 'bg-gray-100 border-gray-300 text-gray-800 hover:bg-gray-200'
@@ -119,11 +119,11 @@ export default function Header({
                 <span>{language}</span>
               </button>
 
-              <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
+              <button aria-label="Ganti tema terang atau gelap" onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'}`}>
                 {isDarkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
               </button>
 
-              <button 
+              <button aria-label="Keluar dari Instrumen" 
                 onClick={onLogout} 
                 className="p-2 bg-red-600/10 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all active:scale-95 shadow-md"
                 title="Keluar dari Instrumen"
@@ -134,7 +134,7 @@ export default function Header({
 
             {/* Mobile Hamburger Button */}
             <button 
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Buka menu" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className={`md:hidden p-1.5 rounded-lg border flex items-center justify-center transition-all ${isDarkMode ? 'bg-gray-950 border-gray-800 text-gray-300 hover:text-white' : 'bg-gray-100 border-gray-300 text-gray-700 hover:text-black'}`}
             >
               {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}

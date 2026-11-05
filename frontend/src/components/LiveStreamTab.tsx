@@ -473,13 +473,13 @@ export default function LiveStreamTab({
           {cameraActive && (
             <>
               <div className="flex gap-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-1 shadow-lg pointer-events-auto">
-                <button onClick={() => setShowCoordinates(!showCoordinates)} className={`p-2 rounded-lg transition-colors ${showCoordinates ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle Coordinates">
+                <button aria-label="Toggle Coordinates" onClick={() => setShowCoordinates(!showCoordinates)} className={`p-2 rounded-lg transition-colors ${showCoordinates ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle Coordinates">
                   <Crosshair size={18} />
                 </button>
-                <button onClick={() => setShowFps(!showFps)} className={`p-2 rounded-lg transition-colors ${showFps ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle FPS">
+                <button aria-label="Toggle FPS" onClick={() => setShowFps(!showFps)} className={`p-2 rounded-lg transition-colors ${showFps ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle FPS">
                   <Activity size={18} />
                 </button>
-                <button onClick={toggleFullscreen} className="p-2 rounded-lg text-gray-400 hover:text-white transition-colors" title="Fullscreen">
+                <button aria-label="Fullscreen" onClick={toggleFullscreen} className="p-2 rounded-lg text-gray-400 hover:text-white transition-colors" title="Fullscreen">
                   <Maximize size={18} />
                 </button>
               </div>
@@ -501,7 +501,7 @@ export default function LiveStreamTab({
                 <label className="relative flex items-center justify-start h-12 w-12 hover:w-[220px] focus-within:w-[220px] px-3 bg-black/60 hover:bg-gray-900/80 focus-within:bg-gray-900/80 backdrop-blur-md border border-white/10 rounded-full shadow-2xl transition-all duration-300 overflow-hidden group cursor-pointer outline-none">
                   <Folder size={24} className="shrink-0 text-gray-300 group-hover:text-blue-400 group-focus-within:text-blue-400 transition-colors pointer-events-none" />
                   <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ml-3 overflow-hidden transition-opacity duration-300 flex items-center w-full">
-                    <select
+                    <select aria-label="Folder tujuan rekaman"
                       value={selectedFolderId}
                       onChange={(e) => setSelectedFolderId(e.target.value)}
                       className="bg-transparent text-sm text-white font-bold outline-none appearance-none pr-6 cursor-pointer w-[150px] text-ellipsis overflow-hidden whitespace-nowrap"
@@ -681,8 +681,8 @@ export default function LiveStreamTab({
                 <RotateCcw size={14} className="mr-1" /> TO ZERO
               </button>
               <div className={`flex rounded-lg border p-1 ${isDarkMode ? 'border-gray-700 bg-gray-950' : 'border-gray-300 bg-gray-100'}`}>
-                <button onClick={() => setControlMode('dpad')} className={`p-1.5 rounded-md ${controlMode === 'dpad' ? 'bg-blue-500 text-white' : themeClasses.textMuted}`}><MousePointerSquareDashed size={16} /></button>
-                <button onClick={() => setControlMode('joystick')} className={`p-1.5 rounded-md ${controlMode === 'joystick' ? 'bg-blue-500 text-white' : themeClasses.textMuted}`}><Gamepad2 size={16} /></button>
+                <button aria-label="Mode D-Pad" onClick={() => setControlMode('dpad')} className={`p-1.5 rounded-md ${controlMode === 'dpad' ? 'bg-blue-500 text-white' : themeClasses.textMuted}`}><MousePointerSquareDashed size={16} /></button>
+                <button aria-label="Mode joystick" onClick={() => setControlMode('joystick')} className={`p-1.5 rounded-md ${controlMode === 'joystick' ? 'bg-blue-500 text-white' : themeClasses.textMuted}`}><Gamepad2 size={16} /></button>
               </div>
             </div>
           </div>
@@ -692,7 +692,7 @@ export default function LiveStreamTab({
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-[10px] font-bold ${themeClasses.textMuted}`}>MEJA (X/Y)</span>
                 <div className="flex items-center">
-                  <input
+                  <input aria-label="Step X/Y"
                     type="number"
                     readOnly={globalVirtualKeyboard}
                     value={xyStepValue}
@@ -700,7 +700,7 @@ export default function LiveStreamTab({
                     onClick={() => triggerKeypad('Step X/Y', xyStepValue, setXyStepValue)}
                     className={`w-12 h-6 px-1 text-center rounded-l border text-xs font-bold shadow-inner outline-none ${themeClasses.input}`}
                   />
-                  <select value={xyStepUnit} onChange={(e) => setXyStepUnit(e.target.value as 'mm' | 'inch')} className={`h-6 px-1 rounded-r border-y border-r text-[10px] font-bold cursor-pointer outline-none ${themeClasses.input}`}>
+                  <select aria-label="Satuan langkah X/Y" value={xyStepUnit} onChange={(e) => setXyStepUnit(e.target.value as 'mm' | 'inch')} className={`h-6 px-1 rounded-r border-y border-r text-[10px] font-bold cursor-pointer outline-none ${themeClasses.input}`}>
                     <option value="mm">mm</option><option value="inch">in</option>
                   </select>
                 </div>
@@ -709,13 +709,13 @@ export default function LiveStreamTab({
               {controlMode === 'dpad' ? (
                 <div className="grid grid-cols-3 gap-1 aspect-square">
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} /></button>
+                  <button aria-label="Gerak Y-" onClick={() => sendMotorCommand('Y', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} /></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('X', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24} /></button>
-                  <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" disabled={isControlsDisabled} className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer disabled:opacity-30"><Crosshair size={20} /></button>
-                  <button onClick={() => sendMotorCommand('X', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24} /></button>
+                  <button aria-label="Gerak X-" onClick={() => sendMotorCommand('X', '-')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowLeft size={24} /></button>
+                  <button aria-label="Unlock GRBL" onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" disabled={isControlsDisabled} className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95 cursor-pointer disabled:opacity-30"><Crosshair size={20} /></button>
+                  <button aria-label="Gerak X+" onClick={() => sendMotorCommand('X', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowRight size={24} /></button>
                   <div />
-                  <button onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} /></button>
+                  <button aria-label="Gerak Y+" onClick={() => sendMotorCommand('Y', '+')} disabled={isControlsDisabled} className={`rounded-xl border flex items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} /></button>
                   <div />
                 </div>
               ) : (
@@ -771,7 +771,7 @@ export default function LiveStreamTab({
             </div>
 
             {currentUserRole === 'ADMIN' && streamRole !== 'PILOT' && streamRole !== 'DISCONNECTED' && (
-              <button
+              <button aria-label="Ambil Alih Kendali (Admin)"
                 onClick={handleTakeover}
                 className="ml-auto flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-pink-500/20 text-pink-400 hover:bg-pink-500 hover:text-white transition-all shadow-[0_0_15px_rgba(236,72,153,0.3)] border border-pink-500/50 hover:scale-105 group"
                 title="Ambil Alih Kendali (Admin)"
@@ -785,7 +785,7 @@ export default function LiveStreamTab({
               <div className="flex flex-col mb-2">
                 <span className={`text-[10px] font-bold mb-1 truncate ${themeClasses.textMuted}`}>FOKUS (Z)</span>
                 <div className="flex items-center">
-                  <input
+                  <input aria-label="Step Z (Pulse)"
                     type="number"
                     readOnly={globalVirtualKeyboard}
                     value={zStepValue}
@@ -797,8 +797,8 @@ export default function LiveStreamTab({
                 </div>
               </div>
               <div className="flex flex-col gap-2 flex-1">
-                <button onClick={() => sendMotorCommand('Z', '+')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500" /><span className="text-[10px] font-bold mt-1">NAIK</span></button>
-                <button onClick={() => sendMotorCommand('Z', '-')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500" /><span className="text-[10px] font-bold mt-1">TURUN</span></button>
+                <button aria-label="Gerak Z+" onClick={() => sendMotorCommand('Z', '+')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowUp size={24} className="text-blue-500" /><span className="text-[10px] font-bold mt-1">NAIK</span></button>
+                <button aria-label="Gerak Z-" onClick={() => sendMotorCommand('Z', '-')} disabled={isControlsDisabled} className={`flex-1 rounded-xl border flex flex-col items-center justify-center shadow-sm active:scale-95 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${themeClasses.btnTouch}`}><ArrowDown size={24} className="text-blue-500" /><span className="text-[10px] font-bold mt-1">TURUN</span></button>
               </div>
             </div>
           </div>
@@ -812,7 +812,7 @@ export default function LiveStreamTab({
           <div className="flex gap-2 items-end">
             <div className="flex flex-col flex-1">
               <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>X (mm)</span>
-              <input
+              <input aria-label="Koordinat X"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={targetX}
@@ -823,7 +823,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex flex-col flex-1">
               <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>Y (mm)</span>
-              <input
+              <input aria-label="Koordinat Y"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={targetY}
@@ -834,7 +834,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex flex-col flex-1">
               <span className={`text-[10px] font-bold mb-1 ${themeClasses.textMuted}`}>Z (stp)</span>
-              <input
+              <input aria-label="Koordinat Z"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={targetZ}
@@ -884,7 +884,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Shutter Speed <span className="text-[9px]">(µs)</span></span>
-              <input
+              <input aria-label="Shutter (µs)"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={shutterSpeed}
@@ -895,7 +895,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Sensor Gain <span className="text-[9px]">(ISO)</span></span>
-              <input
+              <input aria-label="ISO"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={iso}
@@ -925,7 +925,7 @@ export default function LiveStreamTab({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Motor Speed / Feed <span className="text-[9px]">(mm/min)</span></span>
-              <input
+              <input aria-label="Feed Rate"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={feedRate}
@@ -936,7 +936,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Backlash Y <span className="text-[9px]">(mm)</span></span>
-              <input
+              <input aria-label="Backlash Y"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={backlash}
@@ -947,7 +947,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Acceleration <span className="text-[9px]">(mm/s²)</span></span>
-              <input
+              <input aria-label="Acceleration"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={acceleration}
@@ -958,7 +958,7 @@ export default function LiveStreamTab({
             </div>
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Settle Time <span className="text-[9px]">(ms)</span></span>
-              <input
+              <input aria-label="Cam Delay (ms)"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={settleTime}
@@ -1040,7 +1040,7 @@ export default function LiveStreamTab({
             </h3>
             <label className="flex items-center gap-2 cursor-pointer">
               <span className={`text-[10px] font-bold ${themeClasses.textMuted}`}>{softLimitEnabled ? 'AKTIF' : 'NONAKTIF'}</span>
-              <input
+              <input aria-label="Aktifkan soft limit"
                 type="checkbox"
                 checked={softLimitEnabled}
                 onChange={(e) => { setSoftLimitEnabled(e.target.checked); applySoftLimits(e.target.checked); }}
@@ -1063,13 +1063,13 @@ export default function LiveStreamTab({
                 <div key={ax} className="flex items-center gap-2">
                   <span className={`w-4 text-xs font-bold ${ax === 'X' ? 'text-red-400' : ax === 'Y' ? 'text-green-400' : 'text-blue-400'}`}>{ax}</span>
                   <div className="flex items-center gap-1 flex-1">
-                    <input
+                    <input aria-label={`Batas bawah ${ax}`}
                       type="number" placeholder="-∞" value={softLimit[minKey]}
                       onChange={(e) => setSoftLimit(p => ({ ...p, [minKey]: e.target.value }))}
                       className={`w-full h-8 px-2 text-right rounded border text-xs font-bold outline-none ${themeClasses.input} ${atLimit['-' + ax] ? 'ring-2 ring-red-500' : ''}`}
                     />
                     <span className={`text-[9px] ${themeClasses.textMuted}`}>≤ {motorPos[ax.toLowerCase() as 'x'|'y'|'z']} ≤</span>
-                    <input
+                    <input aria-label={`Batas atas ${ax}`}
                       type="number" placeholder="+∞" value={softLimit[maxKey]}
                       onChange={(e) => setSoftLimit(p => ({ ...p, [maxKey]: e.target.value }))}
                       className={`w-full h-8 px-2 text-right rounded border text-xs font-bold outline-none ${themeClasses.input} ${atLimit['+' + ax] ? 'ring-2 ring-red-500' : ''}`}

@@ -999,11 +999,11 @@ export default function ImageGatheringTab({
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex items-center justify-between">
                   <span className={`text-xs font-bold ${theme.textMuted}`}>Kolom</span>
-                  <input readOnly={globalVirtualKeyboard} value={cols} onChange={(e) => setCols(e.target.value)} onClick={() => triggerGlobalKeypad('Jumlah Kolom', cols, setCols)} className={`w-14 h-8 text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`} />
+                  <input aria-label="Kolom" readOnly={globalVirtualKeyboard} value={cols} onChange={(e) => setCols(e.target.value)} onClick={() => triggerGlobalKeypad('Jumlah Kolom', cols, setCols)} className={`w-14 h-8 text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`} />
                 </div>
                 <div className="flex items-center justify-between">
                   <span className={`text-xs font-bold ${theme.textMuted}`}>Baris</span>
-                  <input readOnly={globalVirtualKeyboard} value={rows} onChange={(e) => setRows(e.target.value)} onClick={() => triggerGlobalKeypad('Jumlah Baris', rows, setRows)} className={`w-14 h-8 text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`} />
+                  <input aria-label="Baris" readOnly={globalVirtualKeyboard} value={rows} onChange={(e) => setRows(e.target.value)} onClick={() => triggerGlobalKeypad('Jumlah Baris', rows, setRows)} className={`w-14 h-8 text-center rounded-lg border font-mono font-bold cursor-pointer ${theme.input}`} />
                 </div>
               </div>
               <p className={`text-[10px] mt-3 ${theme.textMuted}`}>{c} × {r} = {c * r} sel. Isi tiap sel dengan gambar dari perangkat atau database; nama file otomatis mengikuti posisi grid.</p>
@@ -1011,7 +1011,7 @@ export default function ImageGatheringTab({
 
             <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
               <h3 className={`text-xs font-bold uppercase tracking-wider flex items-center mb-2 ${theme.textMuted}`}><Cpu size={14} className="mr-2" /> Model Tile Stitching</h3>
-              <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-9 px-2 rounded-lg border text-xs font-bold outline-none ${theme.input}`}>
+              <select aria-label="Model stitching" value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-9 px-2 rounded-lg border text-xs font-bold outline-none ${theme.input}`}>
                 {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
@@ -1036,7 +1036,7 @@ export default function ImageGatheringTab({
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className={`text-xs font-bold ${theme.textMuted}`}>Kolom</span>
-                      <input 
+                      <input aria-label="Kolom" 
                         readOnly={globalVirtualKeyboard}
                         value={cols}
                         onChange={(e) => setCols(e.target.value)}
@@ -1046,7 +1046,7 @@ export default function ImageGatheringTab({
                     </div>
                     <div className="flex items-center justify-between">
                       <span className={`text-xs font-bold ${theme.textMuted}`}>Baris</span>
-                      <input 
+                      <input aria-label="Baris" 
                         readOnly={globalVirtualKeyboard}
                         value={rows}
                         onChange={(e) => setRows(e.target.value)}
@@ -1057,8 +1057,8 @@ export default function ImageGatheringTab({
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <select value={stepUnit} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStepUnit(e.target.value as 'mm' | 'inch')} className={`text-[10px] font-bold bg-transparent outline-none ${theme.textMuted}`}><option value="mm">Step X (mm)</option><option value="inch">Step X (in)</option></select>
-                      <input 
+                      <select aria-label="Satuan langkah" value={stepUnit} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStepUnit(e.target.value as 'mm' | 'inch')} className={`text-[10px] font-bold bg-transparent outline-none ${theme.textMuted}`}><option value="mm">Step X (mm)</option><option value="inch">Step X (in)</option></select>
+                      <input aria-label="Step X" 
                         readOnly={globalVirtualKeyboard}
                         value={stepX}
                         onChange={(e) => setStepX(e.target.value)}
@@ -1068,7 +1068,7 @@ export default function ImageGatheringTab({
                     </div>
                     <div className="flex items-center justify-between">
                       <span className={`text-[10px] font-bold ${theme.textMuted}`}>Step Y ({stepUnit})</span>
-                      <input 
+                      <input aria-label="Step Y" 
                         readOnly={globalVirtualKeyboard}
                         value={stepY}
                         onChange={(e) => setStepY(e.target.value)}
@@ -1080,7 +1080,7 @@ export default function ImageGatheringTab({
                 </div>
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-700/50">
                   <span className={`text-[10px] font-bold ${theme.textMuted}`}>Camera Settle Delay (ms)</span>
-                  <input 
+                  <input aria-label="Camera Settle Delay (ms)" 
                     readOnly={globalVirtualKeyboard}
                     value={camDelay}
                     onChange={(e) => setCamDelay(e.target.value)}
@@ -1093,7 +1093,7 @@ export default function ImageGatheringTab({
               <div className={`p-4 rounded-2xl border shrink-0 ${theme.panel}`}>
                 <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center mb-3 ${theme.text}`}><Settings2 size={16} className="mr-2 text-purple-400" /> Post-Processing</h3>
                 <label className="flex items-center gap-3 cursor-pointer p-3 border rounded-xl bg-black/5">
-                  <input type="checkbox" checked={autoStitch} onChange={(e: ChangeEvent<HTMLInputElement>) => setAutoStitch(e.target.checked)} className="w-5 h-5 rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
+                  <input aria-label="Stitching otomatis" type="checkbox" checked={autoStitch} onChange={(e: ChangeEvent<HTMLInputElement>) => setAutoStitch(e.target.checked)} className="w-5 h-5 rounded border-gray-400 text-blue-600 focus:ring-blue-500" />
                   <div className="flex flex-col">
                     <span className={`text-sm font-bold ${theme.text}`}>Langsung Tile Stitching</span>
                     <span className={`text-[10px] ${theme.textMuted}`}>Bypass pop-up review pecahan gambar</span>
@@ -1102,7 +1102,7 @@ export default function ImageGatheringTab({
                 {autoStitch && (
                   <div className="mt-3">
                     <span className={`text-[10px] font-bold flex items-center mb-1 ${theme.textMuted}`}><Cpu size={12} className="mr-1.5" /> Model Stitching</span>
-                    <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-9 px-2 rounded-lg border text-xs font-bold outline-none ${theme.input}`}>
+                    <select aria-label="Model stitching" value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-9 px-2 rounded-lg border text-xs font-bold outline-none ${theme.input}`}>
                       {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                   </div>
@@ -1153,16 +1153,16 @@ export default function ImageGatheringTab({
                 <div className="flex items-center justify-between mb-3">
                   <h3 className={`text-sm font-bold uppercase tracking-wider ${theme.text}`}>Kendali Motor</h3>
                   <div className={`flex rounded-lg border p-1 ${isDarkMode ? 'border-gray-700 bg-gray-950' : 'border-gray-300 bg-gray-100'}`}>
-                    <button onClick={() => setControlMode('dpad')} className={`p-1.5 rounded-md ${controlMode === 'dpad' ? 'bg-blue-500 text-white' : theme.textMuted}`}><MousePointerSquareDashed size={14} /></button>
-                    <button onClick={() => setControlMode('joystick')} className={`p-1.5 rounded-md ${controlMode === 'joystick' ? 'bg-blue-500 text-white' : theme.textMuted}`}><Gamepad2 size={14} /></button>
+                    <button aria-label="Mode D-Pad" onClick={() => setControlMode('dpad')} className={`p-1.5 rounded-md ${controlMode === 'dpad' ? 'bg-blue-500 text-white' : theme.textMuted}`}><MousePointerSquareDashed size={14} /></button>
+                    <button aria-label="Mode joystick" onClick={() => setControlMode('joystick')} className={`p-1.5 rounded-md ${controlMode === 'joystick' ? 'bg-blue-500 text-white' : theme.textMuted}`}><Gamepad2 size={14} /></button>
                   </div>
                 </div>
 
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-2">
-                      <select value={stepUnit} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStepUnit(e.target.value as 'mm' | 'inch')} className={`text-[10px] font-bold bg-transparent outline-none ${theme.textMuted}`}><option value="mm">Meja (mm)</option><option value="inch">Meja (in)</option></select>
-                      <input 
+                      <select aria-label="Satuan langkah" value={stepUnit} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStepUnit(e.target.value as 'mm' | 'inch')} className={`text-[10px] font-bold bg-transparent outline-none ${theme.textMuted}`}><option value="mm">Meja (mm)</option><option value="inch">Meja (in)</option></select>
+                      <input aria-label="Step X" 
                         readOnly={globalVirtualKeyboard}
                         value={stepX}
                         onChange={(e) => setStepX(e.target.value)}
@@ -1173,13 +1173,13 @@ export default function ImageGatheringTab({
                     {controlMode === 'dpad' ? (
                       <div className="grid grid-cols-3 gap-1 aspect-square">
                         <div />
-                        <button onClick={() => sendHttpMove('Y', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={24}/></button>
+                        <button aria-label="Gerak Y-" onClick={() => sendHttpMove('Y', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={24}/></button>
                         <div />
-                        <button onClick={() => sendHttpMove('X', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowLeft size={24}/></button>
-                        <button onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95"><Crosshair size={20}/></button>
-                        <button onClick={() => sendHttpMove('X', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowRight size={24}/></button>
+                        <button aria-label="Gerak X-" onClick={() => sendHttpMove('X', -1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowLeft size={24}/></button>
+                        <button aria-label="Unlock GRBL" onClick={() => api.post('/api/hardware/motor/unlock')} title="Unlock GRBL" className="rounded-full border-2 border-blue-500/50 bg-blue-500/10 text-blue-500 flex items-center justify-center active:scale-95"><Crosshair size={20}/></button>
+                        <button aria-label="Gerak X+" onClick={() => sendHttpMove('X', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowRight size={24}/></button>
                         <div />
-                        <button onClick={() => sendHttpMove('Y', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={24}/></button>
+                        <button aria-label="Gerak Y+" onClick={() => sendHttpMove('Y', 1)} className={`rounded-xl border flex items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={24}/></button>
                         <div />
                       </div>
                     ) : (
@@ -1204,7 +1204,7 @@ export default function ImageGatheringTab({
                   <div className="w-16 flex flex-col">
                     <div className="flex flex-col mb-2">
                       <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Z (stp)</span>
-                      <input 
+                      <input aria-label="Z (stp)" 
                         readOnly={globalVirtualKeyboard}
                         value={zStep}
                         onChange={(e) => setZStep(e.target.value)}
@@ -1212,8 +1212,8 @@ export default function ImageGatheringTab({
                         className={`w-full h-6 flex items-center justify-center text-center rounded border text-xs font-bold cursor-pointer ${theme.input}`}
                       />
                     </div>
-                    <button onClick={() => sendHttpMove('Z', 1)} className={`flex-1 mb-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={20} className="text-blue-500"/></button>
-                    <button onClick={() => sendHttpMove('Z', -1)} className={`flex-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={20} className="text-blue-500"/></button>
+                    <button aria-label="Gerak Z+" onClick={() => sendHttpMove('Z', 1)} className={`flex-1 mb-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowUp size={20} className="text-blue-500"/></button>
+                    <button aria-label="Gerak Z-" onClick={() => sendHttpMove('Z', -1)} className={`flex-1 rounded-xl border flex flex-col items-center justify-center active:scale-95 ${theme.btnTouch}`}><ArrowDown size={20} className="text-blue-500"/></button>
                   </div>
                 </div>
               </div>
@@ -1226,7 +1226,7 @@ export default function ImageGatheringTab({
                 <div className="flex gap-2 items-end">
                   <div className="flex flex-col flex-1">
                     <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>X (mm)</span>
-                    <input
+                    <input aria-label="X (mm)"
                       type="number"
                       readOnly={globalVirtualKeyboard}
                       value={targetX}
@@ -1237,7 +1237,7 @@ export default function ImageGatheringTab({
                   </div>
                   <div className="flex flex-col flex-1">
                     <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Y (mm)</span>
-                    <input
+                    <input aria-label="Y (mm)"
                       type="number"
                       readOnly={globalVirtualKeyboard}
                       value={targetY}
@@ -1248,7 +1248,7 @@ export default function ImageGatheringTab({
                   </div>
                   <div className="flex flex-col flex-1">
                     <span className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>Z (stp)</span>
-                    <input
+                    <input aria-label="Z (stp)"
                       type="number"
                       readOnly={globalVirtualKeyboard}
                       value={targetZ}
@@ -1379,7 +1379,7 @@ export default function ImageGatheringTab({
                 <div className="flex-1 flex flex-col sm:flex-row gap-2 sm:items-center">
                   <div className="flex items-center gap-2 sm:w-64">
                     <Cpu size={16} className="text-purple-400 shrink-0" />
-                    <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-10 px-2 rounded-lg border text-[11px] font-bold outline-none ${theme.input}`}>
+                    <select aria-label="Model stitching" value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`w-full h-10 px-2 rounded-lg border text-[11px] font-bold outline-none ${theme.input}`}>
                       {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                   </div>
@@ -1469,7 +1469,7 @@ export default function ImageGatheringTab({
               <div className="space-y-3">
                 <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('folderName')}</label>
-                  <input 
+                  <input aria-label="Ketuk untuk mengisi..." 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
                     value={saveForm.folderName} 
@@ -1481,7 +1481,7 @@ export default function ImageGatheringTab({
                 </div>
                 <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('objectType')}</label>
-                  <input 
+                  <input aria-label="Contoh: Bakteri, Sel..." 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
                     value={saveForm.objectType} 
@@ -1493,7 +1493,7 @@ export default function ImageGatheringTab({
                 </div>
                 <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('operatorName')}</label>
-                  <input 
+                  <input aria-label={t('operatorName')} 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
                     value={saveForm.operatorName} 
@@ -1528,7 +1528,7 @@ export default function ImageGatheringTab({
 
             <div className="p-3 sm:p-4 border-b border-gray-700 flex flex-col sm:flex-row gap-2 sm:items-center bg-black/10 shrink-0">
               <span className={`text-xs font-bold flex items-center ${theme.textMuted}`}><Cpu size={14} className="mr-1.5" /> Model:</span>
-              <select value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`h-9 px-2 rounded-lg border text-xs font-bold outline-none flex-1 sm:max-w-xs ${theme.input}`}>
+              <select aria-label="Model stitching" value={stitchModel} onChange={(e) => setStitchModel(e.target.value)} className={`h-9 px-2 rounded-lg border text-xs font-bold outline-none flex-1 sm:max-w-xs ${theme.input}`}>
                 {STITCH_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
               <span className={`text-xs font-bold sm:ml-auto ${theme.textMuted}`}>{Object.keys(inputTiles).length}/{c * r} sel terisi</span>

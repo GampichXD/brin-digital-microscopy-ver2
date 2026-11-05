@@ -64,7 +64,7 @@ export default function UserProfileModal({
               <p className="text-[10px] text-gray-500 font-bold uppercase">Ganti Password</p>
             </div>
           </div>
-          <button onClick={() => setIsProfileOpen(false)} className="p-2 bg-gray-800/30 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-xl transition-all">
+          <button aria-label="Tutup" onClick={() => setIsProfileOpen(false)} className="p-2 bg-gray-800/30 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-xl transition-all">
             <X size={18} />
           </button>
         </div>
@@ -77,7 +77,7 @@ export default function UserProfileModal({
           
           <div>
             <label className="block text-[10px] font-bold text-gray-500 mb-1.5">Password Saat Ini</label>
-            <input 
+            <input aria-label="Masukkan password lama" 
               type="password" required 
               value={passwordForm.old} onChange={e => setPasswordForm({...passwordForm, old: e.target.value})}
               className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold outline-none transition-colors ${isDarkMode ? 'bg-gray-950 border-gray-800 text-white focus:border-blue-500' : 'bg-gray-50 border-gray-300 text-gray-900 focus:border-blue-500'}`} 
@@ -87,7 +87,7 @@ export default function UserProfileModal({
           
           <div>
             <label className="block text-[10px] font-bold text-gray-500 mb-1.5">Password Baru</label>
-            <input 
+            <input aria-label="Minimal 6 karakter" 
               type="password" required 
               value={passwordForm.new} onChange={e => setPasswordForm({...passwordForm, new: e.target.value})}
               className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold outline-none transition-colors ${isDarkMode ? 'bg-gray-950 border-gray-800 text-white focus:border-blue-500' : 'bg-gray-50 border-gray-300 text-gray-900 focus:border-blue-500'}`} 
@@ -97,7 +97,7 @@ export default function UserProfileModal({
           
           <div>
             <label className="block text-[10px] font-bold text-gray-500 mb-1.5">Konfirmasi Password Baru</label>
-            <input 
+            <input aria-label="Ketik ulang password baru" 
               type="password" required 
               value={passwordForm.confirm} onChange={e => setPasswordForm({...passwordForm, confirm: e.target.value})}
               className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold outline-none transition-colors ${isDarkMode ? 'bg-gray-950 border-gray-800 text-white focus:border-blue-500' : 'bg-gray-50 border-gray-300 text-gray-900 focus:border-blue-500'}`} 
@@ -106,7 +106,7 @@ export default function UserProfileModal({
           </div>
 
           <div className="pt-2 flex gap-3">
-            <button type="button" onClick={() => setIsProfileOpen(false)} className="flex-1 py-3 px-4 rounded-xl text-xs font-bold bg-gray-800/40 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors">
+            <button aria-label="Tutup" type="button" onClick={() => setIsProfileOpen(false)} className="flex-1 py-3 px-4 rounded-xl text-xs font-bold bg-gray-800/40 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors">
               Batal
             </button>
             <button type="submit" className="flex-[2] py-3 px-4 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20">

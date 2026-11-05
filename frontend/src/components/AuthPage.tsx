@@ -173,7 +173,7 @@ export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
             <label className={`block text-[10px] font-bold mb-1 uppercase tracking-wider ${theme.textMuted}`}>Username / ID Operator</label>
             <div className="relative">
               <User size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme.textMuted}`} />
-              <input 
+              <input aria-label="Masukkan username..." 
                 type="text" 
                 readOnly={globalVirtualKeyboard} 
                 value={username}
@@ -189,7 +189,7 @@ export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
             <label className={`block text-[10px] font-bold mb-1 uppercase tracking-wider ${theme.textMuted}`}>Password</label>
             <div className="relative">
               <Lock size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme.textMuted}`} />
-              <input 
+              <input aria-label="Masukkan password..." 
                 type={showPassword ? 'text' : 'password'} 
                 readOnly={globalVirtualKeyboard}
                 value={password}
@@ -198,7 +198,7 @@ export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
                 placeholder="Masukkan password..." 
                 className={`w-full pl-10 pr-12 py-2.5 rounded-xl border font-bold text-sm shadow-inner ${theme.input} ${keyboardState.title.includes('Password') && !keyboardState.title.includes('Konfirmasi') ? 'ring-2 ring-blue-500' : ''}`}
               />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg ${theme.textMuted}`}>
+              <button aria-label="Tampilkan atau sembunyikan password" type="button" onClick={() => setShowPassword(!showPassword)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg ${theme.textMuted}`}>
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
@@ -209,7 +209,7 @@ export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
               <label className={`block text-[10px] font-bold mb-1 uppercase tracking-wider ${theme.textMuted}`}>Konfirmasi Password</label>
               <div className="relative">
                 <Lock size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${theme.textMuted}`} />
-                <input 
+                <input aria-label="Ulangi password..." 
                   type={showPassword ? 'text' : 'password'} 
                   readOnly={globalVirtualKeyboard}
                   value={confirmPassword}

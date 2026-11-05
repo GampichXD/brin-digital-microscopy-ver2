@@ -503,9 +503,9 @@ export default function ImageAnalysisTab({
 
               <div className="flex items-center gap-2 shrink-0">
                 <div className={`flex items-center border rounded-xl overflow-hidden p-1 ${isDarkMode ? 'bg-gray-950 border-gray-700' : 'bg-gray-100 border-gray-300'}`}>
-                  <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${canUndo ? 'text-blue-500 hover:bg-blue-500/10' : theme.textMuted}`}><Undo2 size={16}/></button>
+                  <button aria-label="Urungkan" onClick={undo} disabled={!canUndo} className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${canUndo ? 'text-blue-500 hover:bg-blue-500/10' : theme.textMuted}`}><Undo2 size={16}/></button>
                   <div className={`w-px h-5 mx-0.5 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
-                  <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${canRedo ? 'text-blue-500 hover:bg-blue-500/10' : theme.textMuted}`}><Redo2 size={16}/></button>
+                  <button aria-label="Ulangi" onClick={redo} disabled={!canRedo} className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${canRedo ? 'text-blue-500 hover:bg-blue-500/10' : theme.textMuted}`}><Redo2 size={16}/></button>
                 </div>
                 <button onClick={() => setShowSaveModal(true)} className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold flex items-center shadow-md active:scale-95 transition-all text-xs whitespace-nowrap">
                   <Save size={16} className="mr-1.5"/> SIMPAN
@@ -515,9 +515,9 @@ export default function ImageAnalysisTab({
 
             <div className={`flex-1 rounded-2xl border-2 flex items-center justify-center relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-300 bg-gray-200'}`}>
               <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 bg-black/50 p-1.5 rounded-xl border border-gray-600 backdrop-blur-md">
-                <button onClick={handleZoomIn} disabled={zoomLevel >= 3} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomIn size={18}/></button>
+                <button aria-label="Perbesar" onClick={handleZoomIn} disabled={zoomLevel >= 3} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomIn size={18}/></button>
                 <div className="w-full h-px bg-gray-600 my-0.5"></div>
-                <button onClick={handleZoomOut} disabled={zoomLevel <= 0.5} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomOut size={18}/></button>
+                <button aria-label="Perkecil" onClick={handleZoomOut} disabled={zoomLevel <= 0.5} className="p-2 text-white hover:bg-white/20 rounded-lg active:scale-95 disabled:opacity-30"><ZoomOut size={18}/></button>
               </div>
               <div className="absolute top-4 left-16 ml-1 z-20 px-3 py-2 rounded-xl bg-black/50 border border-gray-600 backdrop-blur-md text-white font-mono text-xs font-bold flex items-center shadow-md">
                 {t('zoomLabel')} {Math.round(zoomLevel * 100)}%
@@ -667,7 +667,7 @@ export default function ImageAnalysisTab({
               <div className="space-y-3">
                 <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('folderName')}</label>
-                  <input 
+                  <input aria-label="Ketuk untuk mengisi..." 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
                     value={saveForm.folderName} 
@@ -679,7 +679,7 @@ export default function ImageAnalysisTab({
                 </div>
                 <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('objectType')}</label>
-                  <input 
+                  <input aria-label="Contoh: Bakteri, Sel..." 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
                     value={saveForm.objectType} 
@@ -691,7 +691,7 @@ export default function ImageAnalysisTab({
                 </div>
                 <div>
                   <label className={`block text-xs font-bold mb-1 ${theme.textMuted}`}>{t('operatorName')}</label>
-                  <input 
+                  <input aria-label={t('operatorName')} 
                     type="text" 
                     readOnly={globalVirtualKeyboard}
                     value={saveForm.operatorName} 

@@ -196,7 +196,7 @@ export default function DocumentationTab({ availableFolders = [] }: Documentatio
     <div>
       <label className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{label}</label>
       {textarea ? (
-        <textarea
+        <textarea aria-label={label}
           rows={3}
           readOnly={globalVirtualKeyboard}
           value={(form as any)[field]}
@@ -206,7 +206,7 @@ export default function DocumentationTab({ availableFolders = [] }: Documentatio
           className={`w-full px-3 py-2 rounded-xl border text-xs shadow-inner resize-none ${theme.input} ${vk.field === field ? 'ring-2 ring-blue-500' : ''}`}
         />
       ) : (
-        <input
+        <input aria-label={label}
           type="text"
           readOnly={globalVirtualKeyboard}
           value={(form as any)[field]}
@@ -244,7 +244,7 @@ export default function DocumentationTab({ availableFolders = [] }: Documentatio
           <div className="flex items-center gap-1.5">
             <div className="relative">
               <Search size={12} className={`absolute left-2 top-1/2 -translate-y-1/2 ${theme.textMuted}`} />
-              <input
+              <input aria-label="Cari operator / aktivitas..."
                 readOnly={globalVirtualKeyboard}
                 value={logSearch}
                 onChange={(e) => setLogSearch(e.target.value)}
@@ -253,11 +253,11 @@ export default function DocumentationTab({ availableFolders = [] }: Documentatio
                 className={`w-40 sm:w-52 pl-6 pr-2 py-1.5 rounded-lg border text-[11px] ${theme.input} ${vk.field === 'logSearch' ? 'ring-2 ring-blue-500' : ''}`}
               />
             </div>
-            <button onClick={fetchLogs} disabled={logBusy} title="Muat ulang" className={`p-1.5 rounded-lg border ${theme.btnTouch} disabled:opacity-40`}>
+            <button aria-label="Muat ulang" onClick={fetchLogs} disabled={logBusy} title="Muat ulang" className={`p-1.5 rounded-lg border ${theme.btnTouch} disabled:opacity-40`}>
               <RefreshCw size={14} className={logBusy ? 'animate-spin' : ''} />
             </button>
             {isAdmin && (
-              <button onClick={() => setConfirmClear(true)} title="Bersihkan semua log" className="p-1.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white">
+              <button aria-label="Bersihkan semua log" onClick={() => setConfirmClear(true)} title="Bersihkan semua log" className="p-1.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white">
                 <Trash2 size={14} />
               </button>
             )}
@@ -347,7 +347,7 @@ export default function DocumentationTab({ availableFolders = [] }: Documentatio
             {toggleChip(opts.table, () => setOpts(o => ({ ...o, table: !o.table })), Table2, 'Tabel rincian')}
             <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold ${theme.btnTouch} ${theme.textMuted}`}>
               <ListChecks size={12} /> Maks gambar
-              <input
+              <input aria-label="Jumlah maksimal gambar"
                 type="number" min={0} max={200}
                 value={opts.maxImages}
                 onChange={(e) => setOpts(o => ({ ...o, maxImages: parseInt(e.target.value || '0') }))}
