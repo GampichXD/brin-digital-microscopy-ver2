@@ -63,6 +63,16 @@ def is_local_network(ip_address: str) -> bool:
         return True
     return False
 
+def ensure_pilot(user: models.User) -> None:
+    """Lock Pilot di REST. Admin selalu boleh. Kalau kursi Pilot kosong (tidak ada klien
+    WS sama sekali), siapa pun boleh, supaya fallback REST tidak mengunci sistem."""
+    if (user.role or "").upper() == "ADMIN":
+        return
+    pilot = room_manager.pilot
+    if pilot is not None and pilot["username"] != user.username:
+        raise HTTPException(status_code=409, detail="Anda bukan Pilot")
+
+
 # ====================================================================
 # 0. ROUTE HTTP GET: TELEMETRI & STATISTIK SERVER
 # ====================================================================
@@ -173,10 +183,11 @@ async def perform_admin_action(payload: AdminRoomActionPayload):
 # ====================================================================
 # 1. ROUTE HTTP POST: UNTUK KENDALI MOTOR D-PAD MANUAL USER
 # ====================================================================
-@router.post("/motor/move", dependencies=[Depends(get_current_user)])
-async def move_motor(payload: MotorMovePayload, request: Request):
+@router.post("/motor/move")
+async def move_motor(payload: MotorMovePayload, request: Request, user: models.User = Depends(get_current_user)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    ensure_pilot(user)
 
     user_ip = request.client.host
     current_time = time.time()
@@ -213,10 +224,11 @@ async def move_motor(payload: MotorMovePayload, request: Request):
         return {"status": "SUCCESS", "mode": "REMOTE_GUARDED", "grbl_response": response}
 
 
-@router.post("/motor/home", dependencies=[Depends(get_current_user)])
-async def home_motor(request: Request):
+@router.post("/motor/home")
+async def home_motor(request: Request, user: models.User = Depends(get_current_user)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    ensure_pilot(user)
 
     user_ip = request.client.host
     if is_local_network(user_ip):
@@ -227,10 +239,11 @@ async def home_motor(request: Request):
     return {"status": "SUCCESS", "mode": "REMOTE", "action": "HOMING"}
 
 
-@router.post("/motor/unlock", dependencies=[Depends(get_current_user)])
-async def unlock_motor(request: Request):
+@router.post("/motor/unlock")
+async def unlock_motor(request: Request, user: models.User = Depends(get_current_user)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    ensure_pilot(user)
 
     user_ip = request.client.host
     if is_local_network(user_ip):
@@ -266,10 +279,11 @@ async def restart_edge_service():
             "message": "Perintah restart dikirim. Edge akan terputus ±3-10 detik lalu tersambung lagi."}
 
 
-@router.post("/camera/settings", dependencies=[Depends(get_current_user)])
-async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = Depends(get_db)):
+@router.post("/camera/settings")
+async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    ensure_pilot(user)
 
     save_setting(db, "exposure", str(payload.iso))
     if payload.shutter_speed is not None:
@@ -516,10 +530,11 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
         await redis.close()
 
 
-@router.post("/scan/grid", dependencies=[Depends(get_current_user)])
-async def scan_grid(payload: GridScanPayload):
+@router.post("/scan/grid")
+async def scan_grid(payload: GridScanPayload, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    ensure_pilot(user)
     if _scan_state["running"]:
         raise HTTPException(status_code=409, detail="Sebuah grid scan masih berjalan. Tunggu sampai selesai.")
     _scan_state["cancel"] = False
@@ -598,10 +613,11 @@ async def scan_cancel():
     _scan_state["cancel"] = True
     return {"status": "CANCELLING"}
 
-@router.post("/scan/retake", dependencies=[Depends(get_current_user)])
-async def retake_grid_image(payload: RetakePayload):
+@router.post("/scan/retake")
+async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(get_current_user)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
+    ensure_pilot(user)  # retake juga menggerakkan motor
 
     safe_name(payload.filename)
     redis = await get_redis_client(REDIS_URL)

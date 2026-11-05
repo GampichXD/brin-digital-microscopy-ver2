@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from app.hardware.motor_driver import motor_driver
 from app.main import app
 from app.services.auth_service import create_access_token
-from helpers import PASSWORD, auth, ensure_user
+from app.routers import hardware as hardware_router
+from helpers import PASSWORD, auth, ensure_user, token_for
 
 client = TestClient(app)
 
@@ -145,3 +146,35 @@ def test_M05c_transisi_jetson_lama_tanpa_token(monkeypatch):
                 break
             time.sleep(0.05)
         assert motor_driver.jetson_websocket is not None
+
+
+PILOT_GUARDED = [
+    ("/api/hardware/motor/move", {"axis": "X", "value": 1.0, "feed_rate": 250.0, "unit": "mm"}),
+    ("/api/hardware/motor/home", None),
+    ("/api/hardware/motor/unlock", None),
+    ("/api/hardware/camera/settings", {"shutter_speed": 1000, "iso": 100}),
+    ("/api/hardware/scan/grid", {"columns": 1, "rows": 1, "step_x": 1.0, "step_y": 1.0, "delay_ms": 0, "unit": "mm", "start_x": 0.0, "start_y": 0.0}),
+    ("/api/hardware/scan/retake", {"coord_x": 0.0, "coord_y": 0.0, "filename": "x.jpg", "delay_ms": 0}),
+]
+
+
+@pytest.mark.parametrize("path,body", PILOT_GUARDED)
+def test_M06_bukan_pilot_ditolak_409(path, body, operator_token):
+    pilot_token = token_for("uji_pilot", "OPERATOR")
+    with client.websocket_connect(f"/api/hardware/client/ws?token={pilot_token}"):
+        res = client.post(path, json=body, headers=auth(operator_token))
+    assert res.status_code == 409
+
+
+def test_M06b_pilot_dan_admin_boleh_lewat_guard(admin_token):
+    pilot_token = token_for("uji_pilot2", "OPERATOR")
+    body = {"axis": "X", "value": 1.0, "feed_rate": 250.0, "unit": "mm"}
+    with client.websocket_connect(f"/api/hardware/client/ws?token={pilot_token}"):
+        assert client.post("/api/hardware/motor/move", json=body, headers=auth(pilot_token)).status_code == 200
+        assert client.post("/api/hardware/motor/move", json=body, headers=auth(admin_token)).status_code == 200
+
+
+def test_M06c_tanpa_pilot_operator_tetap_boleh(operator_token):
+    assert hardware_router.room_manager.pilot is None
+    body = {"axis": "X", "value": 1.0, "feed_rate": 250.0, "unit": "mm"}
+    assert client.post("/api/hardware/motor/move", json=body, headers=auth(operator_token)).status_code == 200
