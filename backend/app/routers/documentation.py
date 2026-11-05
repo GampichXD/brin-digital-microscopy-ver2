@@ -1,7 +1,7 @@
 import os
 import io
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 # ── Library pembuatan dokumen ──────────────────────────────────────
@@ -42,13 +42,15 @@ except ImportError:
 
 DATASET_DIR = "./static/datasets"
 
+from ..schemas import ReportPayload
+from ..services.deps import get_current_user
+from ..services.safe_path import safe_join
+
 router = APIRouter(
     prefix="/api/documentation",
-    tags=["Documentation & Report Generator"]
+    tags=["Documentation & Report Generator"],
+    dependencies=[Depends(get_current_user)],
 )
-
-from ..schemas import ReportPayload
-from ..services.safe_path import safe_join
 
 # Palet warna konsisten lintas format
 C_PRIMARY = "1A56DB"   # biru

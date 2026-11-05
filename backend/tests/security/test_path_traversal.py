@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.safe_path import safe_join, safe_name
+from helpers import auth, token_for
 
 import pytest
 from fastapi import HTTPException
 
 client = TestClient(app)
+client.headers.update(auth(token_for("uji_admin", "ADMIN")))
 
 
 def _folder():

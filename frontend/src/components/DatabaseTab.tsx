@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ElementType } from 'react';
-import api from '../utils/api';
+import api, { withToken } from '../utils/api';
 import { Folder, Search, Plus, Edit2, Trash2, Download, ArrowLeft, AlertTriangle, Check, FileArchive, Filter, ChevronDown, UploadCloud, X, CheckSquare, Square, ListChecks, HardDrive, Box, ChevronLeft, ChevronRight, Video, Camera } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useGlobalContext } from '../context/GlobalContext';
@@ -140,7 +140,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
     (opts?.files || []).forEach(f => params.append('files', f));
     if (opts?.format) params.append('format', opts.format);
     const qs = params.toString();
-    return `${api.defaults.baseURL}/api/dataset/folders/${folderId}/download${qs ? `?${qs}` : ''}`;
+    return withToken(`${api.defaults.baseURL}/api/dataset/folders/${folderId}/download${qs ? `?${qs}` : ''}`);
   };
 
   // opts diberikan  -> unduh ZIP folder (opsional: subset file / format YOLO)
@@ -160,7 +160,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
     if (opts || fileName.endsWith('.zip') || fileName.endsWith('.csv')) {
       a.href = buildFolderDownloadUrl(targetFolderId, opts);
     } else {
-      a.href = `${api.defaults.baseURL}/api/dataset/folders/${targetFolderId}/files/${fileName}/download`;
+      a.href = withToken(`${api.defaults.baseURL}/api/dataset/folders/${targetFolderId}/files/${encodeURIComponent(fileName)}/download`);
     }
 
     a.download = fileName;
@@ -517,7 +517,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
                 >
                   {fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.webm') || fileName.toLowerCase().endsWith('.avi') ? (
                     <>
-                      <video src={`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${fileName}`} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
+                      <video src={withToken(`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${fileName}`)} className="absolute inset-0 w-full h-full object-cover z-0" preload="metadata" onError={(e) => { (e.target as HTMLVideoElement).style.display='none'; }} />
                       <div className="absolute inset-0 flex items-center justify-center z-0 bg-black/20">
                         <Video size={32} className="text-white/70" />
                       </div>
@@ -589,7 +589,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
           <div className="w-full h-full max-w-[100vw] md:max-w-[85vw] max-h-[100vh] md:max-h-[80vh] flex items-center justify-center z-0 p-0 md:p-8">
             <div className="w-full h-full flex items-center justify-center md:rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-black/50">
               {currentImages[previewIndex]?.name.toLowerCase().endsWith('.mp4') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.webm') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.avi') ? (
-                <video src={`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} controls autoPlay className="max-w-full max-h-full object-contain md:rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-4 md:p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-lg md:text-xl mb-2">File video tidak dapat diputar.</p><p class="text-xs md:text-sm text-gray-400">File mungkin kosong atau belum selesai disinkronkan.</p></div>'); }} />
+                <video src={withToken(`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`)} controls autoPlay className="max-w-full max-h-full object-contain md:rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-4 md:p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-lg md:text-xl mb-2">File video tidak dapat diputar.</p><p class="text-xs md:text-sm text-gray-400">File mungkin kosong atau belum selesai disinkronkan.</p></div>'); }} />
               ) : (
                 <img src={`${api.defaults.baseURL}/static/datasets/${activeFolder?.id}/${currentImages[previewIndex]?.name}`} alt="Preview" className="max-w-full max-h-full object-contain md:rounded-2xl" />
               )}

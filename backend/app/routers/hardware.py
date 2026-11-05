@@ -21,6 +21,7 @@ from ..hardware.camera_driver import cam_driver as camera_driver
 from ..redis_mock import get_redis_client
 from ..services import cv_bus
 from ..services import presence
+from ..services.deps import get_current_user, require_admin
 from ..services.safe_path import safe_join, safe_name
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
@@ -66,7 +67,7 @@ def is_local_network(ip_address: str) -> bool:
 last_net_io = psutil.net_io_counters()
 last_net_time = time.time()
 
-@router.get("/telemetry/stats")
+@router.get("/telemetry/stats", dependencies=[Depends(get_current_user)])
 async def get_telemetry_stats():
     global last_net_io, last_net_time
     
@@ -104,13 +105,13 @@ def save_setting(db: Session, key: str, value: str):
         db.add(setting)
     db.commit()
 
-@router.get("/config")
+@router.get("/config", dependencies=[Depends(get_current_user)])
 async def get_system_config(db: Session = Depends(get_db)):
     settings = db.query(models.SystemSetting).all()
     config_dict = {s.key: s.value for s in settings}
     return config_dict
 
-@router.put("/config/ai")
+@router.put("/config/ai", dependencies=[Depends(require_admin)])
 async def set_ai_config(payload: AiConfigPayload, db: Session = Depends(get_db)):
     # Hanya ambang keyakinan (confidence). Pemilihan model YOLO dihapus —
     # Edge memakai bobot tunggal best_Seg_1280_int8.engine.
@@ -125,7 +126,7 @@ _AG_KEYS = {
 }
 
 
-@router.put("/config/autogather")
+@router.put("/config/autogather", dependencies=[Depends(require_admin)])
 async def set_autogather_defaults(payload: AutoGatherDefaults, db: Session = Depends(get_db)):
     """ADMIN: simpan nilai default parameter Auto-Gather. Frontend Image
     Gathering membacanya dari GET /config (kunci berawalan ag_) saat memuat tab."""
@@ -139,7 +140,7 @@ async def set_autogather_defaults(payload: AutoGatherDefaults, db: Session = Dep
         saved[key] = val
     return {"message": "Default Auto-Gather disimpan.", "saved": saved}
 
-@router.post("/config/{section}/default")
+@router.post("/config/{section}/default", dependencies=[Depends(require_admin)])
 async def reset_config_default(section: str, db: Session = Depends(get_db)):
     # Hapus semua record yang berhubungan dengan section dari db
     # Untuk simulasi: reset tidak benar-benar menghapus, biarkan default fallback dari frontend 
@@ -160,7 +161,7 @@ async def reset_config_default(section: str, db: Session = Depends(get_db)):
     
     return {"message": f"Config {section} reset to default"}
 
-@router.post("/room/admin_action")
+@router.post("/room/admin_action", dependencies=[Depends(require_admin)])
 async def perform_admin_action(payload: AdminRoomActionPayload):
     success = await room_manager.admin_action(payload.cid, payload.action)
     if success:
@@ -170,7 +171,7 @@ async def perform_admin_action(payload: AdminRoomActionPayload):
 # ====================================================================
 # 1. ROUTE HTTP POST: UNTUK KENDALI MOTOR D-PAD MANUAL USER
 # ====================================================================
-@router.post("/motor/move")
+@router.post("/motor/move", dependencies=[Depends(get_current_user)])
 async def move_motor(payload: MotorMovePayload, request: Request):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -208,7 +209,7 @@ async def move_motor(payload: MotorMovePayload, request: Request):
         return {"status": "SUCCESS", "mode": "REMOTE_GUARDED", "grbl_response": response}
 
 
-@router.post("/motor/home")
+@router.post("/motor/home", dependencies=[Depends(get_current_user)])
 async def home_motor(request: Request):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -222,7 +223,7 @@ async def home_motor(request: Request):
     return {"status": "SUCCESS", "mode": "REMOTE", "action": "HOMING"}
 
 
-@router.post("/motor/unlock")
+@router.post("/motor/unlock", dependencies=[Depends(get_current_user)])
 async def unlock_motor(request: Request):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -236,7 +237,7 @@ async def unlock_motor(request: Request):
     return {"status": "SUCCESS", "mode": "REMOTE", "action": "UNLOCK"}
 
 
-@router.post("/motor/set-position")
+@router.post("/motor/set-position", dependencies=[Depends(require_admin)])
 async def set_motor_position(payload: SetPositionPayload):
     """ADMIN: tulis ulang koordinat kerja (motor_position.json di Edge) tanpa
     menggerakkan motor. Edge mengirim G92 ke GRBL lalu mem-persist JSON."""
@@ -249,7 +250,7 @@ async def set_motor_position(payload: SetPositionPayload):
             "position": {"X": payload.x, "Y": payload.y, "Z": payload.z}}
 
 
-@router.post("/edge/restart")
+@router.post("/edge/restart", dependencies=[Depends(require_admin)])
 async def restart_edge_service():
     """ADMIN: minta layanan kontrol Edge (proses Python di Jetson) me-restart
     dirinya sendiri (os.execv). Bukan reboot OS. Berguna memulihkan sensor
@@ -261,7 +262,7 @@ async def restart_edge_service():
             "message": "Perintah restart dikirim. Edge akan terputus ±3-10 detik lalu tersambung lagi."}
 
 
-@router.post("/camera/settings")
+@router.post("/camera/settings", dependencies=[Depends(get_current_user)])
 async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -278,7 +279,7 @@ async def apply_camera_settings(payload: CameraSettingsPayload, db: Session = De
     return {"status": "SUCCESS", "message": "Pengaturan kamera diterima dan disimpan."}
 
 
-@router.post("/cnc/settings")
+@router.post("/cnc/settings", dependencies=[Depends(require_admin)])
 async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -298,7 +299,7 @@ async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(
     return {"status": "SUCCESS", "message": "Pengaturan CNC diterima dan disimpan."}
 
 
-@router.post("/cnc/soft-limits")
+@router.post("/cnc/soft-limits", dependencies=[Depends(require_admin)])
 async def apply_soft_limits(payload: SoftLimitsPayload, db: Session = Depends(get_db)):
     """Kirim batas gerak (soft limit switch) ke Jetson. Jetson akan memotong
     setiap gerak jog/absolut agar tidak melewati batas."""
@@ -511,7 +512,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
         await redis.close()
 
 
-@router.post("/scan/grid")
+@router.post("/scan/grid", dependencies=[Depends(get_current_user)])
 async def scan_grid(payload: GridScanPayload):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -570,7 +571,7 @@ async def scan_grid(payload: GridScanPayload):
     return {"status": "STARTED", "total": total_tiles, "images": planned, "session": session_id}
 
 
-@router.get("/scan/status")
+@router.get("/scan/status", dependencies=[Depends(get_current_user)])
 async def scan_status():
     """Polling untuk memulihkan progres kalau WebSocket sempat putus."""
     return {
@@ -584,7 +585,7 @@ async def scan_status():
     }
 
 
-@router.post("/scan/cancel")
+@router.post("/scan/cancel", dependencies=[Depends(get_current_user)])
 async def scan_cancel():
     """Batalkan grid scan yang sedang berjalan. Loop akan berhenti di tile
     berikutnya lalu mengirim event SCAN_CANCELLED."""
@@ -593,7 +594,7 @@ async def scan_cancel():
     _scan_state["cancel"] = True
     return {"status": "CANCELLING"}
 
-@router.post("/scan/retake")
+@router.post("/scan/retake", dependencies=[Depends(get_current_user)])
 async def retake_grid_image(payload: RetakePayload):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
@@ -669,7 +670,7 @@ async def retake_grid_image(payload: RetakePayload):
 STITCH_OUTPUT = "stitched_ta_output.jpg"
 
 
-@router.post("/stitch")
+@router.post("/stitch", dependencies=[Depends(get_current_user)])
 async def stitch_images(payload: StitchPayload):
     """Mulai tile stitching di Edge. ASINKRON: balas cepat, hasil dilaporkan
     lewat WebSocket (event STITCH_COMPLETE / STITCH_FAILED) — sama seperti grid
@@ -715,7 +716,7 @@ async def stitch_images(payload: StitchPayload):
     return {"status": "STARTED", "model": model, "session": payload.session}
 
 
-@router.get("/stitch/status")
+@router.get("/stitch/status", dependencies=[Depends(get_current_user)])
 async def stitch_status():
     """Status tile stitching untuk polling & resume setelah refresh halaman.
     `running` menandai proses masih jalan; `done` sukses; `error` bila gagal.
@@ -731,7 +732,7 @@ async def stitch_status():
     return st
 
 
-@router.post("/stitch/place")
+@router.post("/stitch/place", dependencies=[Depends(get_current_user)])
 async def stitch_place_upload(
     file: UploadFile = File(...),
     grid_x: int = Form(...),
@@ -748,7 +749,7 @@ async def stitch_place_upload(
     return {"filename": filename, "url": f"/static/uploads/{filename}", "gridX": grid_x, "gridY": grid_y}
 
 
-@router.post("/stitch/place-from-dataset")
+@router.post("/stitch/place-from-dataset", dependencies=[Depends(get_current_user)])
 async def stitch_place_from_dataset(payload: InputTileFromDataset):
     """Mode 'Input Images': taruh satu gambar dari DATABASE (dataset folder) ke
     sel grid. Disalin ke uploads dengan nama sesuai posisi grid."""
@@ -766,7 +767,7 @@ async def stitch_place_from_dataset(payload: InputTileFromDataset):
 _GRIDPOS_RE = re.compile(r"_r(\d+)_c(\d+)", re.IGNORECASE)
 
 
-@router.post("/stitch/place-folder")
+@router.post("/stitch/place-folder", dependencies=[Depends(get_current_user)])
 async def stitch_place_folder(payload: PlaceFolderPayload):
     """Mode 'Input Images': isi SELURUH grid sekaligus dari satu folder dataset.
     Sistem mengenali posisi tiap gambar:
@@ -829,7 +830,7 @@ async def stitch_place_folder(payload: PlaceFolderPayload):
     }
 
 
-@router.post("/bus/toggle")
+@router.post("/bus/toggle", dependencies=[Depends(require_admin)])
 async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
     global hardware_bus_enabled
     hardware_bus_enabled = payload.enabled

@@ -21,8 +21,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.main import app
 from app.services.auth_service import hash_password, verify_password, create_access_token
+from helpers import auth, token_for
 
 client = TestClient(app)
+# Kategori B-L menguji perilaku fungsional, jadi memakai sesi admin.
+# Autentikasi dan otorisasi sendiri diuji di tests/security/test_security.py.
+client.headers.update(auth(token_for("uji_admin", "ADMIN")))
 
 # Penyimpanan state ringan antar-test dalam satu kategori (folder id, dsb.)
 # — bukan fixture pytest, sengaja dibuat sederhana mengikuti gaya file ini.
@@ -506,7 +510,8 @@ def test_feature_H01_lifecycle_rbac_operator():
     # Ganti password sendiri (pakai password asli)
     change = client.put("/api/auth/profile/password", json={
         "username": username, "old_password": original_password, "new_password": "PasswordBaru456"
-    })
+    }, headers=auth(client.post("/api/auth/login", json={
+        "username": username, "password": original_password}).json()["access_token"]))
     assert change.status_code == 200
 
     # Ubah peran oleh Admin

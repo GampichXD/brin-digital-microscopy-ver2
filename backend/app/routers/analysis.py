@@ -10,6 +10,7 @@ from app.redis_mock import get_redis_client
 from ..schemas import ToolPayload
 from ..services.cv_service import process_locally
 from ..services import cv_bus
+from ..services.deps import get_current_user
 from ..services.safe_path import safe_join, safe_name
 from ..hardware.motor_driver import motor_driver
 from ..database import get_db
@@ -19,7 +20,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 UPLOAD_DIR = "./static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-router = APIRouter(prefix="/api/analysis", tags=["Image Analysis"])
+router = APIRouter(prefix="/api/analysis", tags=["Image Analysis"], dependencies=[Depends(get_current_user)])
 
 # tool (URL) -> (aksi Redis untuk Jetson, prefix nama file output)
 _ACTION_MAP = {
