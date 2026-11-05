@@ -363,7 +363,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
           <div className="grid grid-cols-3 gap-2">
             {(['x', 'y', 'z'] as const).map(ax => (
               <div key={ax}>
-                <label className="text-[10px] text-gray-500 block mb-1 uppercase">{ax} (mm)</label>
+                <label className="text-[10px] text-gray-500 block mb-1 uppercase">{ax} ({ax === 'z' ? 'stp' : 'mm'})</label>
                 <input aria-label={`Koordinat ${ax.toUpperCase()}`} type="number" value={(posForm as any)[ax]} onChange={(e) => setPosForm(p => ({ ...p, [ax]: e.target.value }))} className={`w-full p-2 rounded-lg border text-sm font-bold font-mono ${theme.inputBg}`} />
               </div>
             ))}
@@ -390,7 +390,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
           <div className="grid grid-cols-3 gap-2">
             {([['xMin', '-X'], ['yMin', '-Y'], ['zMin', '-Z'], ['xMax', '+X'], ['yMax', '+Y'], ['zMax', '+Z']] as const).map(([key, label]) => (
               <div key={key}>
-                <label className="text-[10px] text-gray-500 block mb-1">{label}</label>
+                <label className="text-[10px] text-gray-500 block mb-1">{label} ({key.startsWith('z') ? 'stp' : 'mm'})</label>
                 <input aria-label={`Soft limit ${label}`}
                   type="number" value={(sl as any)[key]}
                   onChange={(e) => setSl(s => ({ ...s, [key]: e.target.value }))}
