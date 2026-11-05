@@ -30,6 +30,9 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/microscopy_db
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY belum diisi di .env}
+      - EDGE_DEVICE_TOKEN=${EDGE_DEVICE_TOKEN:?EDGE_DEVICE_TOKEN belum diisi di .env}
+      # false hanya selama transisi, sampai Jetson memakai kode baru.
+      - EDGE_TOKEN_REQUIRED=${EDGE_TOKEN_REQUIRED:-true}
     volumes:
       - ./backend/static/datasets:/app/static/datasets
       - ./backend/static/uploads:/app/static/uploads

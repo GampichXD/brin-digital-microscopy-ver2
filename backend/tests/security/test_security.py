@@ -1,9 +1,11 @@
 """M01-M04: autentikasi dan otorisasi REST (A2)."""
+import time
 from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.hardware.motor_driver import motor_driver
 from app.main import app
 from app.services.auth_service import create_access_token
 from helpers import PASSWORD, auth, ensure_user
@@ -116,3 +118,30 @@ def test_transisi_edge_token_required_false(monkeypatch):
     monkeypatch.setenv("EDGE_TOKEN_REQUIRED", "false")
     assert client.get("/api/dataset/vps/sync-index").status_code == 200
     assert client.get("/api/dataset/folders").status_code == 401
+
+
+@pytest.mark.parametrize("query", ["", "?device_token=salah", "?device_token="])
+def test_M05_ws_edge_tanpa_token_valid_ditutup_4003(query):
+    with client.websocket_connect(f"/api/hardware/ws{query}") as ws:
+        message = ws.receive()
+    assert message["type"] == "websocket.close" and message["code"] == 4003
+    assert motor_driver.jetson_websocket is None
+
+
+def test_M05b_ws_edge_token_benar_terdaftar():
+    with client.websocket_connect("/api/hardware/ws?device_token=token-edge-pengujian"):
+        for _ in range(50):
+            if motor_driver.jetson_websocket is not None:
+                break
+            time.sleep(0.05)
+        assert motor_driver.jetson_websocket is not None
+
+
+def test_M05c_transisi_jetson_lama_tanpa_token(monkeypatch):
+    monkeypatch.setenv("EDGE_TOKEN_REQUIRED", "false")
+    with client.websocket_connect("/api/hardware/ws"):
+        for _ in range(50):
+            if motor_driver.jetson_websocket is not None:
+                break
+            time.sleep(0.05)
+        assert motor_driver.jetson_websocket is not None

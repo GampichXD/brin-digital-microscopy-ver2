@@ -28,6 +28,8 @@ client = TestClient(app)
 # Autentikasi dan otorisasi sendiri diuji di tests/security/test_security.py.
 client.headers.update(auth(token_for("uji_admin", "ADMIN")))
 
+EDGE_WS = "/api/hardware/ws?device_token=token-edge-pengujian"
+
 # Penyimpanan state ringan antar-test dalam satu kategori (folder id, dsb.)
 # — bukan fixture pytest, sengaja dibuat sederhana mengikuti gaya file ini.
 _shared = {}
@@ -673,14 +675,14 @@ def _wait_until_registered():
 def test_feature_L01_edge_ws_registrasi_meneruskan_perintah_motor():
     """L01: Selama Edge terhubung via WebSocket, perintah motor harus diteruskan
     (grbl_response == 'ok'), bukan lagi 'Edge Device Offline'."""
-    with client.websocket_connect("/api/hardware/ws"):
+    with client.websocket_connect(EDGE_WS):
         result = _wait_until_registered()
         assert result == "ok"
 
 def test_feature_L02_edge_ws_unregister_setelah_disconnect():
     """L02: Setelah koneksi Edge terputus, perintah motor harus kembali
     melaporkan Edge Device Offline (motor_driver ter-unregister dengan benar)."""
-    with client.websocket_connect("/api/hardware/ws"):
+    with client.websocket_connect(EDGE_WS):
         pass  # koneksi langsung ditutup di akhir blok 'with'
     time.sleep(0.6)  # lewati guard rate-limit 0.5 dtk dari perintah motor di tes sebelumnya
     response = client.post("/api/hardware/motor/move", json={
@@ -692,7 +694,7 @@ def test_feature_L02_edge_ws_unregister_setelah_disconnect():
 def test_feature_L03_edge_ws_kirim_telemetry_koneksi_tetap_hidup():
     """L03: Edge mengirim event TELEMETRY_DATA harus diproses tanpa memutus koneksi,
     dibuktikan dengan pengiriman event kedua yang masih berhasil setelahnya."""
-    with client.websocket_connect("/api/hardware/ws") as ws:
+    with client.websocket_connect(EDGE_WS) as ws:
         assert _wait_until_registered() == "ok"
         ws.send_json({"event": "TELEMETRY_DATA", "position": {"X": 1.0, "Y": 2.0, "Z": 0.0}})
         ws.send_json({"event": "MOTOR_MOVED", "grbl_response": "ok"})

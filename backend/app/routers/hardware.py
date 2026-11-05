@@ -21,7 +21,7 @@ from ..hardware.camera_driver import cam_driver as camera_driver
 from ..redis_mock import get_redis_client
 from ..services import cv_bus
 from ..services import presence
-from ..services.deps import get_current_user, require_admin
+from ..services.deps import edge_token_required, edge_token_valid, get_current_user, require_admin
 from ..services.safe_path import safe_join, safe_name
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
@@ -847,11 +847,17 @@ async def toggle_hardware_bus(payload: HardwareBusTogglePayload):
 # 2. PIPA WEBSOCKET UTAMA: JEMBATAN ANTARA VPS CLOUD & JETSON EDGE
 # ====================================================================
 @router.websocket("/ws")
-async def hardware_websocket_endpoint(websocket: WebSocket):
+async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = Query(None)):
     print("TRACE 1: Accepting websocket...", flush=True)
     await websocket.accept()
     print("TRACE 2: Websocket accepted!", flush=True)
-    
+
+    # Accept dulu supaya Jetson bisa membaca kode 4003 dan tidak reconnect cepat.
+    if not edge_token_valid(device_token) and edge_token_required():
+        print("[VPS ROUTER] Koneksi Edge ditolak: device token tidak valid.", flush=True)
+        await websocket.close(code=4003)
+        return
+
     try:
         print(f"TRACE 3: Getting redis client for {REDIS_URL}", flush=True)
         redis = await get_redis_client(REDIS_URL)
