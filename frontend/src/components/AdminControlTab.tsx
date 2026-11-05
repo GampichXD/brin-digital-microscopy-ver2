@@ -248,16 +248,16 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
     } catch { showToast('Gagal ekspor data.', 'error'); }
   };
   const handlePurgeCache = async () => {
-    if (!confirm('Hapus seluruh cache & file sementara?')) return;
+    if (!confirm('Hapus cache: gambar di static/uploads dan seluruh tmp_images di Jetson (termasuk hasil scan yang belum disimpan). Dataset, akun, dan log TIDAK terhapus. Lanjutkan?')) return;
     try { await api.delete('/api/dataset/storage/purge-cache'); showToast('Cache dibersihkan.', 'success'); }
-    catch { showToast('Gagal membersihkan cache.', 'error'); }
+    catch (e: any) { showToast(e?.response?.data?.detail || 'Gagal membersihkan cache.', 'error'); }
   };
   const handlePurgeAllDatasets = async () => {
-    if (prompt("BAHAYA! Ini MENGHAPUS SELURUH dataset (Server + Edge) permanen.\nKetik 'HAPUS SEMUA':") !== 'HAPUS SEMUA') {
+    if (prompt("BAHAYA! Ini MENGHAPUS SELURUH dataset (Server + Edge) permanen. Akun, log, dan pengaturan TIDAK terhapus.\nKetik 'HAPUS SEMUA':") !== 'HAPUS SEMUA') {
       showToast('Dibatalkan.', 'info'); return;
     }
     try { await api.delete('/api/dataset/storage/purge-all'); showToast('Seluruh dataset dimusnahkan.', 'success'); }
-    catch { showToast('Gagal memusnahkan dataset.', 'error'); }
+    catch (e: any) { showToast(e?.response?.data?.detail || 'Gagal memusnahkan dataset.', 'error'); }
   };
   const handleClearLogs = async () => {
     if (!confirm('Hapus seluruh audit log?')) return;

@@ -78,6 +78,7 @@ export default function ImageGatheringTab({
   const [processTask, setProcessTask] = useState('');
   const [processKind, setProcessKind] = useState<'scan' | 'stitch' | 'manual' | ''>('');
   const [progress, setProgress] = useState(0);
+  const [scanCounts, setScanCounts] = useState({ captured: 0, failed: 0 });
   const [timerTick, setTimerTick] = useState(0);
   const [processTimes, setProcessTimes] = useState({ scan: 0, stitch: 0, total: 0 });
   const [isRetaking, setIsRetaking] = useState(false);
@@ -183,6 +184,7 @@ export default function ImageGatheringTab({
     setIsProcessing(true);
     setProcessKind('scan');
     setProgress(Math.min(status.index || 0, totalGrids));
+    setScanCounts({ captured: status.captured ?? 0, failed: status.failed ?? 0 });
     setProcessTask(`Menyambungkan kembali… Tile ${status.index || 0}/${totalGrids}`);
     setTimerTick(0);
     if (status.session) setScanSession(status.session);
@@ -212,6 +214,7 @@ export default function ImageGatheringTab({
         const m = JSON.parse(ev.data);
         if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
           setProgress(Math.min(m.index, totalGrids));
+          setScanCounts({ captured: m.captured ?? 0, failed: m.failed ?? 0 });
           setProcessTask(`Tile ${m.index}/${m.total ?? totalGrids}`);
         } else if (m.event === 'SCAN_COMPLETE') fin(m.images || [], 'ok');
         else if (m.event === 'SCAN_CANCELLED') fin(m.images || [], 'cancel');
@@ -226,7 +229,10 @@ export default function ImageGatheringTab({
       if (finished) return;
       try {
         const { data } = await api.get('/api/hardware/scan/status');
-        if (typeof data.index === 'number') setProgress(Math.min(data.index, totalGrids));
+        if (typeof data.index === 'number') {
+          setProgress(Math.min(data.index, totalGrids));
+          setScanCounts({ captured: data.captured ?? 0, failed: data.failed ?? 0 });
+        }
         if (!data.running) {
           if (data.error) fin([], 'fail', data.error);
           else if (data.cancelled) fin(data.images || [], 'cancel');
@@ -333,6 +339,20 @@ export default function ImageGatheringTab({
     }
   };
 
+  const handleDeleteScanSession = async () => {
+    if (!scanSession) return;
+    if (!confirm('Hapus semua gambar sesi ini dari server dan Jetson? Dataset yang sudah disimpan tidak ikut terhapus.')) return;
+    try {
+      await api.delete(`/api/hardware/scan/session/${scanSession}`);
+      setShowReviewModal(false);
+      setCapturedImages([]);
+      setScanSession(null);
+      showToast('Hasil sesi ini dihapus.', 'success');
+    } catch (error: any) {
+      showToast(error?.response?.data?.detail || 'Gagal menghapus hasil sesi.', 'error');
+    }
+  };
+
   const handleStartAuto = async () => {
     cancelRef.current = false;
     setIsProcessing(true);
@@ -340,6 +360,7 @@ export default function ImageGatheringTab({
     setProcessTask('Memulai pemindaian...');
     setTimerTick(0);
     setProgress(0);
+    setScanCounts({ captured: 0, failed: 0 });
     setProcessTimes({ scan: 0, stitch: 0, total: 0 });
 
     const startTime = Date.now();
@@ -366,6 +387,7 @@ export default function ImageGatheringTab({
           lastWsEventAt = Date.now();
           if (m.index !== lastIndex) { lastIndex = m.index; lastIndexAt = Date.now(); }
           setProgress(Math.min(m.index, totalGrids));
+          setScanCounts({ captured: m.captured ?? 0, failed: m.failed ?? 0 });
           setProcessTask(`Tile ${m.index}/${m.total} — X:${m.coordX} Y:${m.coordY}`);
         } else if (m.event === 'SCAN_COMPLETE') {
           finishSuccess(m.images || []);
@@ -459,6 +481,7 @@ export default function ImageGatheringTab({
         if (typeof data.index === 'number') {
           if (data.index !== lastIndex) { lastIndex = data.index; lastIndexAt = Date.now(); }
           setProgress(Math.min(data.index, totalGrids));
+          setScanCounts({ captured: data.captured ?? 0, failed: data.failed ?? 0 });
         }
         if (!data.running) {
           if (data.error) finishError(data.error);
@@ -1281,7 +1304,7 @@ export default function ImageGatheringTab({
       {isProcessing && (
         <div className={theme.overlay} style={{ zIndex: 60 }}>
           <div className="flex flex-col items-center text-white w-full max-w-lg">
-            {processTask.includes('Mengambil') && !processTask.includes('Manual') ? (
+            {processKind === 'scan' ? (
               <div className="w-64 h-64 bg-black/50 border border-gray-600 rounded-xl p-2 mb-6">
                  <div className="w-full h-full border border-blue-500/50 grid gap-1" style={{ gridTemplateColumns: `repeat(${cols || 1}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows || 1}, minmax(0, 1fr))` }}>
                   {Array.from({ length: totalImagesConfig || 0 }).map((_, i) => (
@@ -1289,7 +1312,7 @@ export default function ImageGatheringTab({
                   ))}
                 </div>
               </div>
-            ) : processTask.includes('Stitching') ? (
+            ) : processKind === 'stitch' ? (
               <div className="w-full bg-gray-800 rounded-full h-4 mb-6 border border-gray-600 overflow-hidden">
                 <div className="bg-purple-500 h-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
               </div>
@@ -1299,10 +1322,26 @@ export default function ImageGatheringTab({
 
             <h2 className="text-2xl font-bold mb-2">{processTask}</h2>
             <div className="flex items-center gap-4 text-blue-300 font-mono text-lg">
-              <span>{processTask.includes('Mengambil') ? `${progress}/${totalImagesConfig}` : `${progress}%`}</span>
-              <span>•</span>
+              {processKind === 'scan' && (
+                <>
+                  <span>{progress}/{totalImagesConfig} ({Math.round((progress / (totalImagesConfig || 1)) * 100)}%)</span>
+                  <span>•</span>
+                </>
+              )}
+              {processKind === 'stitch' && (
+                <>
+                  <span>{Math.round(progress)}%</span>
+                  <span>•</span>
+                </>
+              )}
               <span className="flex items-center"><Clock size={18} className="mr-2"/> {elapsedTimeText}</span>
             </div>
+            {processKind === 'scan' && (
+              <div className="flex items-center gap-4 font-mono text-sm mt-2">
+                <span className="text-green-400">Berhasil: {scanCounts.captured}</span>
+                <span className={scanCounts.failed > 0 ? 'text-red-400' : 'text-gray-400'}>Gagal: {scanCounts.failed}</span>
+              </div>
+            )}
             <button
               onClick={async () => {
                 cancelRef.current = true;
@@ -1333,6 +1372,15 @@ export default function ImageGatheringTab({
               <div className="flex items-center space-x-3">
                 <Grid3X3 size={24} className="text-blue-500" />
                 <h2 className={`text-2xl font-bold ${theme.text}`}>{t('captureResults')}</h2>
+                {gatherMode === 'AUTO' && (
+                  <span className="text-xs font-mono font-bold">
+                    <span className="text-green-500">Berhasil {validImageCount}</span>
+                    {' · '}
+                    <span className={capturedImages.length - validImageCount > 0 ? 'text-red-500' : theme.textMuted}>Gagal {capturedImages.length - validImageCount}</span>
+                    {' · '}
+                    <span className={theme.textMuted}>dari {capturedImages.length}</span>
+                  </span>
+                )}
               </div>
               <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
             </div>
@@ -1367,6 +1415,11 @@ export default function ImageGatheringTab({
                 <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); showToast('Hasil akuisisi telah dibuang', 'info');}} className="flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
                   <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('cancel')}
                 </button>
+                {scanSession && (
+                  <button onClick={handleDeleteScanSession} title="Hapus berkas sesi ini dari server dan Jetson" className="flex-1 sm:flex-none px-4 py-3 rounded-xl font-bold flex items-center justify-center border border-red-500/50 text-red-500 hover:bg-red-500/10 active:scale-95">
+                    <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> Hapus Hasil Sesi Ini
+                  </button>
+                )}
                 <button onClick={() => { setTargetSaveMode('GRID'); setShowSaveModal(true); }} disabled={validImageCount === 0} className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-transparent active:scale-95 text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
                   <Save size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('save')}
                 </button>
@@ -1408,7 +1461,9 @@ export default function ImageGatheringTab({
             
             <div className="p-8 flex flex-col justify-center items-center bg-black/40 border-y border-gray-800">
               <div className="w-full aspect-video border-2 border-purple-500/50 rounded-xl bg-purple-500/10 flex flex-col items-center justify-center relative overflow-hidden mb-4 group">
-                 <img src={`${api.defaults.baseURL}/static/uploads/stitched_ta_output.jpg?t=${processTimes.total}`} className="w-full h-full object-cover absolute inset-0 z-0 opacity-90 group-hover:opacity-100 transition-opacity" alt="stitched-result" />
+                 <a href={`${api.defaults.baseURL}/static/uploads/stitched_ta_output.jpg?t=${processTimes.total}`} target="_blank" rel="noreferrer" title="Buka ukuran penuh" className="absolute inset-0 z-0">
+                 <img src={`${api.defaults.baseURL}/static/uploads/stitched_ta_output.jpg?t=${processTimes.total}`} className="w-full h-full object-contain absolute inset-0 z-0 opacity-90 group-hover:opacity-100 transition-opacity" alt="stitched-result" />
+                 </a>
                  <div className="z-10 bg-black/60 p-2 rounded-lg mt-auto mb-2 flex items-center shadow-lg backdrop-blur-sm">
                    <ImageIcon size={18} className="text-purple-400 mr-2" />
                    <span className="font-mono font-bold text-purple-300">stitched_ta_output.jpg</span>

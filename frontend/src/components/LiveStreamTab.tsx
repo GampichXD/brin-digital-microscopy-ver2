@@ -6,7 +6,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { useGlobalContext } from '../context/GlobalContext';
 import { showToast } from '../utils/toast';
 
-const StreamCanvas = ({ videoSrc, themeClasses }: { videoSrc: string | null, themeClasses: any }) => {
+const StreamCanvas = ({ videoSrc, themeClasses, cameraStatus }: { videoSrc: string | null, themeClasses: any, cameraStatus?: string | null }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -31,6 +31,14 @@ const StreamCanvas = ({ videoSrc, themeClasses }: { videoSrc: string | null, the
     img.src = videoSrc;
   }, [videoSrc]);
 
+  if (!videoSrc && cameraStatus === 'OFFLINE') {
+    return (
+      <p className={`text-sm font-bold text-center px-4 ${themeClasses.textMuted}`}>
+        Kamera Jetson tidak merespons. Matikan lalu nyalakan lagi tombol kamera untuk mencoba membukanya.
+      </p>
+    );
+  }
+
   if (!videoSrc) {
     return (
       <div className="flex flex-col items-center">
@@ -50,6 +58,7 @@ interface LiveStreamTabProps {
   setCameraActive: (val: boolean) => void;
   videoSrc: string | null;
   frameCounterRef: { current: number };
+  cameraStatus?: string | null;
   grblStatus: string;
   setGrblStatus: (val: string) => void;
   lastEchoGCode: string;
@@ -70,6 +79,7 @@ export default function LiveStreamTab({
   setCameraActive,
   videoSrc,
   frameCounterRef,
+  cameraStatus,
   grblStatus,
   setGrblStatus,
   lastEchoGCode,
@@ -443,7 +453,7 @@ export default function LiveStreamTab({
             <p className="max-w-md">Anda berada dalam antrean. Menunggu giliran untuk mendapatkan saluran transmisi video.</p>
           </div>
         ) : cameraActive ? (
-          <StreamCanvas videoSrc={videoSrc} themeClasses={themeClasses} />
+          <StreamCanvas videoSrc={videoSrc} themeClasses={themeClasses} cameraStatus={cameraStatus} />
         ) : (
           <div className="flex flex-col items-center">
             <CameraOff size={64} className={`mb-4 ${themeClasses.textMuted}`} />

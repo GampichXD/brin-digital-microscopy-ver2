@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import base64
+import glob
 import psutil
 import uuid
 import logging
@@ -446,7 +447,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
     total_tiles = payload.rows * payload.columns
     feed_rate_mm_per_sec = feed_rate_mm_min / 60.0
 
-    _scan_state.update({"running": True, "index": 0, "total": total_tiles,
+    _scan_state.update({"running": True, "index": 0, "total": total_tiles, "captured": 0, "failed": 0,
                         "images": [], "error": None, "started_at": time.time(),
                         "cancel": False, "session": session_id})
     cancelled = False
@@ -525,10 +526,12 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
             idx += 1
             _scan_state["index"] = idx
             _scan_state["images"] = images
+            _scan_state["captured" if tile_ok else "failed"] += 1
 
             await redis.publish("microscope_scan_progress", json.dumps({
                 "event": "SCAN_PROGRESS", "index": idx, "total": total_tiles,
-                "filename": filename, "coordX": round(coord_x, 2), "coordY": round(coord_y, 2)
+                "filename": filename, "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
+                "ok": tile_ok, "captured": _scan_state["captured"], "failed": _scan_state["failed"],
             }))
 
         _scan_state["running"] = False
@@ -622,6 +625,8 @@ async def scan_status():
         "running": _scan_state["running"],
         "index": _scan_state["index"],
         "total": _scan_state["total"],
+        "captured": _scan_state.get("captured", 0),
+        "failed": _scan_state.get("failed", 0),
         "error": _scan_state["error"],
         "images": _scan_state["images"],
         "cancelled": _scan_state["cancel"],
@@ -637,6 +642,23 @@ async def scan_cancel():
         return {"status": "IDLE", "message": "Tidak ada scan yang berjalan."}
     _scan_state["cancel"] = True
     return {"status": "CANCELLING"}
+
+@router.delete("/scan/session/{session_id}")
+async def delete_scan_session(session_id: str, user: models.User = Depends(get_current_user)):
+    """Hapus berkas kerja satu sesi scan di VPS dan Jetson, atas permintaan pengguna.
+    Dataset yang sudah disimpan adalah salinan terpisah, jadi tidak ikut terhapus."""
+    ensure_pilot(user)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", session_id):
+        raise HTTPException(status_code=400, detail="ID sesi tidak valid.")
+    if _scan_state["running"] and _scan_state.get("session") == session_id:
+        raise HTTPException(status_code=409, detail="Sesi ini masih berjalan. Batalkan scan dulu.")
+    deleted = 0
+    for path in glob.glob(os.path.join(glob.escape(UPLOAD_DIR), f"IMG_{session_id}_r*_c*.jpg")):
+        os.remove(path)
+        deleted += 1
+    await publish_hardware_command({"action": "PURGE_SESSION", "session": session_id})
+    return {"status": "SUCCESS", "deleted": deleted}
+
 
 @router.post("/scan/retake")
 async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(get_current_user)):

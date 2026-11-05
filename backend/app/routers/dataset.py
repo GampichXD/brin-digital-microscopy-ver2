@@ -5,6 +5,7 @@ import shutil
 import zipfile
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, Query
 from fastapi.responses import FileResponse, StreamingResponse, Response
+from starlette.background import BackgroundTask
 from datetime import datetime
 from sqlalchemy.orm import Session
 from ..schemas import FolderCreate, FolderUpdate, FolderResponse, ImageCountIncrement, DeleteImagesPayload
@@ -31,6 +32,13 @@ async def _notify_edge(payload: dict) -> None:
         await redis_client.publish("hardware_commands", json.dumps(payload))
     except Exception as e:
         print(f"[DATASET] Gagal kirim notifikasi ke Edge: {e}")
+
+def _ensure_no_active_job() -> None:
+    """Tile yang sedang dipakai scan atau stitching tidak boleh ikut terhapus."""
+    from . import hardware
+    if hardware._scan_state["running"] or hardware._stitch_state["running"]:
+        raise HTTPException(status_code=409, detail="Grid scan atau stitching sedang berjalan. Tunggu sampai selesai.")
+
 
 router = APIRouter(
     prefix="/api/dataset",
@@ -383,7 +391,9 @@ def download_folder_zip(
             for f in pick:
                 zipf.write(os.path.join(folder_path, f), f)
 
-    return FileResponse(path=zip_filepath, filename=zip_filename, media_type='application/zip')
+    # File zip hanya sementara. Tanpa ini, setiap unduhan menumpuk di disk VPS.
+    return FileResponse(path=zip_filepath, filename=zip_filename, media_type='application/zip',
+                        background=BackgroundTask(os.remove, zip_filepath))
 
 # --- ENDPOINT INDEX SINKRONISASI DUA ARAH (DOWNSTREAM MIRRORING) ---
 @router.get("/vps/sync-index", dependencies=[Depends(get_user_or_edge)])
@@ -419,7 +429,8 @@ def export_all_dataset():
                     arcname = os.path.relpath(file_path, DATASET_DIR)
                     zipf.write(file_path, arcname)
                     
-    return FileResponse(path=zip_path, filename=zip_filename, media_type="application/zip")
+    return FileResponse(path=zip_path, filename=zip_filename, media_type="application/zip",
+                        background=BackgroundTask(os.remove, zip_path))
 
 # --- ENDPOINT 14: PURGE TEMPORARY CACHE ---
 import json
@@ -427,12 +438,15 @@ import redis.asyncio as redis
 
 @router.delete("/storage/purge-cache", dependencies=[Depends(require_admin)])
 async def purge_temporary_cache():
+    """Hanya berkas sementara: uploads, berkas _temp_, dan zip sisa unduhan. Dataset dan
+    database tidak tersentuh. Di Jetson, seluruh tmp_images ikut dibersihkan."""
+    _ensure_no_active_job()
     cleared_bytes = 0
     
-    # 1. Bersihkan file _temp_ di DATASET_DIR
+    # 1. Bersihkan file _temp_ dan zip sisa unduhan di DATASET_DIR. Dataset ada di subfolder.
     for root, dirs, files in os.walk(DATASET_DIR):
         for file in files:
-            if file.startswith("_temp_"):
+            if file.startswith("_temp_") or (file.endswith(".zip") and os.path.samefile(root, DATASET_DIR)):
                 file_path = os.path.join(root, file)
                 cleared_bytes += os.path.getsize(file_path)
                 os.remove(file_path)
@@ -441,7 +455,7 @@ async def purge_temporary_cache():
     UPLOAD_DIR = "./static/uploads"
     if os.path.exists(UPLOAD_DIR):
         for file in os.listdir(UPLOAD_DIR):
-            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.json')):
                 file_path = os.path.join(UPLOAD_DIR, file)
                 cleared_bytes += os.path.getsize(file_path)
                 os.remove(file_path)
@@ -459,6 +473,9 @@ async def purge_temporary_cache():
 
 @router.delete("/storage/purge-all", dependencies=[Depends(require_admin)])
 async def purge_all_datasets(db: Session = Depends(get_db)):
+    """Seluruh dataset di VPS dan Jetson, beserta daftar foldernya. Akun, log, dan
+    pengaturan tidak tersentuh."""
+    _ensure_no_active_job()
     cleared_bytes = 0
     
     # 1. Hitung ukuran sebelum dihapus

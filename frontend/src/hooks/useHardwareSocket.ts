@@ -15,6 +15,7 @@ interface HardwareSocketProps {
   setRoomState?: (state: any) => void;
   currentUser: string | null;
   frameCounterRef?: { current: number };
+  setCameraStatus?: (status: string | null) => void;
 }
 
 export function useHardwareSocket({
@@ -32,10 +33,12 @@ export function useHardwareSocket({
   setRoomState,
   currentUser,
   frameCounterRef,
+  setCameraStatus,
 }: HardwareSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const cameraActiveRef = useRef<boolean>(cameraActive);
   const lastInteractionTime = useRef<number>(Date.now());
+  const lastCameraStatusRef = useRef<string | null>(null);
   const lastTempsRef = useRef<{ cpu: number | null; gpu: number | null } | null>(null);
 
   // Sync latest camera state to ref for websocket handlers
@@ -131,6 +134,15 @@ export function useHardwareSocket({
         }
         else if (res.event === 'TELEMETRY_DATA') {
           setGrblStatus(res.status);
+
+          const cameraStatus: string | null = res.camera_status ?? null;
+          if (cameraStatus !== lastCameraStatusRef.current) {
+            if (cameraStatus === 'OFFLINE' && cameraActiveRef.current) {
+              window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: 'Kamera Jetson tidak merespons.', type: 'error' } }));
+            }
+            lastCameraStatusRef.current = cameraStatus;
+            if (setCameraStatus) setCameraStatus(cameraStatus);
+          }
           
           let currentTemp = 0;
           if (res.jetson_temperatures) {
@@ -213,7 +225,7 @@ export function useHardwareSocket({
         setStreamRole('DISCONNECTED');
       }
     };
-  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState, frameCounterRef]);
+  }, [isSystemHardwareEnabled, currentUser, setVideoSrc, setGrblStatus, setJetsonTemperatures, setLimitSwitchState, setJetsonRam, setJetsonRom, setLastEchoGCode, setEdgeTelemetry, setStreamRole, setRoomState, frameCounterRef, setCameraStatus]);
 
   return wsRef;
 }

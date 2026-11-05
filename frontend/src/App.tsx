@@ -62,6 +62,7 @@ export default function App() {
   const [roomState, setRoomState] = useState<any>(null);
 
   const frameCounterRef = useRef(0);
+  const [cameraStatus, setCameraStatus] = useState<string | null>(null);
   const globalToastTimer = useRef<number | null>(null);
 
   const wsRef = useHardwareSocket({
@@ -78,7 +79,8 @@ export default function App() {
     setStreamRole,
     setRoomState,
     currentUser,
-    frameCounterRef
+    frameCounterRef,
+    setCameraStatus
   });
 
   const fetchFolders = async () => {
@@ -269,6 +271,7 @@ export default function App() {
         {activeTab === 'Live Stream' && (
           <LiveStreamTab 
             frameCounterRef={frameCounterRef}
+            cameraStatus={cameraStatus}
             openKeypad={handleOpenKeypadGlobal} 
             cameraActive={cameraActive}
             setCameraActive={setCameraActive}

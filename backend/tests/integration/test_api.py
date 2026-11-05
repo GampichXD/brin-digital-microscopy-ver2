@@ -706,22 +706,6 @@ def test_feature_L03_edge_ws_kirim_telemetry_koneksi_tetap_hidup():
         assert _move_grbl_response() == "ok"
 
 
-# ============================================================
-# KATEGORI J: DIDOKUMENTASIKAN TAPI SENGAJA TIDAK DIEKSEKUSI
-# Kedua endpoint ini menghapus file ASLI (bukan hanya data buatan
-# pengujian) di static/uploads dan static/datasets milik pengembang.
-# Ditandai skip permanen — validasi dilakukan lewat code review dan
-# eksekusi manual satu kali oleh pengembang, bukan lewat automated CI.
-# ============================================================
-@pytest.mark.skip(reason="DESTRUKTIF: menghapus seluruh file di static/uploads milik pengembang, bukan hanya data uji. Validasi manual saja.")
-def test_feature_J01_purge_cache():
-    response = client.delete("/api/dataset/storage/purge-cache")
-    assert response.status_code == 200
-
-@pytest.mark.skip(reason="DESTRUKTIF: menghapus SELURUH dataset & tabel DatasetFolder tanpa filter. Validasi manual saja, tidak pernah dijalankan otomatis.")
-def test_feature_J02_purge_all():
-    response = client.delete("/api/dataset/storage/purge-all")
-    assert response.status_code == 200
 
 
 def test_feature_L04_edge_ws_menerima_heartbeat_ping():
@@ -822,3 +806,122 @@ def test_feature_G16_scan_ditolak_kalau_cnc_offline():
     assert response.status_code == 409
     assert "CNC" in response.json()["detail"]
     assert move.status_code == 409
+
+
+# ============================================================
+# KATEGORI J: PURGE. Aman dijalankan karena tes memakai DB dan folder sementara.
+# ============================================================
+@pytest.fixture
+def purge_world():
+    from app import models
+    from app.database import SessionLocal
+    created = client.post("/api/dataset/folders", json={
+        "name": f"purge_{uuid.uuid4().hex[:8]}", "object_type": "uji", "date": "2026-11-05", "operator": "uji"})
+    folder_id = created.json()["id"]
+    dataset = os.path.join("static", "datasets", folder_id)
+    paths = {
+        "dataset": os.path.join(dataset, "tile_r0_c0.jpg"),
+        "temp": os.path.join(dataset, "_temp_video.mp4"),
+        "upload": os.path.join("static", "uploads", "IMG_sesi_r0_c0.jpg"),
+        "sidecar": os.path.join("static", "uploads", "yolo_a.json"),
+        "zip": os.path.join("static", "datasets", "abc_123.zip"),
+    }
+    for path in paths.values():
+        with open(path, "wb") as f:
+            f.write(b"x")
+    client.post("/api/logs", json={"operator": "uji", "action": "aksi uji", "status": "SUCCESS"})
+    db = SessionLocal()
+    db.merge(models.SystemSetting(key="uji_purge", value="1"))
+    db.commit()
+    db.close()
+    yield folder_id, paths
+
+
+def _counts():
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        return {m.__name__: db.query(m).count() for m in (models.User, models.SystemLog, models.SystemSetting, models.DatasetFolder)}
+    finally:
+        db.close()
+
+
+def test_feature_J01_purge_cache_tidak_menyentuh_dataset_dan_database(purge_world):
+    folder_id, paths = purge_world
+    before = _counts()
+    assert client.delete("/api/dataset/storage/purge-cache").status_code == 200
+    assert os.path.exists(paths["dataset"])
+    for key in ("temp", "upload", "sidecar", "zip"):
+        assert not os.path.exists(paths[key]), key
+    assert _counts() == before
+    assert any(f["id"] == folder_id for f in client.get("/api/dataset/folders").json())
+
+
+def test_feature_J02_purge_all_hanya_dataset_akun_log_setting_utuh(purge_world):
+    folder_id, paths = purge_world
+    before = _counts()
+    assert client.delete("/api/dataset/storage/purge-all").status_code == 200
+    assert not os.path.exists(paths["dataset"])
+    assert os.path.isdir(os.path.join("static", "datasets"))
+    after = _counts()
+    assert after["DatasetFolder"] == 0
+    for table in ("User", "SystemLog", "SystemSetting"):
+        assert after[table] == before[table], table
+
+
+@pytest.mark.parametrize("path", ["/api/dataset/storage/purge-cache", "/api/dataset/storage/purge-all"])
+def test_feature_J03_purge_ditolak_saat_scan_berjalan(purge_world, path):
+    from app.routers.hardware import _scan_state
+    _, paths = purge_world
+    _scan_state["running"] = True
+    try:
+        assert client.delete(path).status_code == 409
+    finally:
+        _scan_state["running"] = False
+    assert os.path.exists(paths["dataset"]) and os.path.exists(paths["upload"])
+
+
+def test_feature_J04_unduhan_zip_tidak_menumpuk(purge_world):
+    folder_id, paths = purge_world
+    os.remove(paths["zip"])
+    assert client.get(f"/api/dataset/folders/{folder_id}/download").status_code == 200
+    assert client.get("/api/dataset/storage/export").status_code == 200
+    root = os.path.join("static", "datasets")
+    assert [f for f in os.listdir(root) if f.endswith(".zip")] == []
+
+
+def test_feature_G17_hapus_sesi_hanya_sesi_itu():
+    from app.routers.hardware import _scan_state
+    uploads = os.path.join("static", "uploads")
+    keep = os.path.join(uploads, "IMG_lain_r0_c0.jpg")
+    drop = os.path.join(uploads, "IMG_sesiA_r1_c2.jpg")
+    other = os.path.join(uploads, "stitched_ta_output.jpg")
+    for path in (keep, drop, other):
+        with open(path, "wb") as f:
+            f.write(b"x")
+    assert client.delete("/api/hardware/scan/session/..%2F..%2Fapp").status_code in (400, 404)
+    assert client.delete("/api/hardware/scan/session/sesi*").status_code == 400
+    _scan_state.update({"running": True, "session": "sesiA"})
+    try:
+        assert client.delete("/api/hardware/scan/session/sesiA").status_code == 409
+    finally:
+        _scan_state.update({"running": False, "session": None})
+    res = client.delete("/api/hardware/scan/session/sesiA")
+    assert res.status_code == 200 and res.json()["deleted"] == 1
+    assert not os.path.exists(drop) and os.path.exists(keep) and os.path.exists(other)
+
+
+def test_feature_G18_scan_melaporkan_tile_gagal():
+    from app.routers import hardware
+    start = client.post("/api/hardware/scan/grid", json={
+        "columns": 1, "rows": 1, "step_x": 1.0, "step_y": 1.0, "delay_ms": 0,
+        "unit": "mm", "start_x": 0.0, "start_y": 0.0})
+    assert start.status_code == 200
+    for _ in range(50):
+        status = client.get("/api/hardware/scan/status").json()
+        if not status["running"]:
+            break
+        time.sleep(0.1)
+    assert status["total"] == 1
+    assert "captured" in status and "failed" in status
