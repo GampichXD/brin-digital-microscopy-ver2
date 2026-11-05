@@ -23,6 +23,7 @@ from ..services import cv_bus
 from ..services import presence
 from ..services.deps import edge_token_required, edge_token_valid, get_current_user, require_admin
 from ..services.safe_path import safe_join, safe_name
+from ..services.scan_planner import DEFAULT_FEED_RATE_MM_MIN, ROW_CHANGE_SETTLE_S, compute_delay, plan_serpentine
 
 router = APIRouter(prefix="/api/hardware", tags=["Hardware"])
 
@@ -143,6 +144,16 @@ async def get_telemetry_stats():
         **edge_stats(),
         "hardwareBus": hardware_bus_enabled
     }
+
+def _setting_float(db: Session, key: str, default: float, minimum: float = 1e-6) -> float:
+    """Baca SystemSetting angka. Nilai kosong, rusak, atau di bawah `minimum` memakai default."""
+    row = db.query(models.SystemSetting).filter_by(key=key).first()
+    try:
+        value = float(row.value) if row and row.value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+    return value if value >= minimum else default
+
 
 def save_setting(db: Session, key: str, value: str):
     setting = db.query(models.SystemSetting).filter_by(key=key).first()
@@ -404,7 +415,9 @@ def _tile_name(session_id: str, row: int, col: int) -> str:
     return f"IMG_{session_id}_r{row}_c{col}.jpg"
 
 
-async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: float, session_id: str):
+async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: float, session_id: str,
+                         feed_rate_mm_min: float = DEFAULT_FEED_RATE_MM_MIN,
+                         row_settle_s: float = ROW_CHANGE_SETTLE_S):
     """Loop scan grid — dijalankan sebagai background task (BUKAN di dalam
     request HTTP) sehingga durasi berapa pun (mis. 680 gambar = puluhan menit)
     tidak kena batas 100–120 detik Cloudflare / proxy. Progres dikirim lewat
@@ -414,7 +427,7 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
     images = []
     idx = 0
     total_tiles = payload.rows * payload.columns
-    feed_rate_mm_per_sec = 250.0 / 60.0
+    feed_rate_mm_per_sec = feed_rate_mm_min / 60.0
 
     _scan_state.update({"running": True, "index": 0, "total": total_tiles,
                         "images": [], "error": None, "started_at": time.time(),
@@ -430,86 +443,76 @@ async def _run_grid_scan(payload: GridScanPayload, origin_x: float, origin_y: fl
         await redis.publish("hardware_commands", json.dumps({"action": "MOVE_MOTOR", "gcode": "G90"}))
         await asyncio.sleep(0.05)
         await redis.publish("hardware_commands", json.dumps({
-            "action": "MOVE_MOTOR", "gcode": f"G1 X{origin_x:.3f} Y{origin_y:.3f} F250.0"
+            "action": "MOVE_MOTOR", "gcode": f"G1 X{origin_x:.3f} Y{origin_y:.3f} F{feed_rate_mm_min}"
         }))
         last_x, last_y = origin_x, origin_y
 
-        for r in range(payload.rows):
-            if cancelled:
+        tiles = plan_serpentine(payload.rows, payload.columns, origin_x, origin_y, payload.step_x, payload.step_y)
+        for tile in tiles:
+            if _scan_state["cancel"]:
+                cancelled = True
                 break
-            for c in range(payload.columns):
-                if _scan_state["cancel"]:
-                    cancelled = True
-                    break
-                actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
-                coord_x = origin_x + (actual_c * payload.step_x)
-                coord_y = origin_y + (r * payload.step_y)
-                # Label grid DIBALIK: tile di posisi AWAL motor = r(rows-1)_c(cols-1),
-                # tile di sudut TERJAUH = r0_c0 (sesuai orientasi stage & stitching).
-                grid_r = payload.rows - 1 - r
-                grid_c = payload.columns - 1 - actual_c
-                filename = _tile_name(session_id, grid_r, grid_c)
+            coord_x, coord_y = tile["x"], tile["y"]
+            grid_r, grid_c = tile["grid_row"], tile["grid_col"]
+            filename = _tile_name(session_id, grid_r, grid_c)
 
-                dx = coord_x - last_x
-                dy = coord_y - last_y
-                if dx != 0.0 or dy != 0.0:
-                    await redis.publish("hardware_commands", json.dumps({
-                        "action": "MOVE_MOTOR",
-                        "gcode": f"G1 X{coord_x:.3f} Y{coord_y:.3f} F250.0"
-                    }))
-
-                distance = math.sqrt(dx**2 + dy**2)
-                travel_time = distance / feed_rate_mm_per_sec if distance > 0 else 0
-                last_x, last_y = coord_x, coord_y
-
-                base_delay = max(0.5, travel_time) + (payload.delay_ms / 1000.0)
-                if c == 0 and r > 0:
-                    base_delay += 1.0
-                await asyncio.sleep(base_delay)
-
-                file_path = os.path.join(UPLOAD_DIR, filename)
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-
+            dx = coord_x - last_x
+            dy = coord_y - last_y
+            if dx != 0.0 or dy != 0.0:
                 await redis.publish("hardware_commands", json.dumps({
-                    "action": "CAPTURE_IMAGE", "filename": filename,
-                    "session": session_id, "grid_x": grid_c, "grid_y": grid_r,
+                    "action": "MOVE_MOTOR",
+                    "gcode": f"G1 X{coord_x:.3f} Y{coord_y:.3f} F{feed_rate_mm_min}"
                 }))
 
-                # Tunggu gambar asli dari Edge tiba (IMAGE_CAPTURED -> ditulis ke
-                # UPLOAD_DIR oleh WS handler). Beri tenggang beberapa detik: pada
-                # grid besar / koneksi lambat, encode+kirim+decode bisa > 1 dtk.
-                edge_online = motor_driver.jetson_websocket is not None
-                grace = 6.0 if edge_online else 0.8
-                waited = 0.0
-                file_path = os.path.join(UPLOAD_DIR, filename)
-                while not os.path.exists(file_path) and waited < grace:
-                    await asyncio.sleep(0.3)
-                    waited += 0.3
+            distance = math.sqrt(dx**2 + dy**2)
+            last_x, last_y = coord_x, coord_y
 
-                # Tidak ada gambar pengganti. Tile yang tak tiba dibiarkan kosong; user bisa
-                # "Retake" dari modal review.
-                if not os.path.exists(file_path):
-                    print(f"[SCAN GRID] Tile {filename} belum tiba dari Edge setelah {grace:.0f}s — "
-                          f"dibiarkan kosong (bisa di-Retake).")
+            await asyncio.sleep(compute_delay(
+                distance, feed_rate_mm_per_sec, payload.delay_ms, tile["row_change"], row_settle_s))
 
-                # filename=None kalau tile tak pernah tiba (Edge online tapi gagal)
-                # -> modal review menampilkannya sebagai slot kosong + tombol Retake,
-                # bukan gambar rusak / palsu.
-                tile_ok = os.path.exists(file_path)
-                images.append({
-                    "index": idx, "filename": filename if tile_ok else None,
-                    "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
-                    "gridX": grid_c, "gridY": grid_r,
-                })
-                idx += 1
-                _scan_state["index"] = idx
-                _scan_state["images"] = images
+            file_path = os.path.join(UPLOAD_DIR, filename)
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
-                await redis.publish("microscope_scan_progress", json.dumps({
-                    "event": "SCAN_PROGRESS", "index": idx, "total": total_tiles,
-                    "filename": filename, "coordX": round(coord_x, 2), "coordY": round(coord_y, 2)
-                }))
+            await redis.publish("hardware_commands", json.dumps({
+                "action": "CAPTURE_IMAGE", "filename": filename,
+                "session": session_id, "grid_x": grid_c, "grid_y": grid_r,
+            }))
+
+            # Tunggu gambar asli dari Edge tiba (IMAGE_CAPTURED -> ditulis ke
+            # UPLOAD_DIR oleh WS handler). Beri tenggang beberapa detik: pada
+            # grid besar / koneksi lambat, encode+kirim+decode bisa > 1 dtk.
+            edge_online = motor_driver.jetson_websocket is not None
+            grace = 6.0 if edge_online else 0.8
+            waited = 0.0
+            file_path = os.path.join(UPLOAD_DIR, filename)
+            while not os.path.exists(file_path) and waited < grace:
+                await asyncio.sleep(0.3)
+                waited += 0.3
+
+            # Tidak ada gambar pengganti. Tile yang tak tiba dibiarkan kosong; user bisa
+            # "Retake" dari modal review.
+            if not os.path.exists(file_path):
+                print(f"[SCAN GRID] Tile {filename} belum tiba dari Edge setelah {grace:.0f}s — "
+                      f"dibiarkan kosong (bisa di-Retake).")
+
+            # filename=None kalau tile tak pernah tiba (Edge online tapi gagal)
+            # -> modal review menampilkannya sebagai slot kosong + tombol Retake,
+            # bukan gambar rusak / palsu.
+            tile_ok = os.path.exists(file_path)
+            images.append({
+                "index": idx, "filename": filename if tile_ok else None,
+                "coordX": round(coord_x, 2), "coordY": round(coord_y, 2),
+                "gridX": grid_c, "gridY": grid_r,
+            })
+            idx += 1
+            _scan_state["index"] = idx
+            _scan_state["images"] = images
+
+            await redis.publish("microscope_scan_progress", json.dumps({
+                "event": "SCAN_PROGRESS", "index": idx, "total": total_tiles,
+                "filename": filename, "coordX": round(coord_x, 2), "coordY": round(coord_y, 2)
+            }))
 
         _scan_state["running"] = False
         if cancelled:
@@ -576,26 +579,20 @@ async def scan_grid(payload: GridScanPayload, db: Session = Depends(get_db), use
     # Rencana lengkap (filename + koordinat) supaya frontend tahu daftar penuh
     # tanpa menunggu scan selesai. Urutan idx = urutan loop (r luar, c dalam),
     # jadi nama file cocok persis dengan yang dibuat _run_grid_scan.
-    planned = []
-    pidx = 0
-    for r in range(payload.rows):
-        for c in range(payload.columns):
-            actual_c = c if r % 2 == 0 else (payload.columns - 1 - c)
-            cx = origin_x + (actual_c * payload.step_x)
-            cy = origin_y + (r * payload.step_y)
-            grid_r = payload.rows - 1 - r          # label dibalik (lihat _run_grid_scan)
-            grid_c = payload.columns - 1 - actual_c
-            planned.append({
-                "index": pidx,
-                "filename": _tile_name(session_id, grid_r, grid_c),
-                "coordX": round(cx, 2), "coordY": round(cy, 2),
-                "gridX": grid_c, "gridY": grid_r,
-            })
-            pidx += 1
+    planned = [{
+        "index": idx,
+        "filename": _tile_name(session_id, t["grid_row"], t["grid_col"]),
+        "coordX": round(t["x"], 2), "coordY": round(t["y"], 2),
+        "gridX": t["grid_col"], "gridY": t["grid_row"],
+    } for idx, t in enumerate(
+        plan_serpentine(payload.rows, payload.columns, origin_x, origin_y, payload.step_x, payload.step_y))]
+
+    feed_rate = _setting_float(db, "feedRate", DEFAULT_FEED_RATE_MM_MIN)
+    row_settle = _setting_float(db, "rowChangeSettleS", ROW_CHANGE_SETTLE_S, minimum=0.0)
 
     # Jalankan sebagai background task -> HTTP balas < 1 detik.
     global _scan_task
-    _scan_task = asyncio.create_task(_run_grid_scan(payload, origin_x, origin_y, session_id))
+    _scan_task = asyncio.create_task(_run_grid_scan(payload, origin_x, origin_y, session_id, feed_rate, row_settle))
 
     return {"status": "STARTED", "total": total_tiles, "images": planned, "session": session_id}
 
