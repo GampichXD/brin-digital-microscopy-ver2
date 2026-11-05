@@ -328,26 +328,44 @@ export default function ImageAnalysisTab({
     setIsProcessing(true);
     setProcessTask(`Menerapkan ${toolName}...`);
 
+    const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
     try {
       const currentState = history[historyIndex];
-      const response = await api.post(`${API_BASE_URL}/api/analysis/${endpointPath}`, {
+      // ASINKRON: backend balas cepat {status:"STARTED", output}, lalu kita
+      // polling GET /status. Menghindari timeout ~100 dtk proxy Cloudflare
+      // untuk operasi CV yang lama (mis. Kalkulasi Morfologi pada panorama besar).
+      const { data: started } = await api.post(`${API_BASE_URL}/api/analysis/${endpointPath}`, {
         filename: currentImage,
         current_src: currentState.imageSrc,
         params,
       });
-      const rawCount = response.data.colonies;
+      const outName: string = started.output;
+      const processedBy: string = started.processed_by || '';
+      if (!outName) throw new Error('Respons backend tidak berisi nama output.');
+
+      const maxMs = 6 * 60 * 1000; // batas klien 6 menit
+      const t0 = Date.now();
+      let result: any = null;
+      while (Date.now() - t0 < maxMs) {
+        await sleep(1500);
+        const { data } = await api.get(`${API_BASE_URL}/api/analysis/status`, { params: { output: outName } });
+        if (data.error) throw new Error(data.error);
+        if (data.done) { result = data; break; }
+        setProcessTask(`Menerapkan ${toolName}… (${Math.round((Date.now() - t0) / 1000)}s)`);
+      }
+      if (!result) throw new Error('Proses melebihi 6 menit — periksa log Edge Device.');
+
+      const rawCount = result.colonies;
       const colonyCount = typeof rawCount === 'number' ? rawCount : null;
-      const processedBy = response.data.processed_by || '';
 
       const newState: AnalysisState = {
         id: history.length + 1,
         processName: toolName,
-        cssFilter: isAI ? 'brightness(1)' : response.data.css_filter || 'brightness(1)',
+        cssFilter: isAI ? 'brightness(1)' : 'brightness(1)',
         colonyCount,
-        stats: response.data.stats || null,
+        stats: result.stats || null,
         processedBy,
-        // cache-bust supaya <img> memuat hasil terbaru, bukan versi lama
-        imageSrc: `${API_BASE_URL}${response.data.url}?t=${Date.now()}`,
+        imageSrc: `${API_BASE_URL}${result.url}?t=${Date.now()}`,
       };
       const newHistory = [...history.slice(0, historyIndex + 1), newState];
       setHistory(newHistory);
@@ -358,7 +376,7 @@ export default function ImageAnalysisTab({
       logSystemAction(`Analisis Citra (${toolName}) Selesai [${processedBy || 'edge'}]`, 'SUCCESS');
     } catch (error: any) {
       console.error(error);
-      const detail = error?.response?.data?.detail || 'Periksa log Edge Device / server.';
+      const detail = error?.response?.data?.detail || error?.message || 'Periksa log Edge Device / server.';
       showToast(`Gagal memproses ${toolName}: ${detail}`, 'error');
       logSystemAction(`Analisis Citra (${toolName}) Gagal`, 'ERROR');
     } finally {

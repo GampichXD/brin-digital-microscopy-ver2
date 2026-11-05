@@ -47,5 +47,14 @@ export default defineConfig({
         ws: true // Penting untuk proxy koneksi WebSocket
       }
     }
+  },
+  preview: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        ws: true
+      }
+    }
   }
 })

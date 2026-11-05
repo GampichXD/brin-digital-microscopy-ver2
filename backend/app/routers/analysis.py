@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 import os
 import shutil
@@ -32,10 +32,31 @@ _ACTION_MAP = {
     "color-split":     ("CV_COLOR_SPLIT",  "edited_colorsplit_"),
 }
 
-# Computer Vision berjalan DI JETSON. YOLO TensorRT (colony-count) perlu load
-# engine + inferensi -> bisa 15-40 dtk pada eksekusi pertama. CV klasik cepat.
-_EDGE_TIMEOUT_S = {"colony-count": 90.0}
-_EDGE_TIMEOUT_DEFAULT = 40.0
+# prefix output -> tool (untuk membaca sidecar .json yang tepat saat polling status)
+_PREFIX_TOOL = {
+    "yolo_": "colony-count",
+    "edited_morphology_": "morphology",
+}
+
+_cv_tasks = set()  # pegang referensi task fallback lokal agar tidak di-GC
+
+
+async def _run_local_bg(tool_name, target_path, output_path, params, output_name):
+    """Fallback lokal (Jetson OFFLINE) sebagai TASK background — tidak memblokir
+    request HTTP, sama seperti jalur Edge."""
+    try:
+        await asyncio.get_event_loop().run_in_executor(
+            None, process_locally, tool_name, target_path, output_path, params
+        )
+    except Exception as e:
+        cv_bus.mark_failed(output_name, f"Pemrosesan lokal gagal: {e}")
+
+
+def _tool_from_output(name: str) -> str:
+    for pfx, tool in _PREFIX_TOOL.items():
+        if name.startswith(pfx):
+            return tool
+    return ""
 
 
 @router.post("/upload")
@@ -96,14 +117,15 @@ async def apply_tool(tool_name: str, payload: ToolPayload, db: Session = Depends
         params["conf"] = max(0.01, min(0.99, pct / 100.0))
     cv_bus.clear(expected_output)
 
-    # ── JALUR UTAMA: eksekusi DI JETSON ────────────────────────────────
+    # ── ASINKRON: kirim perintah, balas cepat. Frontend polling GET /status.
+    # Ini menghapus batas ~100 dtk proxy Cloudflare untuk operasi CV yang lama
+    # (mis. Kalkulasi Morfologi pada panorama besar) — pola sama dgn scan/stitch.
     if edge_online:
         try:
             with open(target_path, "rb") as f:
                 image_b64 = base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Gagal membaca gambar sumber: {e}")
-
         try:
             redis = await get_redis_client(REDIS_URL)
             try:
@@ -118,48 +140,46 @@ async def apply_tool(tool_name: str, payload: ToolPayload, db: Session = Depends
                 await redis.close()
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Gagal mengirim perintah ke Edge: {e}")
-
-        timeout_s = _EDGE_TIMEOUT_S.get(tool_name, _EDGE_TIMEOUT_DEFAULT)
-        elapsed = 0.0
-        while elapsed < timeout_s and not os.path.exists(output_path):
-            edge_err = cv_bus.take_error(expected_output)
-            if edge_err:
-                raise HTTPException(status_code=502, detail=f"Edge Device menolak proses CV: {edge_err}")
-            await asyncio.sleep(0.4)
-            elapsed += 0.4
-
-        if not os.path.exists(output_path):
-            edge_err = cv_bus.take_error(expected_output)
-            if edge_err:
-                raise HTTPException(status_code=502, detail=f"Edge Device gagal: {edge_err}")
-            raise HTTPException(
-                status_code=504,
-                detail=f"Jetson belum menyelesaikan '{tool_name}' dalam {int(timeout_s)} dtk. "
-                       f"Coba lagi, atau periksa log Edge Device.")
-
-        extra = _read_sidecar(tool_name, json_path)
         processed_by = "edge"
-
-    # ── FALLBACK: hanya kalau Jetson OFFLINE (mis. dev tanpa Edge) ─────
     else:
-        try:
-            extra = await asyncio.get_event_loop().run_in_executor(
-                None, process_locally, tool_name, target_path, output_path, params
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Edge offline & pemrosesan lokal gagal: {e}")
+        task = asyncio.create_task(
+            _run_local_bg(tool_name, target_path, output_path, params, expected_output)
+        )
+        _cv_tasks.add(task)
+        task.add_done_callback(_cv_tasks.discard)
         processed_by = "server (edge offline)"
 
     return {
-        "status": "SUCCESS",
+        "status": "STARTED",
+        "tool": tool_name,
+        "output": expected_output,
         "url": f"/static/uploads/{expected_output}",
-        "css_filter": "brightness(1)",
-        "colonies": extra.get("colonies"),
-        "stats": extra.get("stats"),
         "processed_by": processed_by,
     }
+
+
+@router.get("/status")
+async def analysis_status(output: str = Query(..., description="Nama file hasil yang ditunggu")):
+    """Polling hasil CV. `done`=selesai, `error`=gagal di Edge/lokal."""
+    safe = os.path.basename(output or "")
+    if not safe:
+        raise HTTPException(status_code=400, detail="Parameter 'output' wajib.")
+    output_path = os.path.join(UPLOAD_DIR, safe)
+
+    err = cv_bus.take_error(safe)
+    if err:
+        return {"done": False, "error": err}
+
+    if os.path.exists(output_path):
+        json_path = os.path.splitext(output_path)[0] + ".json"
+        extra = _read_sidecar(_tool_from_output(safe), json_path)
+        return {
+            "done": True,
+            "url": f"/static/uploads/{safe}",
+            "colonies": extra.get("colonies"),
+            "stats": extra.get("stats"),
+        }
+    return {"done": False}
 
 
 def _read_sidecar(tool_name: str, json_path: str) -> dict:
