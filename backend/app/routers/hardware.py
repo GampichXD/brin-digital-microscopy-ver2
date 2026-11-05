@@ -1582,7 +1582,8 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                 data, room_manager.get_role(websocket), role, username, time.time())
             if reason:
                 await websocket.send_text(json.dumps({
-                    "event": "COMMAND_REJECTED", "reason": reason, "action": action}))
+                    "event": "COMMAND_REJECTED", "reason": reason, "action": action,
+                    "cmd_id": data.get("cmd_id")}))
                 continue
 
             # Lempar perintah dari browser langsung ke channel instruksi mekatronika
