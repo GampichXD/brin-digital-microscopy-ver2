@@ -818,5 +818,7 @@ def test_feature_G16_scan_ditolak_kalau_cnc_offline():
         response = client.post("/api/hardware/scan/grid", json={
             "columns": 1, "rows": 1, "step_x": 1.0, "step_y": 1.0, "delay_ms": 0,
             "unit": "mm", "start_x": 0.0, "start_y": 0.0})
+        move = client.post("/api/hardware/motor/move", json={"axis": "X", "value": 1.0, "feed_rate": 250.0, "unit": "mm"})
     assert response.status_code == 409
     assert "CNC" in response.json()["detail"]
+    assert move.status_code == 409

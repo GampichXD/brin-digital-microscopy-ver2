@@ -113,6 +113,7 @@ export function useHardwareSocket({
           const messages: Record<string, string> = {
             NOT_PILOT: 'Perintah ditolak: Anda bukan Pilot.',
             BUS_DISABLED: 'Perintah ditolak: hardware bus sedang nonaktif.',
+            CNC_OFFLINE: 'CNC tidak tersambung ke Jetson.',
             RATE_LIMIT: 'Perintah terlalu cepat. Beri jeda sedikit antar gerakan.',
           };
           // START_STREAM dikirim otomatis saat tersambung, termasuk oleh akun di antrean.

@@ -176,3 +176,12 @@ def test_kamera_hanya_pilot_start_stream_boleh_spectator():
     assert _check({"action": "START_STREAM"}, seat="QUEUED") == "NOT_PILOT"
     assert _check({"action": "STOP_STREAM"}, seat="PILOT") is None
     assert _check({"action": "STOP_STREAM"}, seat="QUEUED", role="ADMIN") is None
+
+
+def test_cnc_offline_ditolak_setelah_rate_limit(monkeypatch):
+    monkeypatch.setattr(hardware.motor_driver, "jetson_websocket", object())
+    monkeypatch.setitem(hardware.last_edge_telemetry, "status", "Offline")
+    user = uuid.uuid4().hex
+    assert _check(MOVE, user=user) == "CNC_OFFLINE"
+    # Urutan ini membuat uji rate-limit tetap sah walau CNC belum tersambung.
+    assert _check(MOVE, user=user, now=1000.1) == "RATE_LIMIT"

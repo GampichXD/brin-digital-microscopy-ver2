@@ -257,6 +257,7 @@ async def move_motor(payload: MotorMovePayload, request: Request, user: models.U
             detail="Perintah terlalu cepat! Mohon beri jeda transmisi internet demi keamanan mekanik CNC."
         )
 
+    ensure_cnc_online()
     print(f"[NETWORK DETECTOR] {user.username} dari {user_ip}. Eksekusi: {gcode_str}")
     response = await motor_driver.send_gcode(gcode_str)
     mode = "LOCAL" if is_local_network(user_ip) else "REMOTE_GUARDED"
@@ -268,6 +269,7 @@ async def home_motor(request: Request, user: models.User = Depends(get_current_u
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
     ensure_pilot(user)
+    ensure_cnc_online()
 
     user_ip = get_client_ip(request)
     if is_local_network(user_ip):
@@ -283,6 +285,7 @@ async def unlock_motor(request: Request, user: models.User = Depends(get_current
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
     ensure_pilot(user)
+    ensure_cnc_online()
 
     user_ip = get_client_ip(request)
     if is_local_network(user_ip):
@@ -573,8 +576,7 @@ async def scan_grid(payload: GridScanPayload, db: Session = Depends(get_db), use
 
     # ── Titik awal grid = POSISI MOTOR SAAT INI (bukan 0,0) ──
     if motor_driver.jetson_websocket is not None:
-        if last_edge_telemetry.get("status") == "Offline":
-            raise HTTPException(status_code=409, detail="CNC tidak tersambung ke Jetson. Grid scan tidak dijalankan.")
+        ensure_cnc_online()
         waited = 0.0
         while motor_driver.last_edge_position is None and waited < 3.0:
             await asyncio.sleep(0.2)
@@ -1464,6 +1466,16 @@ def check_motor_rate_limit(username: str, now: float, channel: str = "ws") -> bo
     return True
 
 
+def cnc_offline() -> bool:
+    """Jetson tersambung, tetapi melaporkan GRBL tidak bisa dibuka."""
+    return motor_driver.jetson_websocket is not None and last_edge_telemetry.get("status") == "Offline"
+
+
+def ensure_cnc_online() -> None:
+    if cnc_offline():
+        raise HTTPException(status_code=409, detail="CNC tidak tersambung ke Jetson.")
+
+
 def validate_client_command(data: dict, ws_role: str, token_role: str, username: str, now: float):
     """Kembalikan alasan penolakan, atau None kalau perintah boleh diteruskan ke Jetson."""
     action = data.get("action")
@@ -1495,6 +1507,8 @@ def validate_client_command(data: dict, ws_role: str, token_role: str, username:
         return "INVALID_GCODE"
     if _is_motion_command(action, data) and not check_motor_rate_limit(username, now):
         return "RATE_LIMIT"
+    if action != "SET_POSITION" and cnc_offline():
+        return "CNC_OFFLINE"
     return None
 
 
