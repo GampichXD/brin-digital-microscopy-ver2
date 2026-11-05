@@ -871,7 +871,7 @@ export default function LiveStreamTab({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className={`text-xs font-medium ${themeClasses.textMuted}`}>Target FPS <span className="text-[9px]">(1-60)</span></span>
-              <input
+              <input aria-label="Target FPS"
                 type="number"
                 readOnly={globalVirtualKeyboard}
                 value={targetFps}

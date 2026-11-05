@@ -150,6 +150,7 @@ export default function AuthPage({ onLoginSuccess }: AuthPageProps) {
   </div>
   
   <button 
+    aria-label="Keyboard virtual"
     type="button" 
     onClick={() => { 
       const nextState = !globalVirtualKeyboard;
