@@ -106,6 +106,15 @@ export function useHardwareSocket({
           }
           setStreamRole(res.role as 'PILOT' | 'SPECTATOR' | 'QUEUED');
         }
+        else if (res.event === 'COMMAND_REJECTED') {
+          const messages: Record<string, string> = {
+            NOT_PILOT: 'Perintah ditolak: Anda bukan Pilot.',
+            BUS_DISABLED: 'Perintah ditolak: hardware bus sedang nonaktif.',
+            RATE_LIMIT: 'Perintah terlalu cepat. Beri jeda minimal 0,5 detik antar gerakan.',
+          };
+          const message = messages[res.reason] || `Perintah ditolak server (${res.reason}).`;
+          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type: 'warning' } }));
+        }
         else if (res.event === 'ROOM_STATE_UPDATE') {
           if (setRoomState) setRoomState(res);
         }

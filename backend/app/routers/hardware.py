@@ -181,6 +181,8 @@ async def move_motor(payload: MotorMovePayload, request: Request):
 
     # Pecahan properti frontend disusun ke dalam gcode_str
     axis_letter = payload.axis.upper()
+    if axis_letter not in ("X", "Y", "Z"):
+        raise HTTPException(status_code=400, detail="Sumbu harus X, Y, atau Z.")
     gcode_str = f"G1 {axis_letter}{payload.value} F{payload.feed_rate}"
 
     # MODE A: AKSES LOKAL JETSON
@@ -1372,6 +1374,69 @@ async def startup_event():
     asyncio.create_task(room_manager.idle_timeout_check())
 
 # ====================================================================
+# GUARD PERINTAH DARI BROWSER (jalur WebSocket menuju Jetson)
+# ====================================================================
+WS_ALLOWED_ACTIONS = {
+    "MOVE_MOTOR", "HOMING", "UNLOCK", "SET_POSITION", "START_STREAM", "STOP_STREAM",
+    "SET_FPS", "START_RECORDING", "STOP_RECORDING", "CAPTURE_IMAGE",
+}
+WS_ACTUATOR_ACTIONS = {"MOVE_MOTOR", "HOMING", "UNLOCK", "SET_POSITION"}
+MOTOR_COMMAND_INTERVAL_S = 0.5
+
+# Dicocokkan penuh (fullmatch) supaya tidak bisa disisipi baris kedua seperti
+# "G1 X1\n$RST=*". Gabungan "G91 G1 ..." sengaja ditolak: Jetson melacak mode
+# G90/G91 hanya dari perintah tunggal, sehingga gabungan membuat GRBL diam-diam
+# tetap di mode relatif. Jog relatif cukup "G1 X0.05 F250" (lihat jog_from_gcode).
+_GCODE_RE = re.compile(r"G[01](?:[ \t]+[XYZF][+-]?\d+(?:\.\d+)?)+|G9[01]|\$[HX]", re.IGNORECASE)
+_GCODE_MOTION_RE = re.compile(r"G[01]\b|\$H", re.IGNORECASE)
+
+
+def _is_motion_command(action: str, data: dict) -> bool:
+    """Perintah yang benar-benar menggerakkan motor. G90/G91/$X/SET_POSITION tidak."""
+    if action == "HOMING":
+        return True
+    return action == "MOVE_MOTOR" and bool(_GCODE_MOTION_RE.match(str(data.get("gcode", ""))))
+
+
+def check_motor_rate_limit(username: str, now: float) -> bool:
+    """True kalau perintah gerak boleh jalan, sekaligus mencatat waktunya. Persamaan (6)."""
+    if now - last_command_time.get(username, 0) < MOTOR_COMMAND_INTERVAL_S:
+        return False
+    last_command_time[username] = now
+    return True
+
+
+def validate_client_command(data: dict, ws_role: str, token_role: str, username: str, now: float):
+    """Kembalikan alasan penolakan, atau None kalau perintah boleh diteruskan ke Jetson."""
+    action = data.get("action")
+    if action not in WS_ALLOWED_ACTIONS:
+        return "NOT_ALLOWED"
+
+    if action == "SET_FPS":
+        fps = data.get("fps")
+        if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not 1 <= fps <= 120:
+            return "INVALID_PARAM"
+        return None
+
+    if action not in WS_ACTUATOR_ACTIONS:
+        return None
+
+    is_admin = str(token_role).upper() == "ADMIN"
+    # Sama dengan REST: menulis ulang koordinat kerja hanya untuk Admin.
+    if action == "SET_POSITION" and not is_admin:
+        return "NOT_ALLOWED"
+    if ws_role != "PILOT" and not is_admin:
+        return "NOT_PILOT"
+    if not hardware_bus_enabled:
+        return "BUS_DISABLED"
+    if action == "MOVE_MOTOR" and not _GCODE_RE.fullmatch(str(data.get("gcode", ""))):
+        return "INVALID_GCODE"
+    if _is_motion_command(action, data) and not check_motor_rate_limit(username, now):
+        return "RATE_LIMIT"
+    return None
+
+
+# ====================================================================
 # 3. WEBSOCKET KHUSUS CLIENT CLIENT (BROWSER REACT)
 # ====================================================================
 @router.websocket("/client/ws")
@@ -1422,10 +1487,10 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                 if message.get('type') == 'message':
                     msg_text = message['data'].decode('utf-8')
                     is_video = "STREAM_DATA" in msg_text
-                    role = room_manager.get_role(websocket)
+                    seat = room_manager.get_role(websocket)
                     
                     # Hanya broadcast STREAM_DATA ke Pilot & Spectator (Hemat Bandwidth)
-                    if is_video and role == "QUEUED":
+                    if is_video and seat == "QUEUED":
                         continue
                         
                     await websocket.send_text(msg_text)
@@ -1445,19 +1510,30 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
             presence.touch(username)
             try:
                 data = json.loads(client_msg)
-                if isinstance(data, dict) and data.get("action") == "HEARTBEAT":
-                    # Tanda koneksi hidup saja, bukan interaksi; tidak diteruskan ke Jetson.
-                    room_manager.update_activity(websocket, active=False)
-                    continue
-                room_manager.update_activity(websocket, active=True)
-                if data.get("action") == "TAKEOVER":
-                    await room_manager.takeover(websocket)
-                    continue
-                if data.get("action") == "PING":
-                    continue
             except json.JSONDecodeError:
-                room_manager.update_activity(websocket, active=True)
-                
+                continue
+            if not isinstance(data, dict):
+                continue
+
+            action = data.get("action")
+            if action == "HEARTBEAT":
+                # Tanda koneksi hidup saja, bukan interaksi; tidak diteruskan ke Jetson.
+                room_manager.update_activity(websocket, active=False)
+                continue
+            room_manager.update_activity(websocket, active=True)
+            if action == "PING":
+                continue
+            if action == "TAKEOVER":
+                await room_manager.takeover(websocket)
+                continue
+
+            reason = validate_client_command(
+                data, room_manager.get_role(websocket), role, username, time.time())
+            if reason:
+                await websocket.send_text(json.dumps({
+                    "event": "COMMAND_REJECTED", "reason": reason, "action": action}))
+                continue
+
             # Lempar perintah dari browser langsung ke channel instruksi mekatronika
             await redis.publish("hardware_commands", client_msg)
 
