@@ -1012,9 +1012,16 @@ async def hardware_websocket_endpoint(websocket: WebSocket):
         await redis.close()
 
 
+# Koneksi yang tidak mengirim pesan apa pun (termasuk HEARTBEAT) selama ini dianggap hantu.
+GHOST_TIMEOUT_S = 90
+# Pilot tanpa interaksi selama ini diturunkan, hanya kalau ada orang lain yang menunggu.
+PILOT_IDLE_S = 600
+MAX_SPECTATORS = 2
+
+
 class RoomManager:
     def __init__(self):
-        self.pilot = None # dict: {"ws": websocket, "username": str, "role": str, "last_activity": float}
+        self.pilot = None # dict: {"ws": websocket, "username": str, "role": str, "last_seen": float, "last_active": float}
         self.spectators = [] # list of dicts
         self.queue = [] # list of dicts
         self.lock = asyncio.Lock()
@@ -1052,6 +1059,47 @@ class RoomManager:
         count += sum(1 for q in self.queue if q["username"] == username)
         return count
 
+    @staticmethod
+    def _reset_timers(u: dict) -> None:
+        now = time.time()
+        u["last_seen"] = now
+        u["last_active"] = now
+
+    @staticmethod
+    async def _send_role(u: dict, role: str, reason: str = None) -> None:
+        msg = {"event": "ROLE_ASSIGNED", "role": role}
+        if reason:
+            msg["reason"] = reason
+        try:
+            await u["ws"].send_text(json.dumps(msg))
+        except Exception:
+            pass
+
+    async def _fill_vacancies(self, skip: dict = None, fill_spectators: bool = True) -> None:
+        """Isi kursi kosong: Pilot dari spectator terdepan, kalau tidak ada dari
+        antrean; lalu kursi spectator dari antrean. Setiap promosi me-reset timer,
+        supaya orang yang sudah lama diam tidak langsung diturunkan lagi.
+        `skip` tidak dipromosikan (mis. orang yang baru dipindah admin ke antrean)."""
+        if self.pilot is None:
+            waiting = [q for q in self.queue if q is not skip]
+            if self.spectators:
+                self.pilot = self.spectators.pop(0)
+            elif waiting:
+                self.pilot = waiting[0]
+                self.queue.remove(self.pilot)
+            if self.pilot is not None:
+                self._reset_timers(self.pilot)
+                await self._send_role(self.pilot, "PILOT")
+
+        if fill_spectators:
+            for q in [q for q in self.queue if q is not skip]:
+                if len(self.spectators) >= MAX_SPECTATORS:
+                    break
+                self.queue.remove(q)
+                self.spectators.append(q)
+                self._reset_timers(q)
+                await self._send_role(q, "SPECTATOR")
+
     async def connect(self, websocket: WebSocket, username: str, role: str):
         # websocket.accept() sudah dilakukan di client_websocket_endpoint.
         async with self.lock:
@@ -1065,13 +1113,14 @@ class RoomManager:
                 
             cid = str(uuid.uuid4())
             ip = websocket.client.host if websocket.client else "Unknown"
-            user_data = {"ws": websocket, "username": username, "role": role, "last_activity": time.time(), "ip": ip, "cid": cid}
+            user_data = {"ws": websocket, "username": username, "role": role, "ip": ip, "cid": cid}
+            self._reset_timers(user_data)
             assigned_role = ""
             
             if self.pilot is None:
                 self.pilot = user_data
                 assigned_role = "PILOT"
-            elif len(self.spectators) < 2:
+            elif len(self.spectators) < MAX_SPECTATORS:
                 self.spectators.append(user_data)
                 assigned_role = "SPECTATOR"
             else:
@@ -1116,22 +1165,7 @@ class RoomManager:
             if not found:
                 return
 
-            if self.pilot is None and self.spectators:
-                self.pilot = self.spectators.pop(0)
-                try:
-                    await self.pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "PILOT"}))
-                except Exception:
-                    pass
-            
-            while len(self.spectators) < 2 and self.queue:
-                q = self.queue.pop(0)
-                q["last_activity"] = time.time()
-                self.spectators.append(q)
-                try:
-                    await q["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
-                except Exception:
-                    pass
-                    
+            await self._fill_vacancies()
             await self.broadcast_state()
 
         # Di luar lock: kalau user ini tak punya koneksi lain -> tandai offline.
@@ -1160,25 +1194,19 @@ class RoomManager:
                 
                 old_pilot = self.pilot
                 self.pilot = admin_user
-                
-                try:
-                    await self.pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "PILOT"}))
-                except Exception:
-                    pass
+                self._reset_timers(admin_user)
+                await self._send_role(admin_user, "PILOT")
                 
                 if old_pilot:
-                    if len(self.spectators) < 2:
+                    self._reset_timers(old_pilot)
+                    if len(self.spectators) < MAX_SPECTATORS:
                         self.spectators.append(old_pilot)
-                        try:
-                            await old_pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "SPECTATOR"}))
-                        except Exception:
-                            pass
+                        await self._send_role(old_pilot, "SPECTATOR")
                     else:
                         self.queue.insert(0, old_pilot)
-                        try:
-                            await old_pilot["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "QUEUED"}))
-                        except Exception:
-                            pass
+                        await self._send_role(old_pilot, "QUEUED")
+
+                await self._fill_vacancies()
                             
             await self.broadcast_state()
 
@@ -1204,12 +1232,6 @@ class RoomManager:
                 return False
                 
             target_ws = target_user["ws"]
-            
-        async def _notify(u, role):
-            try:
-                await u["ws"].send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": role}))
-            except Exception:
-                pass
 
         if action == "KICK":
             try:
@@ -1243,37 +1265,37 @@ class RoomManager:
             elif target_user in self.queue:
                 self.queue.remove(target_user)
 
+            self._reset_timers(target_user)
+
             if action == "MAKE_PILOT":
                 old = self.pilot
                 self.pilot = target_user
-                await _notify(target_user, "PILOT")
+                await self._send_role(target_user, "PILOT")
                 if old:
-                    if len(self.spectators) < 2:
+                    self._reset_timers(old)
+                    if len(self.spectators) < MAX_SPECTATORS:
                         self.spectators.append(old)
-                        await _notify(old, "SPECTATOR")
+                        await self._send_role(old, "SPECTATOR")
                     else:
                         self.queue.insert(0, old)
-                        await _notify(old, "QUEUED")
+                        await self._send_role(old, "QUEUED")
+                await self._fill_vacancies()
 
             elif action == "MAKE_SPECTATOR":
-                if len(self.spectators) >= 2:
+                if len(self.spectators) >= MAX_SPECTATORS:
                     bumped = self.spectators.pop()
                     self.queue.insert(0, bumped)
-                    await _notify(bumped, "QUEUED")
+                    await self._send_role(bumped, "QUEUED")
                 self.spectators.append(target_user)
-                await _notify(target_user, "SPECTATOR")
-                if self.pilot is None and self.spectators:
-                    self.pilot = self.spectators.pop(0)
-                    await _notify(self.pilot, "PILOT")
+                await self._send_role(target_user, "SPECTATOR")
+                await self._fill_vacancies(skip=target_user, fill_spectators=False)
 
             elif action == "MAKE_QUEUE":
                 # Turunkan ke antrian (paling belakang). TIDAK auto-backfill
                 # slot spectator supaya penempatan admin dihormati.
                 self.queue.append(target_user)
-                await _notify(target_user, "QUEUED")
-                if self.pilot is None and self.spectators:
-                    self.pilot = self.spectators.pop(0)
-                    await _notify(self.pilot, "PILOT")
+                await self._send_role(target_user, "QUEUED")
+                await self._fill_vacancies(skip=target_user, fill_spectators=False)
 
             await self.broadcast_state()
         return True
@@ -1286,34 +1308,54 @@ class RoomManager:
             if q["ws"] == websocket: return "QUEUED"
         return "DISCONNECTED"
         
-    def update_activity(self, websocket: WebSocket):
-        if self.pilot and self.pilot["ws"] == websocket:
-            self.pilot["last_activity"] = time.time()
-        for s in self.spectators:
-            if s["ws"] == websocket: s["last_activity"] = time.time()
-        for q in self.queue:
-            if q["ws"] == websocket: q["last_activity"] = time.time()
-            
+    def update_activity(self, websocket: WebSocket, active: bool = True):
+        """Semua pesan memperbarui last_seen; hanya interaksi (active=True) yang
+        memperbarui last_active. HEARTBEAT memakai active=False."""
+        now = time.time()
+        everyone = ([self.pilot] if self.pilot else []) + self.spectators + self.queue
+        for u in everyone:
+            if u["ws"] == websocket:
+                u["last_seen"] = now
+                if active:
+                    u["last_active"] = now
+
+    async def idle_sweep(self, now: float):
+        """Satu putaran pemeriksaan: buang koneksi hantu, turunkan Pilot yang diam.
+        Spectator & antrean yang masih hidup tidak pernah dikeluarkan karena diam."""
+        async with self.lock:
+            everyone = ([self.pilot] if self.pilot else []) + self.spectators + self.queue
+            ghosts = [u["ws"] for u in everyone if now - u["last_seen"] > GHOST_TIMEOUT_S]
+
+        for ws in ghosts:
+            try:
+                await asyncio.wait_for(
+                    ws.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "IDLE_TIMEOUT"})), 2.0)
+                await asyncio.wait_for(ws.close(code=1000), 2.0)
+            except Exception:
+                pass
+            await self.disconnect(ws)
+
+        async with self.lock:
+            p = self.pilot
+            if p and now - p["last_active"] > PILOT_IDLE_S and (self.spectators or self.queue):
+                self.pilot = None
+                await self._fill_vacancies()
+                self._reset_timers(p)
+                if len(self.spectators) < MAX_SPECTATORS:
+                    self.spectators.append(p)
+                    await self._send_role(p, "SPECTATOR", reason="IDLE")
+                else:
+                    self.queue.append(p)
+                    await self._send_role(p, "QUEUED", reason="IDLE")
+                await self.broadcast_state()
+
     async def idle_timeout_check(self):
         while True:
             await asyncio.sleep(10)
-            now = time.time()
-            to_disconnect = []
-            
-            async with self.lock:
-                if self.pilot and (now - self.pilot["last_activity"] > 600):
-                    to_disconnect.append(self.pilot["ws"])
-                for s in self.spectators:
-                    if (now - s["last_activity"] > 600): to_disconnect.append(s["ws"])
-                for q in self.queue:
-                    if (now - q["last_activity"] > 600): to_disconnect.append(q["ws"])
-                    
-            for ws in to_disconnect:
-                try:
-                    await ws.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "IDLE_TIMEOUT"}))
-                    await ws.close(code=1000)
-                except Exception:
-                    pass
+            try:
+                await self.idle_sweep(time.time())
+            except Exception as e:
+                print(f"[ROOM] idle_sweep gagal: {e}")
 
 room_manager = RoomManager()
 
@@ -1392,17 +1434,21 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         # 🟢 TASK B: Jalankan antrean penerima instruksi dari Browser React
         while True:
             client_msg = await websocket.receive_text()
-            room_manager.update_activity(websocket)
             presence.touch(username)
             try:
                 data = json.loads(client_msg)
+                if isinstance(data, dict) and data.get("action") == "HEARTBEAT":
+                    # Tanda koneksi hidup saja, bukan interaksi; tidak diteruskan ke Jetson.
+                    room_manager.update_activity(websocket, active=False)
+                    continue
+                room_manager.update_activity(websocket, active=True)
                 if data.get("action") == "TAKEOVER":
                     await room_manager.takeover(websocket)
                     continue
                 if data.get("action") == "PING":
                     continue
             except json.JSONDecodeError:
-                pass
+                room_manager.update_activity(websocket, active=True)
                 
             # Lempar perintah dari browser langsung ke channel instruksi mekatronika
             await redis.publish("hardware_commands", client_msg)

@@ -213,19 +213,6 @@ export default function LiveStreamTab({
     return { value: target, hit: 0 as const };
   };
 
-  // Anti-AFK PING jika kamera menyala
-  useEffect(() => {
-    let pingInterval: number;
-    if (cameraActive && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      pingInterval = window.setInterval(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ action: 'PING' }));
-        }
-      }, 30000); // Kirim PING setiap 30 detik agar backend tidak me-reset status Pilot
-    }
-    return () => clearInterval(pingInterval);
-  }, [cameraActive, wsRef]);
-
   const generateFpsSvgPoints = () => {
     return fpsHistory.map((fps, i) => {
       const x = (i * (100 / 19)).toFixed(1);

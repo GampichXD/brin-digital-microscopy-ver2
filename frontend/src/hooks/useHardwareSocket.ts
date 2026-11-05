@@ -64,9 +64,16 @@ export function useHardwareSocket({
 
     // Track user activity for PING mechanism
     const updateActivity = () => { lastInteractionTime.current = Date.now(); };
-    window.addEventListener('mousemove', updateActivity);
-    window.addEventListener('keydown', updateActivity);
-    window.addEventListener('click', updateActivity);
+    const activityEvents = ['mousemove', 'keydown', 'click', 'pointerdown', 'touchstart', 'wheel', 'scroll'];
+    activityEvents.forEach((name) => window.addEventListener(name, updateActivity, { passive: true }));
+
+    // HEARTBEAT = tanda koneksi hidup, dikirim tanpa syarat. Bukan interaksi:
+    // spectator yang hanya menonton tetap aman, Pilot yang diam tetap bisa diturunkan.
+    const heartbeatInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'HEARTBEAT' }));
+      }
+    }, 20000);
 
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -88,8 +95,14 @@ export function useHardwareSocket({
             return;
           }
           if (res.role === 'IDLE_TIMEOUT') {
-            alert('Sesi Berakhir: Anda tidak melakukan aktivitas selama 10 menit, sehingga peran Anda dicabut untuk memberikan kesempatan pada antrian lain.');
+            alert('Koneksi ke server terputus terlalu lama. Muat ulang halaman untuk tersambung kembali.');
             return;
+          }
+          if (res.reason === 'IDLE') {
+            const message = res.role === 'SPECTATOR'
+              ? 'Anda tidak aktif lebih dari 10 menit. Anda kini Spectator.'
+              : 'Anda tidak aktif lebih dari 10 menit. Anda kini masuk antrean.';
+            window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type: 'info' } }));
           }
           setStreamRole(res.role as 'PILOT' | 'SPECTATOR' | 'QUEUED');
         }
@@ -163,9 +176,8 @@ export function useHardwareSocket({
     };
 
     return () => {
-      window.removeEventListener('mousemove', updateActivity);
-      window.removeEventListener('keydown', updateActivity);
-      window.removeEventListener('click', updateActivity);
+      activityEvents.forEach((name) => window.removeEventListener(name, updateActivity));
+      clearInterval(heartbeatInterval);
       clearInterval(pingInterval);
 
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
