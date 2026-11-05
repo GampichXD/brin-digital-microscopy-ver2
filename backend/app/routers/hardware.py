@@ -52,8 +52,19 @@ async def publish_hardware_command(payload: dict) -> None:
     finally:
         await redis.close()
 
-# Dictionary internal untuk mencatat timestamp instruksi terakhir dari setiap IP user
+# Dictionary internal untuk mencatat timestamp perintah gerak terakhir per username
 last_command_time = {}
+
+
+def get_client_ip(request: Request) -> str:
+    """IP asli pengguna di balik Cloudflare dan nginx. Header bisa dipalsukan kalau
+    backend diakses langsung, jadi jangan dipakai untuk keputusan keamanan."""
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    return (request.headers.get("CF-Connecting-IP")
+            or request.headers.get("X-Real-IP")
+            or forwarded
+            or (request.client.host if request.client else "unknown"))
+
 
 def is_local_network(ip_address: str) -> bool:
     """Mengecek apakah IP user berasal dari jaringan lokal Jetson (Localhost/Private Subnet)."""
@@ -189,8 +200,7 @@ async def move_motor(payload: MotorMovePayload, request: Request, user: models.U
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
     ensure_pilot(user)
 
-    user_ip = request.client.host
-    current_time = time.time()
+    user_ip = get_client_ip(request)
 
     # Pecahan properti frontend disusun ke dalam gcode_str
     axis_letter = payload.axis.upper()
@@ -198,30 +208,19 @@ async def move_motor(payload: MotorMovePayload, request: Request, user: models.U
         raise HTTPException(status_code=400, detail="Sumbu harus X, Y, atau Z.")
     gcode_str = f"G1 {axis_letter}{payload.value} F{payload.feed_rate}"
 
-    # MODE A: AKSES LOKAL JETSON
-    if is_local_network(user_ip):
-        print(f"[NETWORK DETECTOR] Akses Lokal Terdeteksi dari {user_ip}. Eksekusi: {gcode_str}")
-        # 🟢 PERBAIKAN BARIS 56: Ubah clean_gcode menjadi gcode_str
-        response = await motor_driver.send_gcode(gcode_str)
-        return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
+    # Guard dikunci per username: IP bisa sama untuk banyak pengguna di balik proxy,
+    # dan header IP bisa dipalsukan kalau dipakai sebagai pengecualian.
+    if not check_motor_rate_limit(user.username, time.time()):
+        print(f"[GUARD WARNING] Perintah dari {user.username} diblokir sementara (Over-speed).")
+        raise HTTPException(
+            status_code=429,
+            detail="Perintah terlalu cepat! Mohon beri jeda transmisi internet demi keamanan mekanik CNC."
+        )
 
-    # MODE B: AKSES JARAK JAUH / VIA VPS INTERNET
-    else:
-        print(f"[NETWORK DETECTOR] Akses Jarak Jauh Terdeteksi dari {user_ip}. Menerapkan Guard.")
-        last_time = last_command_time.get(user_ip, 0)
-        
-        if current_time - last_time < 0.5:
-            print(f"[GUARD WARNING] Perintah dari {user_ip} diblokir sementara (Over-speed).")
-            raise HTTPException(
-                status_code=429, 
-                detail="Perintah terlalu cepat! Mohon beri jeda transmisi internet demi keamanan mekanik CNC."
-            )
-        
-        last_command_time[user_ip] = current_time
-        
-        # 🟢 PERBAIKAN BARIS 73: Ubah clean_gcode menjadi gcode_str
-        response = await motor_driver.send_gcode(gcode_str)
-        return {"status": "SUCCESS", "mode": "REMOTE_GUARDED", "grbl_response": response}
+    print(f"[NETWORK DETECTOR] {user.username} dari {user_ip}. Eksekusi: {gcode_str}")
+    response = await motor_driver.send_gcode(gcode_str)
+    mode = "LOCAL" if is_local_network(user_ip) else "REMOTE_GUARDED"
+    return {"status": "SUCCESS", "mode": mode, "grbl_response": response}
 
 
 @router.post("/motor/home")
@@ -230,7 +229,7 @@ async def home_motor(request: Request, user: models.User = Depends(get_current_u
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
     ensure_pilot(user)
 
-    user_ip = request.client.host
+    user_ip = get_client_ip(request)
     if is_local_network(user_ip):
         response = await motor_driver.home()
         return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
@@ -245,7 +244,7 @@ async def unlock_motor(request: Request, user: models.User = Depends(get_current
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
     ensure_pilot(user)
 
-    user_ip = request.client.host
+    user_ip = get_client_ip(request)
     if is_local_network(user_ip):
         response = await motor_driver.send_gcode("$X")
         return {"status": "SUCCESS", "mode": "LOCAL", "grbl_response": response}
