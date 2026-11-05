@@ -40,6 +40,7 @@ ADMIN_ONLY = [
     ("PUT", "/api/auth/reset-password"),
     ("DELETE", "/api/dataset/storage/purge-all"),
     ("DELETE", "/api/dataset/storage/purge-cache"),
+    ("GET", "/api/dataset/storage/export"),
     ("DELETE", "/api/logs"),
     ("POST", "/api/hardware/cnc/settings"),
     ("POST", "/api/hardware/cnc/soft-limits"),
@@ -178,3 +179,13 @@ def test_M06c_tanpa_pilot_operator_tetap_boleh(operator_token):
     assert hardware_router.room_manager.pilot is None
     body = {"axis": "X", "value": 1.0, "feed_rate": 250.0, "unit": "mm"}
     assert client.post("/api/hardware/motor/move", json=body, headers=auth(operator_token)).status_code == 200
+
+
+def test_redis_mati_tidak_diganti_mock_kalau_redis_url_diisi(monkeypatch):
+    import asyncio
+    from app.redis_mock import get_redis_client, mock_redis_instance
+    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1")
+    with pytest.raises(Exception):
+        asyncio.run(get_redis_client("redis://127.0.0.1:1"))
+    monkeypatch.delenv("REDIS_URL")
+    assert asyncio.run(get_redis_client("redis://127.0.0.1:1")) is mock_redis_instance

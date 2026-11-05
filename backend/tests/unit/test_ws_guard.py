@@ -90,7 +90,7 @@ def test_M09_dua_perintah_kurang_dari_setengah_detik(redis):
         ws.send_json(MOVE)
         ws.send_json(MOVE)
         assert _until(ws, "COMMAND_REJECTED")["reason"] == "RATE_LIMIT"
-        time.sleep(0.55)
+        time.sleep(0.3)
         ws.send_json(MOVE)
         ws.send_json({"action": "G_TIDAK_ADA"})
         assert _until(ws, "COMMAND_REJECTED")["reason"] == "NOT_ALLOWED"
@@ -158,8 +158,21 @@ def test_set_fps_divalidasi(fps, reason):
     assert _check({"action": "SET_FPS", "fps": fps}) == reason
 
 
-def test_rate_limit_batas_setengah_detik():
+def test_rate_limit_ws_seperempat_detik_rest_setengah_detik():
     user = uuid.uuid4().hex
-    assert check_motor_rate_limit(user, 100.0) is True
-    assert check_motor_rate_limit(user, 100.49) is False
-    assert check_motor_rate_limit(user, 100.5) is True
+    assert check_motor_rate_limit(user, 100.0, "ws") is True
+    assert check_motor_rate_limit(user, 100.24, "ws") is False
+    assert check_motor_rate_limit(user, 100.25, "ws") is True
+    assert check_motor_rate_limit(user, 100.25, "rest") is True
+    assert check_motor_rate_limit(user, 100.74, "rest") is False
+    assert check_motor_rate_limit(user, 100.75, "rest") is True
+
+
+def test_kamera_hanya_pilot_start_stream_boleh_spectator():
+    assert _check({"action": "STOP_STREAM"}, seat="SPECTATOR") == "NOT_PILOT"
+    assert _check({"action": "SET_FPS", "fps": 30}, seat="SPECTATOR") == "NOT_PILOT"
+    assert _check({"action": "CAPTURE_IMAGE"}, seat="SPECTATOR") == "NOT_PILOT"
+    assert _check({"action": "START_RECORDING"}, seat="QUEUED") == "NOT_PILOT"
+    assert _check({"action": "START_STREAM"}, seat="QUEUED") == "NOT_PILOT"
+    assert _check({"action": "STOP_STREAM"}, seat="PILOT") is None
+    assert _check({"action": "STOP_STREAM"}, seat="QUEUED", role="ADMIN") is None

@@ -56,8 +56,8 @@ export default function App() {
   const [lastEchoGCode, setLastEchoGCode] = useState<string>("N/A");
   const [jetsonTemperatures, setJetsonTemperatures] = useState<{cpu: number | null, gpu: number | null}>({ cpu: null, gpu: null });
   const [limitSwitchState, setLimitSwitchState] = useState<string>("N/A");
-  const [jetsonRam, setJetsonRam] = useState<string>("5.12/7.62 GB");
-  const [jetsonRom, setJetsonRom] = useState<string>("2.10/50.00 GB");
+  const [jetsonRam, setJetsonRam] = useState<string>("N/A");
+  const [jetsonRom, setJetsonRom] = useState<string>("N/A");
   const [streamRole, setStreamRole] = useState<'PILOT' | 'SPECTATOR' | 'QUEUED' | 'DISCONNECTED'>('DISCONNECTED');
   const [roomState, setRoomState] = useState<any>(null);
 

@@ -799,3 +799,24 @@ def test_feature_C11_telemetri_edge_nilai_asli_dari_jetson():
         assert (data["edgeCpu"], data["edgeRam"], data["edgeTemp"]) == (12.5, 25.0, 51.0)
     data = client.get("/api/hardware/telemetry/stats").json()
     assert data["edgeOnline"] is False and data["edgeCpu"] is None
+
+
+def test_feature_B10_health_melaporkan_status_nyata():
+    """B10: Tanpa Jetson, health check tidak boleh mengaku CONNECTED."""
+    hw = client.get("/").json()["hardware"]
+    assert hw == {"jetson_orin_nano": "OFFLINE", "grbl_core": "OFFLINE"}
+
+
+def test_feature_G16_scan_ditolak_kalau_cnc_offline():
+    """G16: Jetson tersambung tetapi CNC tidak: scan ditolak, kamera tidak memotret tempat yang sama."""
+    with client.websocket_connect(EDGE_WS) as ws:
+        ws.send_json({"event": "TELEMETRY_DATA", "status": "Offline", "position": {"X": 0, "Y": 0, "Z": 0}})
+        for _ in range(50):
+            if client.get("/").json()["hardware"]["grbl_core"] == "Offline":
+                break
+            time.sleep(0.05)
+        response = client.post("/api/hardware/scan/grid", json={
+            "columns": 1, "rows": 1, "step_x": 1.0, "step_y": 1.0, "delay_ms": 0,
+            "unit": "mm", "start_x": 0.0, "start_y": 0.0})
+    assert response.status_code == 409
+    assert "CNC" in response.json()["detail"]

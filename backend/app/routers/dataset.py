@@ -168,8 +168,8 @@ def get_storage_info():
             "used_gb": used_gb,
             "used_percentage": used_percentage
         }
-    except Exception:
-        return {"total_gb": 50.0, "used_gb": 10.0, "used_percentage": 20}
+    except OSError as e:
+        raise HTTPException(status_code=503, detail=f"Info penyimpanan tidak tersedia: {e}")
 
 # --- ENDPOINT 2.5: PERBARUI METADATA FOLDER ---
 @router.put("/folders/{folder_id}", response_model=FolderResponse, dependencies=[Depends(get_current_user)])
@@ -385,12 +385,6 @@ def download_folder_zip(
 
     return FileResponse(path=zip_filepath, filename=zip_filename, media_type='application/zip')
 
-# --- MOCK VPS ENDPOINT UNTUK PENGUJIAN HYBRID SYNCING ---
-@router.post("/vps-mock/sync", dependencies=[Depends(get_current_user)])
-def mock_vps_sync(files: List[UploadFile] = File(...)):
-    # Digantikan oleh endpoint per folder /folders/{folder_id}/files
-    return {"message": f"Mock VPS berhasil menerima {len(files)} file dan menyimpannya ke Cloud.", "status": "success"}
-
 # --- ENDPOINT INDEX SINKRONISASI DUA ARAH (DOWNSTREAM MIRRORING) ---
 @router.get("/vps/sync-index", dependencies=[Depends(get_user_or_edge)])
 def get_vps_sync_index(db: Session = Depends(get_db)):
@@ -411,7 +405,7 @@ def get_vps_sync_index(db: Session = Depends(get_db)):
     return {"folders": index}
 
 # --- ENDPOINT 13: EXPORT ALL STORAGE ---
-@router.get("/storage/export", dependencies=[Depends(get_current_user)])
+@router.get("/storage/export", dependencies=[Depends(require_admin)])
 def export_all_dataset():
     zip_filename = "all_datasets_export.zip"
     zip_path = os.path.join(DATASET_DIR, zip_filename)

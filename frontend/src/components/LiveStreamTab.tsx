@@ -918,7 +918,9 @@ export default function LiveStreamTab({
               <button onClick={handleDefaultParams} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t('default')}</button>
               <button
                 onClick={sendCncSettings}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
+                disabled={currentUserRole !== 'ADMIN'}
+                title={currentUserRole !== 'ADMIN' ? 'Setelan CNC hanya untuk Admin' : undefined}
+                className="disabled:opacity-40 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"
               >
                 <Save size={14} className="mr-1" /> {t('apply')}
               </button>
@@ -1046,6 +1048,7 @@ export default function LiveStreamTab({
               <input aria-label="Aktifkan soft limit"
                 type="checkbox"
                 checked={softLimitEnabled}
+                disabled={currentUserRole !== 'ADMIN'}
                 onChange={(e) => { setSoftLimitEnabled(e.target.checked); applySoftLimits(e.target.checked); }}
                 className="w-9 h-5 rounded-full appearance-none bg-gray-500 checked:bg-red-500 relative transition-colors cursor-pointer
                            before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4"
@@ -1086,7 +1089,9 @@ export default function LiveStreamTab({
 
           <button
             onClick={() => applySoftLimits(softLimitEnabled)}
-            className="mt-3 w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center active:scale-95 transition-colors"
+            disabled={currentUserRole !== 'ADMIN'}
+            title={currentUserRole !== 'ADMIN' ? 'Soft limit hanya untuk Admin' : undefined}
+            className="disabled:opacity-40 disabled:cursor-not-allowed mt-3 w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center active:scale-95 transition-colors"
           >
             <Save size={14} className="mr-1" /> Terapkan Batas ke Jetson
           </button>

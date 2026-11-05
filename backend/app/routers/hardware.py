@@ -250,7 +250,7 @@ async def move_motor(payload: MotorMovePayload, request: Request, user: models.U
 
     # Guard dikunci per username: IP bisa sama untuk banyak pengguna di balik proxy,
     # dan header IP bisa dipalsukan kalau dipakai sebagai pengecualian.
-    if not check_motor_rate_limit(user.username, time.time()):
+    if not check_motor_rate_limit(user.username, time.time(), channel="rest"):
         print(f"[GUARD WARNING] Perintah dari {user.username} diblokir sementara (Over-speed).")
         raise HTTPException(
             status_code=429,
@@ -573,6 +573,8 @@ async def scan_grid(payload: GridScanPayload, db: Session = Depends(get_db), use
 
     # ── Titik awal grid = POSISI MOTOR SAAT INI (bukan 0,0) ──
     if motor_driver.jetson_websocket is not None:
+        if last_edge_telemetry.get("status") == "Offline":
+            raise HTTPException(status_code=409, detail="CNC tidak tersambung ke Jetson. Grid scan tidak dijalankan.")
         waited = 0.0
         while motor_driver.last_edge_position is None and waited < 3.0:
             await asyncio.sleep(0.2)
@@ -1432,7 +1434,10 @@ WS_ALLOWED_ACTIONS = {
     "SET_FPS", "START_RECORDING", "STOP_RECORDING", "CAPTURE_IMAGE",
 }
 WS_ACTUATOR_ACTIONS = {"MOVE_MOTOR", "HOMING", "UNLOCK", "SET_POSITION"}
-MOTOR_COMMAND_INTERVAL_S = 0.5
+# Persamaan (6). REST 2 perintah/detik; WS 4 perintah/detik supaya klik D-Pad beruntun tetap
+# terasa lancar. Dikunci per username dan per kanal.
+REST_MOTOR_INTERVAL_S = 0.5
+WS_MOTOR_INTERVAL_S = 0.25
 
 # Dicocokkan penuh (fullmatch) supaya tidak bisa disisipi baris kedua seperti
 # "G1 X1\n$RST=*". Gabungan "G91 G1 ..." sengaja ditolak: Jetson melacak mode
@@ -1449,11 +1454,13 @@ def _is_motion_command(action: str, data: dict) -> bool:
     return action == "MOVE_MOTOR" and bool(_GCODE_MOTION_RE.match(str(data.get("gcode", ""))))
 
 
-def check_motor_rate_limit(username: str, now: float) -> bool:
+def check_motor_rate_limit(username: str, now: float, channel: str = "ws") -> bool:
     """True kalau perintah gerak boleh jalan, sekaligus mencatat waktunya. Persamaan (6)."""
-    if now - last_command_time.get(username, 0) < MOTOR_COMMAND_INTERVAL_S:
+    interval = WS_MOTOR_INTERVAL_S if channel == "ws" else REST_MOTOR_INTERVAL_S
+    key = (channel, username)
+    if now - last_command_time.get(key, 0) < interval:
         return False
-    last_command_time[username] = now
+    last_command_time[key] = now
     return True
 
 
@@ -1467,12 +1474,16 @@ def validate_client_command(data: dict, ws_role: str, token_role: str, username:
         fps = data.get("fps")
         if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not 1 <= fps <= 120:
             return "INVALID_PARAM"
-        return None
-
-    if action not in WS_ACTUATOR_ACTIONS:
-        return None
 
     is_admin = str(token_role).upper() == "ADMIN"
+
+    if action not in WS_ACTUATOR_ACTIONS:
+        # Kamera dipakai bersama: hanya Pilot yang boleh mengubahnya. START_STREAM tetap untuk
+        # Spectator karena dikirim otomatis saat reconnect dan tidak mengganggu penonton lain.
+        if is_admin or ws_role == "PILOT" or (action == "START_STREAM" and ws_role == "SPECTATOR"):
+            return None
+        return "NOT_PILOT"
+
     # Sama dengan REST: menulis ulang koordinat kerja hanya untuk Admin.
     if action == "SET_POSITION" and not is_admin:
         return "NOT_ALLOWED"

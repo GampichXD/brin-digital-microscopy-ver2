@@ -113,8 +113,10 @@ export function useHardwareSocket({
           const messages: Record<string, string> = {
             NOT_PILOT: 'Perintah ditolak: Anda bukan Pilot.',
             BUS_DISABLED: 'Perintah ditolak: hardware bus sedang nonaktif.',
-            RATE_LIMIT: 'Perintah terlalu cepat. Beri jeda minimal 0,5 detik antar gerakan.',
+            RATE_LIMIT: 'Perintah terlalu cepat. Beri jeda sedikit antar gerakan.',
           };
+          // START_STREAM dikirim otomatis saat tersambung, termasuk oleh akun di antrean.
+          if (res.action === 'START_STREAM') return;
           const message = messages[res.reason] || `Perintah ditolak server (${res.reason}).`;
           window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type: 'warning' } }));
         }

@@ -74,8 +74,8 @@ async def root():
         "message": "Sistem API Mikroskop Digital BRIN/UNDIP Berjalan Normal",
         "build": BUILD_MARKER,
         "hardware": {
-            "jetson_orin_nano": "CONNECTED",
-            "grbl_core": "READY"
+            "jetson_orin_nano": "CONNECTED" if hardware.motor_driver.jetson_websocket is not None else "OFFLINE",
+            "grbl_core": hardware.last_edge_telemetry.get("status", "OFFLINE"),
         }
     }
 
