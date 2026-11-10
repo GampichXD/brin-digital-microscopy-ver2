@@ -76,6 +76,9 @@ jobs:
           done
           grep -qF "$EXPECTED" /tmp/n.json || { echo "::error::nginx tidak meneruskan /api/version"; docker compose logs --tail=20 nginx || true; exit 1; }
           curl -sI http://127.0.0.1/ | grep -i '^x-frame-options' || { echo "::error::header keamanan nginx tidak terpasang"; exit 1; }
+          # d) frontend menyajikan halaman dan tidak membocorkan versi nginx
+          curl -sf http://127.0.0.1/ -o /tmp/index.html && grep -qi '<div id="root"' /tmp/index.html || { echo "::error::frontend tidak menyajikan index.html"; docker compose logs --tail=20 frontend || true; exit 1; }
+          if curl -s http://127.0.0.1/tidak-ada-$$ | grep -qi 'nginx/[0-9]'; then echo "::error::halaman 404 masih menampilkan versi nginx"; exit 1; fi
           echo "✅ Live: $EXPECTED"
 
       # Tetap jalan walau verifikasi gagal. Hanya cache yang dipakai deploy ini yang disimpan:
