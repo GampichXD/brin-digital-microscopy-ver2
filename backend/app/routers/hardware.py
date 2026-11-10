@@ -24,6 +24,7 @@ from ..redis_mock import get_redis_client
 from ..services import cv_bus
 from ..services import presence
 from ..services.deps import edge_token_required, edge_token_valid, get_current_user, require_admin
+from ..services.client_outbox import ClientOutbox
 from ..services.safe_path import safe_join, safe_name
 from ..services.scan_planner import DEFAULT_FEED_RATE_MM_MIN, ROW_CHANGE_SETTLE_S, compute_delay, plan_serpentine
 
@@ -1576,7 +1577,12 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         except Exception:
             pass
     
-    # 🟢 TASK A: Mendengarkan siaran video/telemetri dari Redis dan menembakkannya ke Browser
+    # 🟢 TASK A: Mendengarkan siaran video/telemetri dari Redis dan menembakkannya ke Browser.
+    # Pembaca Redis dan pengirim ke browser dipisah lewat ClientOutbox: pembaca
+    # tidak pernah menunggu browser, dan untuk video hanya frame terbaru yang
+    # dikirim sehingga browser lambat tidak menumpuk antrean frame basi.
+    outbox = ClientOutbox(websocket.send_text)
+
     async def listen_to_redis_broadcast():
         pubsub = redis.pubsub()
         await pubsub.subscribe("microscope_video_stream", "microscope_telemetry", "microscope_scan_progress")
@@ -1586,21 +1592,22 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                     msg_text = message['data'].decode('utf-8')
                     is_video = "STREAM_DATA" in msg_text
                     seat = room_manager.get_role(websocket)
-                    
+
                     # Hanya broadcast STREAM_DATA ke Pilot & Spectator (Hemat Bandwidth)
                     if is_video and seat == "QUEUED":
                         continue
-                        
-                    await websocket.send_text(msg_text)
+
+                    outbox.put(msg_text, is_video)
         except asyncio.CancelledError:
             pass
         finally:
             await pubsub.unsubscribe("microscope_video_stream", "microscope_telemetry", "microscope_scan_progress")
             await pubsub.close()
 
-    # Jalankan pendengar siaran Redis di background task
+    # Jalankan pendengar siaran Redis dan pengirim ke browser di background task
     broadcast_task = asyncio.create_task(listen_to_redis_broadcast())
-    
+    sender_task = asyncio.create_task(outbox.run())
+
     try:
         # 🟢 TASK B: Jalankan antrean penerima instruksi dari Browser React
         while True:
@@ -1643,11 +1650,12 @@ async def client_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         await room_manager.disconnect(websocket)
         print(f"[VPS CLIENT] Sesi user {username} telah dilepas sepenuhnya.")
         
-        # Stop background broadcast task
-        if 'broadcast_task' in locals() and not broadcast_task.done():
-            broadcast_task.cancel()
+        # Stop background broadcast & sender task
+        for task in (broadcast_task, sender_task):
+            if not task.done():
+                task.cancel()
             try:
-                await broadcast_task
-            except asyncio.CancelledError:
+                await task
+            except (asyncio.CancelledError, Exception):
                 pass
         await redis.close()
