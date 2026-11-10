@@ -17,6 +17,9 @@ import requests
 import websockets
 
 HEARTBEAT_INTERVAL_S = 20  # tanpa HEARTBEAT, server memutus klien ini setelah 90 detik
+# Pong bisa tertahan di belakang frame video saat Wi-Fi penuh. Batas bawaan 20 detik
+# memutus klien uji padahal koneksinya masih jalan.
+KEEPALIVE_TIMEOUT_S = 120
 
 
 def login():
@@ -45,7 +48,7 @@ async def collect(url, duration, rows):
     disconnects = 0
     while time.monotonic() < deadline:
         try:
-            async with websockets.connect(url, max_size=None) as ws:
+            async with websockets.connect(url, max_size=None, ping_interval=20, ping_timeout=KEEPALIVE_TIMEOUT_S) as ws:
                 await ws.send(json.dumps({"action": "START_STREAM"}))
                 beat = asyncio.create_task(heartbeat(ws))
                 try:
