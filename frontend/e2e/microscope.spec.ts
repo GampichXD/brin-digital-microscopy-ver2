@@ -437,15 +437,13 @@ test.describe('Konfigurasi Sistem (RBAC) - Cakupan Tab Operator', () => {
 });
 
 // ── 4 use case tersisa di bawah ini TIDAK butuh hardware fisik untuk diuji:
-// backend punya fallback eksplisit saat Jetson/Edge offline (gambar tile mock
-// hasil cv2 untuk Grid Scan, pemrosesan OpenCV lokal untuk Image Analysis,
-// keduanya sudah diverifikasi lewat pytest G11/E03-E04 & koleksi Postman
-// Integration Test). Hanya penyelesaian PENUH proses Tile Stitching yang
-// betul-betul menunggu Edge -- di sini diuji sampai titik "dimulai lalu
-// dipantau", bukan sampai selesai (itu baru butuh Edge fisik).
+// Tanpa Jetson, grid scan tetap berjalan sampai akhir tetapi setiap tile gagal
+// (tidak ada gambar pengganti). Image Analysis memakai fallback OpenCV di server
+// (pytest E03-E04). Stitching sungguhan butuh Edge fisik, jadi di sini hanya diuji
+// bahwa tombolnya terkunci saat tidak ada citra.
 
 test.describe('Kendali Motor - Jalankan Grid Scan Otomatis', () => {
-  test('AUTO GATHER menjalankan grid scan sampai selesai memakai fallback gambar mock (Edge offline)', async ({ page, request }) => {
+  test('AUTO GATHER menjalankan grid scan sampai selesai dan melaporkan gagal kalau tidak ada gambar (Edge offline)', async ({ page, request }) => {
     await api(request).post('/api/hardware/bus/toggle', { data: { enabled: true } });
 
     const username = uniqueUsername('e2e_gridscan');
@@ -456,14 +454,16 @@ test.describe('Kendali Motor - Jalankan Grid Scan Otomatis', () => {
     await expect(page.getByText('Parameter Grid')).toBeVisible({ timeout: 10000 });
 
     // Perkecil grid (dari default 5x4) supaya scan cepat selesai -- tiap tile
-    // tetap lewat alur backend penuh (gerak motor simulasi, tunggu tile, fallback mock).
+    // tetap lewat alur backend penuh (perintah gerak, tunggu tile, tandai gagal).
     await page.getByText('Kolom', { exact: true }).locator('xpath=following-sibling::input').fill('2');
     await page.getByText('Baris', { exact: true }).locator('xpath=following-sibling::input').fill('2');
 
     await page.getByRole('button', { name: /CAPTURE \d+ GAMBAR/i }).click();
 
     await expect(page.getByText('Hasil Tangkapan Gambar')).toBeVisible({ timeout: 60000 });
-    await expect(page.getByText(/Pemindaian grid berhasil/i)).toBeVisible({ timeout: 5000 });
+    // Edge offline -> tidak ada citra yang tiba. Aplikasi tidak boleh mengaku berhasil.
+    await expect(page.getByText(/tidak ada gambar yang berhasil diambil/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Pemindaian grid berhasil/i)).toHaveCount(0);
 
     // Tutup modal review (buang hasil) supaya tidak membebani sesi berikutnya.
     await page.getByRole('button', { name: 'BATAL' }).click();

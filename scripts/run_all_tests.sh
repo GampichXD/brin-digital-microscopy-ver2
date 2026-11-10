@@ -18,7 +18,7 @@ cd "$ROOT/backend"
 cd "$ROOT/frontend"
 npx vitest run --coverage
 if [ -n "$E2E_ADMIN_USER" ]; then
-  npx playwright test --project=chromium --reporter=html,json
+  PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-results.json npx playwright test --project=chromium --reporter=html,json
 else
   echo "Playwright dilewati: E2E_ADMIN_USER belum diisi."
 fi

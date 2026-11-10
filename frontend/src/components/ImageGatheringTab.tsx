@@ -419,8 +419,25 @@ export default function ImageGatheringTab({
       setCapturedImages(imgs.map((img: any) => ({ ...img, timestamp: Date.now() })));
       const scanT = (Date.now() - startTime) / 1000;
       if (cancelRef.current) { setIsProcessing(false); return; }
-      showToast('Pemindaian grid berhasil!', 'success');
-      logSystemAction('Gathering Image (Grid Scan 2D) Selesai', 'SUCCESS');
+      // Scan yang "selesai" belum tentu berhasil: tile yang gagal diambil tetap
+      // tercantum dengan filename null. Jangan bilang berhasil kalau tidak ada gambar.
+      const okCount = imgs.filter((img: any) => img.filename).length;
+      const failCount = imgs.length - okCount;
+      if (okCount === 0) {
+        showToast('Pemindaian selesai, tetapi tidak ada gambar yang berhasil diambil. Periksa koneksi Jetson dan kamera.', 'error');
+        logSystemAction('Gathering Image (Grid Scan 2D) Gagal: 0 gambar terambil', 'ERROR');
+        setProcessTimes({ scan: scanT, stitch: 0, total: scanT });
+        setIsProcessing(false);
+        setShowReviewModal(true);
+        return;
+      }
+      if (failCount > 0) {
+        showToast(`Pemindaian selesai: ${okCount} dari ${imgs.length} gambar berhasil, ${failCount} gagal.`, 'warning');
+        logSystemAction(`Gathering Image (Grid Scan 2D) Selesai, ${failCount} gambar gagal`, 'SUCCESS');
+      } else {
+        showToast('Pemindaian grid berhasil!', 'success');
+        logSystemAction('Gathering Image (Grid Scan 2D) Selesai', 'SUCCESS');
+      }
       if (autoStitch) {
         executeStitching(scanT);
       } else {
