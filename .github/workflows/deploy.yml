@@ -68,6 +68,14 @@ jobs:
           done
           cat /tmp/v.json; echo
           grep -qF "$EXPECTED" /tmp/v.json || { echo "::error::/api/version bukan $EXPECTED"; exit 1; }
+
+          # c) nginx (pintu masuk dari Cloudflare) harus hidup dan meneruskan ke backend
+          for i in 1 2 3 4 5; do
+            curl -sf http://127.0.0.1/api/version -o /tmp/n.json && break
+            echo "menunggu nginx ($i/5)"; sleep 3
+          done
+          grep -qF "$EXPECTED" /tmp/n.json || { echo "::error::nginx tidak meneruskan /api/version"; docker compose logs --tail=20 nginx || true; exit 1; }
+          curl -sI http://127.0.0.1/ | grep -i '^x-frame-options' || { echo "::error::header keamanan nginx tidak terpasang"; exit 1; }
           echo "✅ Live: $EXPECTED"
 
       # Tetap jalan walau verifikasi gagal. Hanya cache yang dipakai deploy ini yang disimpan:
