@@ -71,7 +71,10 @@ services:
       - frontend
       - backend
 
+  # Tidak dipakai lagi sejak situs di belakang Cloudflare; disimpan sebagai riwayat hosting.
+  # Tidak ikut dijalankan kecuali diminta: docker compose --profile ngrok up -d ngrok
   ngrok:
+    profiles: ["ngrok"]
     logging: *default-logging
     image: ngrok/ngrok:latest
     container_name: mikroskop_ngrok
@@ -82,7 +85,8 @@ services:
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
     ports:
-      - "4040:4040"
+      # Inspector ngrok menyimpan isi request (termasuk password login): jangan dibuka ke publik.
+      - "127.0.0.1:4040:4040"
     depends_on:
       - nginx
 
