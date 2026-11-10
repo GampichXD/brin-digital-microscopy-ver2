@@ -1,0 +1,61 @@
+No	Deskripsi Fungsi	Metode	URL Endpoint	Akses
+1	Health check backend (hanya dari dalam VPS; di situs live "/" menampilkan halaman web)	GET	/	Publik
+2	Mengambil versi build backend	GET	/api/version	Publik
+3	Login dengan username dan password, menghasilkan token JWT	POST	/api/auth/login	Publik
+4	Mendaftarkan akun baru (selalu berperan Operator)	POST	/api/auth/register	Publik
+5	Mengambil daftar operator beserta status online dan login terakhir	GET	/api/auth/operators	Admin
+6	Mengubah peran operator	PUT	/api/auth/operators/{user_id}/role	Admin
+7	Menghapus akun operator	DELETE	/api/auth/operators/{user_id}	Admin
+8	Mereset password operator ke bawaan	PUT	/api/auth/reset-password	Admin
+9	Mengganti password akun yang sedang login	PUT	/api/auth/profile/password	Login
+10	Membuat folder dataset	POST	/api/dataset/folders	Login
+11	Mengambil daftar folder dataset	GET	/api/dataset/folders	Login
+12	Mengubah nama, jenis objek, dan operator folder dataset	PUT	/api/dataset/folders/{folder_id}	Login
+13	Menghapus folder dataset (juga salinan di Jetson)	DELETE	/api/dataset/folders/{folder_id}	Login
+14	Memindahkan gambar hasil scan ke folder dataset	PUT	/api/dataset/folders/{folder_id}/add-images	Login
+15	Mengambil daftar gambar dan video dalam folder	GET	/api/dataset/folders/{folder_id}/images	Login
+16	Mengunggah file ke folder (dari browser atau sinkronisasi Jetson)	POST	/api/dataset/folders/{folder_id}/files	Login atau token Edge
+17	Mengunduh satu file dari folder	GET	/api/dataset/folders/{folder_id}/files/{filename}/download	Login atau token Edge
+18	Menghapus gambar tertentu dari folder (juga salinan di Jetson)	DELETE	/api/dataset/folders/{folder_id}/images	Login
+19	Mengunduh folder sebagai zip, opsional format YOLO (token boleh lewat ?token=)	GET	/api/dataset/folders/{folder_id}/download	Login
+20	Memutar video rekaman dengan dukungan Range (token boleh lewat ?token=)	GET	/api/dataset/video/{folder_id}/{filename}	Login
+21	Mengambil kapasitas dan pemakaian penyimpanan	GET	/api/dataset/storage-info	Login
+22	Mengambil indeks file VPS untuk sinkronisasi Jetson	GET	/api/dataset/vps/sync-index	Login atau token Edge
+23	Mengunduh cadangan seluruh dataset (zip)	GET	/api/dataset/storage/export	Admin
+24	Menghapus file sementara (cache unggahan, hasil analisis, zip) tanpa menyentuh dataset	DELETE	/api/dataset/storage/purge-cache	Admin
+25	Menghapus seluruh dataset dan metadatanya	DELETE	/api/dataset/storage/purge-all	Admin
+26	Mengambil statistik CPU, RAM, dan suhu server serta Edge	GET	/api/hardware/telemetry/stats	Publik
+27	Mengambil konfigurasi sistem yang tersimpan	GET	/api/hardware/config	Login
+28	Mengubah ambang keyakinan AI penghitung koloni	PUT	/api/hardware/config/ai	Admin
+29	Menyimpan nilai bawaan Auto Gather	PUT	/api/hardware/config/autogather	Admin
+30	Mengembalikan satu bagian konfigurasi ke nilai bawaan	POST	/api/hardware/config/{section}/default	Admin
+31	Tindakan admin terhadap sesi pengguna (kick, jadikan pilot, dll.)	POST	/api/hardware/room/admin_action	Admin
+32	Menggerakkan motor CNC (harus Pilot)	POST	/api/hardware/motor/move	Login
+33	Homing motor CNC (harus Pilot)	POST	/api/hardware/motor/home	Login
+34	Membuka kunci alarm GRBL (harus Pilot)	POST	/api/hardware/motor/unlock	Login
+35	Menetapkan koordinat posisi motor saat ini	POST	/api/hardware/motor/set-position	Admin
+36	Me-restart layanan Edge di Jetson	POST	/api/hardware/edge/restart	Admin
+37	Menerapkan pengaturan kamera (shutter, ISO)	POST	/api/hardware/camera/settings	Login
+38	Kalibrasi flat-field atau dark-frame kamera	POST	/api/hardware/camera/flatfield?mode=flat|dark	Admin
+39	Menerapkan pengaturan CNC (feed rate, backlash, akselerasi)	POST	/api/hardware/cnc/settings	Admin
+40	Mengatur batas gerak (soft limit) CNC	POST	/api/hardware/cnc/soft-limits	Admin
+41	Memulai grid scan otomatis (harus Pilot)	POST	/api/hardware/scan/grid	Login
+42	Mengambil status dan progres grid scan	GET	/api/hardware/scan/status	Login
+43	Membatalkan grid scan	POST	/api/hardware/scan/cancel	Login
+44	Menghapus hasil satu sesi scan	DELETE	/api/hardware/scan/session/{session_id}	Login
+45	Mengambil ulang (retake) satu tile	POST	/api/hardware/scan/retake	Login
+46	Memulai stitching citra menjadi mosaik	POST	/api/hardware/stitch	Login
+47	Mengambil status stitching	GET	/api/hardware/stitch/status	Login
+48	Menempatkan tile hasil unggah ke grid stitching	POST	/api/hardware/stitch/place	Login
+49	Menempatkan tile dari dataset ke grid stitching	POST	/api/hardware/stitch/place-from-dataset	Login
+50	Menempatkan seluruh isi satu folder dataset ke grid stitching	POST	/api/hardware/stitch/place-folder	Login
+51	Mengaktifkan atau menonaktifkan hardware bus (fail-safe)	POST	/api/hardware/bus/toggle	Admin
+52	Mengunggah citra untuk dianalisis	POST	/api/analysis/upload	Login
+53	Menjalankan alat analisis citra (colony-count, adaptive-thresh, contour, morphology, sobel, roi, calibrate, color-split)	POST	/api/analysis/{tool_name}	Login
+54	Mengambil status dan hasil analisis citra	GET	/api/analysis/status?output=	Login
+55	Membuat laporan otomatis (WORD, EXCEL, atau PPT)	POST	/api/documentation/generate?format=	Login
+56	Mengambil riwayat log aktivitas	GET	/api/logs	Login
+57	Mencatat log aktivitas	POST	/api/logs	Login
+58	Menghapus seluruh log aktivitas	DELETE	/api/logs	Admin
+59	WebSocket Jetson: telemetri, perintah hardware, video, scan, stitching, analisis (token edge di ?device_token=)	WS	/api/hardware/ws	Token Edge
+60	WebSocket browser: telemetri, video, status room, dan perintah Pilot (JWT di ?token=)	WS	/api/hardware/client/ws	Login

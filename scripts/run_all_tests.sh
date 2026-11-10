@@ -30,5 +30,6 @@ if [ -n "$BASE_URL" ] && [ -f "$POSTMAN" ]; then
     --env-var "baseUrl=$BASE_URL" --env-var "adminUser=$TEST_USER" --env-var "adminPass=$TEST_PASS" \
     --delay-request 600 --timeout-request 100000 --working-dir qa/postman \
     -r cli,json --reporter-json-export qa/results/newman.json || true
+  python3 qa/postman/summarize_newman.py || true
 fi
 echo "Hasil: qa/results/"
