@@ -79,6 +79,13 @@ export default function ImageGatheringTab({
   const [processKind, setProcessKind] = useState<'scan' | 'stitch' | 'manual' | ''>('');
   const [progress, setProgress] = useState(0);
   const [scanCounts, setScanCounts] = useState({ captured: 0, failed: 0 });
+  // Hasil per tile (urutan scan, mulai 0): true = gambar tiba, false = gagal.
+  const [tileOk, setTileOk] = useState<Record<number, boolean>>({});
+  const tileOkFromImages = (images: any[]) => {
+    const out: Record<number, boolean> = {};
+    images.forEach((img: any, i: number) => { out[typeof img.index === 'number' ? img.index : i] = !!img.filename; });
+    return out;
+  };
   const [timerTick, setTimerTick] = useState(0);
   const [processTimes, setProcessTimes] = useState({ scan: 0, stitch: 0, total: 0 });
   const [isRetaking, setIsRetaking] = useState(false);
@@ -165,7 +172,7 @@ export default function ImageGatheringTab({
     input: isDarkMode ? 'bg-gray-950 border-gray-700 text-blue-400' : 'bg-white border-gray-300 text-blue-600',
     btnTouch: isDarkMode ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 active:bg-gray-600' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 active:bg-gray-300',
     modalBg: 'fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4',
-    overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4' 
+    overlay: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-0 sm:p-4' 
   };
 
   const triggerGlobalKeypad = (title: string, currentValue: string, setter: (val: string) => void) => {
@@ -199,6 +206,7 @@ export default function ImageGatheringTab({
     setProcessKind('scan');
     setProgress(Math.min(status.index || 0, totalGrids));
     setScanCounts({ captured: status.captured ?? 0, failed: status.failed ?? 0 });
+    if (Array.isArray(status.images)) setTileOk(tileOkFromImages(status.images));
     setProcessTask(`Menyambungkan kembali… Tile ${status.index || 0}/${totalGrids}`);
     setTimerTick(0);
     if (status.session) setScanSession(status.session);
@@ -229,6 +237,7 @@ export default function ImageGatheringTab({
         if (m.event === 'SCAN_PROGRESS' && typeof m.index === 'number') {
           setProgress(Math.min(m.index, totalGrids));
           setScanCounts({ captured: m.captured ?? 0, failed: m.failed ?? 0 });
+          if (typeof m.ok === 'boolean') setTileOk(prev => ({ ...prev, [m.index - 1]: m.ok }));
           setProcessTask(`Tile ${m.index}/${m.total ?? totalGrids}`);
         } else if (m.event === 'SCAN_COMPLETE') fin(m.images || [], 'ok');
         else if (m.event === 'SCAN_CANCELLED') fin(m.images || [], 'cancel');
@@ -246,6 +255,7 @@ export default function ImageGatheringTab({
         if (typeof data.index === 'number') {
           setProgress(Math.min(data.index, totalGrids));
           setScanCounts({ captured: data.captured ?? 0, failed: data.failed ?? 0 });
+          if (Array.isArray(data.images)) setTileOk(tileOkFromImages(data.images));
         }
         if (!data.running) {
           if (data.error) fin([], 'fail', data.error);
@@ -375,6 +385,7 @@ export default function ImageGatheringTab({
     setTimerTick(0);
     setProgress(0);
     setScanCounts({ captured: 0, failed: 0 });
+    setTileOk({});
     setProcessTimes({ scan: 0, stitch: 0, total: 0 });
 
     const startTime = Date.now();
@@ -402,6 +413,7 @@ export default function ImageGatheringTab({
           if (m.index !== lastIndex) { lastIndex = m.index; lastIndexAt = Date.now(); }
           setProgress(Math.min(m.index, totalGrids));
           setScanCounts({ captured: m.captured ?? 0, failed: m.failed ?? 0 });
+          if (typeof m.ok === 'boolean') setTileOk(prev => ({ ...prev, [m.index - 1]: m.ok }));
           setProcessTask(`Tile ${m.index}/${m.total} — X:${m.coordX} Y:${m.coordY}`);
         } else if (m.event === 'SCAN_COMPLETE') {
           finishSuccess(m.images || []);
@@ -513,6 +525,7 @@ export default function ImageGatheringTab({
           if (data.index !== lastIndex) { lastIndex = data.index; lastIndexAt = Date.now(); }
           setProgress(Math.min(data.index, totalGrids));
           setScanCounts({ captured: data.captured ?? 0, failed: data.failed ?? 0 });
+          if (Array.isArray(data.images)) setTileOk(tileOkFromImages(data.images));
         }
         if (!data.running) {
           if (data.error) finishError(data.error);
@@ -1333,13 +1346,13 @@ export default function ImageGatheringTab({
       </div>
 
       {isProcessing && (
-        <div className={theme.overlay} style={{ zIndex: 60 }}>
-          <div className="flex flex-col items-center text-white w-full max-w-lg">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 60 }}>
+          <div className="flex flex-col items-center text-center text-white w-full max-w-lg">
             {processKind === 'scan' ? (
-              <div className="w-64 h-64 bg-black/50 border border-gray-600 rounded-xl p-2 mb-6">
+              <div className="w-56 h-56 sm:w-64 sm:h-64 bg-black/50 border border-gray-600 rounded-xl p-2 mb-6">
                  <div className="w-full h-full border border-blue-500/50 grid gap-1" style={{ gridTemplateColumns: `repeat(${cols || 1}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows || 1}, minmax(0, 1fr))` }}>
                   {Array.from({ length: totalImagesConfig || 0 }).map((_, i) => (
-                    <div key={i} className={`rounded-sm transition-all duration-200 ${i < progress ? 'bg-green-500/80 border border-green-500' : i === progress ? 'bg-yellow-400 border border-white animate-pulse' : 'bg-gray-800'}`}></div>
+                    <div key={i} className={`rounded-sm transition-all duration-200 ${i < progress ? (tileOk[i] === false ? 'bg-red-500/80 border border-red-500' : 'bg-green-500/80 border border-green-500') : i === progress ? 'bg-yellow-400 border border-white animate-pulse' : 'bg-gray-800'}`}></div>
                   ))}
                 </div>
               </div>
@@ -1351,8 +1364,8 @@ export default function ImageGatheringTab({
               <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
             )}
 
-            <h2 className="text-2xl font-bold mb-2">{processTask}</h2>
-            <div className="flex items-center gap-4 text-blue-300 font-mono text-lg">
+            <h2 className="text-xl sm:text-2xl font-bold mb-2">{processTask}</h2>
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-blue-300 font-mono text-base sm:text-lg">
               {processKind === 'scan' && (
                 <>
                   <span>{progress}/{totalImagesConfig} ({Math.round((progress / (totalImagesConfig || 1)) * 100)}%)</span>
@@ -1398,11 +1411,11 @@ export default function ImageGatheringTab({
 
       {showReviewModal && (
         <div className={theme.overlay}>
-          <div className={`w-[95%] max-w-6xl h-[90vh] rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
-            <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-black/20 shrink-0">
-              <div className="flex items-center space-x-3">
-                <Grid3X3 size={24} className="text-blue-500" />
-                <h2 className={`text-2xl font-bold ${theme.text}`}>{t('captureResults')}</h2>
+          <div className={`w-full sm:w-[95%] max-w-6xl h-[100dvh] sm:h-[90dvh] rounded-none sm:rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
+            <div className="p-3 sm:p-6 border-b border-gray-700 flex justify-between items-center gap-2 bg-black/20 shrink-0">
+              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 min-w-0">
+                <Grid3X3 size={22} className="text-blue-500 shrink-0" />
+                <h2 className={`text-lg sm:text-2xl font-bold ${theme.text}`}>{t('captureResults')}</h2>
                 {gatherMode === 'AUTO' && (
                   <span className="text-xs font-mono font-bold">
                     <span className="text-green-500">Berhasil {validImageCount}</span>
@@ -1413,13 +1426,13 @@ export default function ImageGatheringTab({
                   </span>
                 )}
               </div>
-              <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={24}/></button>
+              <button onClick={() => {setShowReviewModal(false); setCapturedImages([]);}} aria-label="Tutup" className={`p-2 rounded-xl border shrink-0 ${theme.btnTouch} ${theme.text}`}><X size={22}/></button>
             </div>
             
-            <div className="flex-1 overflow-auto p-4 sm:p-6 bg-black/5">
+            <div className="flex-1 overflow-auto p-2 sm:p-6 bg-black/5">
               <div 
-                className={`grid gap-3 p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-full sm:w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5' : ''}`}
-                style={gatherMode === 'AUTO' ? { gridTemplateColumns: `repeat(${cols}, minmax(130px, 1fr))` } : {}}
+                className={`grid gap-2 sm:gap-3 p-2 sm:p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-full sm:w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5' : ''}`}
+                style={gatherMode === 'AUTO' ? { gridTemplateColumns: `repeat(${cols}, minmax(clamp(72px, 22vw, 130px), 1fr))` } : {}}
               >
                 {capturedImages.map((img) => (
                   img.filename ? (
@@ -1441,14 +1454,14 @@ export default function ImageGatheringTab({
               </div>
             </div>
 
-            <div className="p-4 sm:p-6 border-t border-gray-700 flex flex-col sm:flex-row items-stretch sm:items-center bg-black/20 gap-3 sm:gap-4 shrink-0">
-              <div className="flex gap-3 sm:gap-4 flex-row w-full sm:w-auto">
+            <div className="p-3 sm:p-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-700 flex flex-col sm:flex-row items-stretch sm:items-center bg-black/20 gap-2 sm:gap-4 shrink-0">
+              <div className="flex flex-wrap gap-2 sm:gap-4 w-full sm:w-auto">
                 <button onClick={() => {setShowReviewModal(false); setCapturedImages([]); showToast('Hasil akuisisi telah dibuang', 'info');}} className="flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm sm:text-base">
                   <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> {t('cancel')}
                 </button>
                 {scanSession && (
-                  <button onClick={handleDeleteScanSession} title="Hapus berkas sesi ini dari server dan Jetson" className="flex-1 sm:flex-none px-4 py-3 rounded-xl font-bold flex items-center justify-center border border-red-500/50 text-red-500 hover:bg-red-500/10 active:scale-95">
-                    <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> Hapus Hasil Sesi Ini
+                  <button onClick={handleDeleteScanSession} title="Hapus berkas sesi ini dari server dan Jetson" className="flex-1 sm:flex-none px-3 sm:px-4 py-3 rounded-xl font-bold flex items-center justify-center border border-red-500/50 text-red-500 hover:bg-red-500/10 active:scale-95 text-sm sm:text-base whitespace-nowrap">
+                    <Trash2 size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="sm:hidden">Hapus Sesi</span><span className="hidden sm:inline">Hapus Hasil Sesi Ini</span>
                   </button>
                 )}
                 <button onClick={() => { setTargetSaveMode('GRID'); setShowSaveModal(true); }} disabled={validImageCount === 0} className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 sm:py-4 rounded-xl font-bold flex items-center justify-center border border-transparent active:scale-95 text-sm sm:text-base ${theme.btnTouch} ${theme.text}`}>
@@ -1468,7 +1481,7 @@ export default function ImageGatheringTab({
                     </select>
                   </div>
                   <button onClick={() => executeStitching()} disabled={validImageCount < 2} className="flex-1 py-3 sm:py-4 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg shadow-purple-600/20 text-[11px] xs:text-xs sm:text-base px-2 text-center">
-                    <Grid3X3 size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">TILE STITCHING</span><span className="sm:hidden">STITCHING</span> ({validImageCount})
+                    <Grid3X3 size={18} className="mr-1 sm:mr-2 shrink-0"/> <span className="hidden sm:inline">TILE STITCHING</span><span className="sm:hidden">STITCHING</span>&nbsp;({validImageCount})
                   </button>
                 </div>
               )}
@@ -1479,7 +1492,7 @@ export default function ImageGatheringTab({
 
       {showStitchModal && (
         <div className={theme.modalBg}>
-           <div className={`w-[95%] sm:w-[80%] max-w-3xl rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
+           <div className={`w-full sm:w-[80%] max-w-3xl rounded-2xl sm:rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <div className="p-4 sm:p-6 border-b border-gray-700 flex justify-between items-center bg-black/20">
               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-500/20 rounded-full flex items-center justify-center mr-3 sm:mr-4 shrink-0">
                 <Image size={20} className="text-purple-400 sm:w-6 sm:h-6" />
@@ -1490,14 +1503,14 @@ export default function ImageGatheringTab({
               <button onClick={() => {setShowStitchModal(false); setCapturedImages([]);}} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text} shrink-0 ml-2`}><X size={20} className="sm:w-6 sm:h-6"/></button>
             </div>
             
-            <div className="p-8 flex flex-col justify-center items-center bg-black/40 border-y border-gray-800">
+            <div className="p-3 sm:p-8 flex flex-col justify-center items-center bg-black/40 border-y border-gray-800">
               <div className="w-full aspect-video border-2 border-purple-500/50 rounded-xl bg-purple-500/10 flex flex-col items-center justify-center relative overflow-hidden mb-4 group">
                  <a href={`${api.defaults.baseURL}/static/uploads/stitched_ta_output.jpg?t=${processTimes.total}`} target="_blank" rel="noreferrer" title="Buka ukuran penuh" className="absolute inset-0 z-0">
                  <img src={`${api.defaults.baseURL}/static/uploads/stitched_ta_output.jpg?t=${processTimes.total}`} className="w-full h-full object-contain absolute inset-0 z-0 opacity-90 group-hover:opacity-100 transition-opacity" alt="stitched-result" />
                  </a>
                  <div className="z-10 bg-black/60 p-2 rounded-lg mt-auto mb-2 flex items-center shadow-lg backdrop-blur-sm">
                    <ImageIcon size={18} className="text-purple-400 mr-2" />
-                   <span className="font-mono font-bold text-purple-300">stitched_ta_output.jpg</span>
+                   <span className="font-mono font-bold text-purple-300 text-xs sm:text-base break-all">stitched_ta_output.jpg</span>
                  </div>
               </div>
               
@@ -1533,7 +1546,7 @@ export default function ImageGatheringTab({
 
       {showSaveModal && (
         <div className={theme.modalBg}>
-          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
+          <div className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{t('saveResults')}</h2>
             <div className="space-y-4">
               <div>
@@ -1542,7 +1555,7 @@ export default function ImageGatheringTab({
                   {availableFolders.map((folder: {id: string, name: string}) => (
                     <div key={folder.id} onClick={() => { setSelectedFolderId(folder.id); setSaveForm({ folderName: '', objectType: '', operatorName: '' }); }} className={`p-3 rounded-xl border cursor-pointer flex items-center transition-colors ${selectedFolderId === folder.id ? 'border-blue-500 bg-blue-500/10 text-blue-400' : `${theme.panel} ${theme.text} hover:border-gray-500`}`}>
                       <FolderPlus size={18} className="mr-3" />
-                      <span className="font-bold text-sm">{folder.name}</span>
+                      <span className="font-bold text-sm truncate min-w-0">{folder.name}</span>
                     </div>
                   ))}
                 </div>
@@ -1603,11 +1616,11 @@ export default function ImageGatheringTab({
       {/* ── MODAL: INPUT IMAGES (isi tiap sel grid) ── */}
       {showInputModal && (
         <div className={theme.overlay}>
-          <div className={`w-[95%] max-w-5xl h-[90vh] rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
-            <div className="p-4 sm:p-6 border-b border-gray-700 flex justify-between items-center bg-black/20 shrink-0">
+          <div className={`w-full sm:w-[95%] max-w-5xl h-[100dvh] sm:h-[90dvh] rounded-none sm:rounded-3xl flex flex-col overflow-hidden shadow-2xl ${theme.panel}`}>
+            <div className="p-3 sm:p-6 border-b border-gray-700 flex justify-between items-center gap-2 bg-black/20 shrink-0">
               <div className="flex items-center gap-3">
                 <Boxes size={24} className="text-blue-500" />
-                <h2 className={`text-xl sm:text-2xl font-bold ${theme.text}`}>Susun Grid {c} × {r}</h2>
+                <h2 className={`text-lg sm:text-2xl font-bold ${theme.text}`}>Susun Grid {c} × {r}</h2>
               </div>
               <button onClick={() => setShowInputModal(false)} className={`p-2 rounded-xl border ${theme.btnTouch} ${theme.text}`}><X size={22} /></button>
             </div>
@@ -1621,7 +1634,7 @@ export default function ImageGatheringTab({
             </div>
 
             <div className="flex-1 overflow-auto p-4 sm:p-6 bg-black/5">
-              <div className="grid gap-3 mx-auto w-fit" style={{ gridTemplateColumns: `repeat(${c}, minmax(110px, 1fr))` }}>
+              <div className="grid gap-2 sm:gap-3 mx-auto w-fit" style={{ gridTemplateColumns: `repeat(${c}, minmax(clamp(64px, 20vw, 110px), 1fr))` }}>
                 {Array.from({ length: r }).map((_, gy) =>
                   Array.from({ length: c }).map((__, gx) => {
                     const key = `${gy}-${gx}`;
@@ -1647,19 +1660,19 @@ export default function ImageGatheringTab({
               </div>
             </div>
 
-            <div className="p-4 sm:p-6 border-t border-gray-700 flex gap-3 bg-black/20 shrink-0">
+            <div className="p-3 sm:p-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-700 flex gap-2 sm:gap-3 bg-black/20 shrink-0">
               <button onClick={() => { setInputTiles({}); setInputSession(''); showToast('Grid dikosongkan', 'info'); }} className="px-4 py-3 rounded-xl font-bold border border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white active:scale-95 transition-colors text-sm">
                 <Trash2 size={16} className="inline mr-1" /> Kosongkan
               </button>
               <button onClick={executeStitchingInput} disabled={Object.keys(inputTiles).length < 2} className="flex-1 py-3 bg-purple-600 disabled:bg-gray-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center active:scale-95 transition-all shadow-lg">
-                <Grid3X3 size={18} className="mr-2" /> MULAI TILE STITCHING ({Object.keys(inputTiles).length})
+                <Grid3X3 size={18} className="mr-2 shrink-0" /> <span className="hidden sm:inline">MULAI TILE STITCHING</span><span className="sm:hidden">STITCHING</span>&nbsp;({Object.keys(inputTiles).length})
               </button>
             </div>
           </div>
 
           {/* Sub-popup: pilih sumber untuk satu sel */}
           {inputTarget && !showDbPicker && (
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120]" onClick={() => setInputTarget(null)}>
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120] p-4" onClick={() => setInputTarget(null)}>
               <div className={`w-[90%] max-w-xs rounded-2xl p-5 border ${theme.panel}`} onClick={(e) => e.stopPropagation()}>
                 <h3 className={`text-sm font-bold mb-4 ${theme.text}`}>Sumber gambar untuk sel (r{inputTarget.gy} c{inputTarget.gx})</h3>
                 <div className="flex flex-col gap-2">
@@ -1674,7 +1687,7 @@ export default function ImageGatheringTab({
           {/* Sub-modal: pilih dari dataset folder */}
           {showDbPicker && (
             <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[130] p-4" onClick={() => setShowDbPicker(false)}>
-              <div className={`w-[95%] max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden border ${theme.panel}`} onClick={(e) => e.stopPropagation()}>
+              <div className={`w-full sm:w-[95%] max-w-2xl max-h-[calc(100dvh-2rem)] sm:max-h-[80dvh] rounded-2xl flex flex-col overflow-hidden border ${theme.panel}`} onClick={(e) => e.stopPropagation()}>
                 <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-black/20">
                   <h3 className={`font-bold ${theme.text}`}>
                     {dbPickerMode === 'grid'

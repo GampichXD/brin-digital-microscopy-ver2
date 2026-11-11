@@ -572,7 +572,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
           </div>
           
           {/* CLOSE BUTTON */}
-          <button onClick={() => setPreviewIndex(null)} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 md:p-3 bg-black/40 hover:bg-red-500 text-white rounded-full transition-all z-50 backdrop-blur-md border border-white/20">
+          <button aria-label="Tutup pratinjau" onClick={() => setPreviewIndex(null)} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 md:p-3 bg-black/40 hover:bg-red-500 text-white rounded-full transition-all z-50 backdrop-blur-md border border-white/20">
             <X size={24} />
           </button>
 
@@ -586,7 +586,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
           </button>
 
           {/* KONTEN UTAMA */}
-          <div className="w-full h-full max-w-[100vw] md:max-w-[85vw] max-h-[100vh] md:max-h-[80vh] flex items-center justify-center z-0 p-0 md:p-8">
+          <div className="w-full h-full max-w-[100vw] md:max-w-[85vw] max-h-[100dvh] md:max-h-[80dvh] flex items-center justify-center z-0 pt-20 pb-32 md:p-8">
             <div className="w-full h-full flex items-center justify-center md:rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-black/50">
               {currentImages[previewIndex]?.name.toLowerCase().endsWith('.mp4') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.webm') || currentImages[previewIndex]?.name.toLowerCase().endsWith('.avi') ? (
                 <video src={withToken(`${api.defaults.baseURL}/api/dataset/video/${activeFolder?.id}/${currentImages[previewIndex]?.name}`)} controls autoPlay className="max-w-full max-h-full object-contain md:rounded-2xl" onError={(e) => { const el = e.target as HTMLVideoElement; el.style.display='none'; el.insertAdjacentHTML('afterend', '<div class="text-red-400 text-center p-4 md:p-8 bg-gray-900 rounded-xl border border-red-500/30"><p class="font-bold text-lg md:text-xl mb-2">File video tidak dapat diputar.</p><p class="text-xs md:text-sm text-gray-400">File mungkin kosong atau belum selesai disinkronkan.</p></div>'); }} />
@@ -606,7 +606,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
           </button>
 
           {/* FOOTER ACTION BUTTONS */}
-          <div className="absolute bottom-0 inset-x-0 p-4 md:p-8 flex flex-row justify-center gap-3 md:gap-6 bg-gradient-to-t from-black/80 to-transparent z-20">
+          <div className="absolute bottom-0 inset-x-0 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-8 flex flex-row justify-center gap-3 md:gap-6 bg-gradient-to-t from-black/80 to-transparent z-20">
             <button onClick={() => { confirmDeleteImages([currentImages[previewIndex]?.name]); }} className="flex-1 md:flex-none px-4 md:px-8 py-3 md:py-4 bg-red-600/80 hover:bg-red-600 text-white rounded-xl md:rounded-2xl font-bold flex flex-col md:flex-row items-center justify-center active:scale-95 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] backdrop-blur-md text-xs md:text-base text-center">
               <Trash2 size={20} className="mb-1 md:mb-0 md:mr-3" /> Hapus Permanen
             </button>
@@ -619,7 +619,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
 
       {isConfirmImageOpen && (
         <div className={`${theme.modalOverlay} backdrop-blur-md`}>
-          <div className={`w-full max-w-sm rounded-3xl p-8 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
+          <div className={`w-full max-w-sm rounded-3xl p-6 sm:p-8 shadow-2xl border flex flex-col items-center text-center ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <div className="w-24 h-24 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse">
               <AlertTriangle size={48} />
             </div>
@@ -635,7 +635,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
 
       {isConfirmOpen && (
         <div className={`${theme.modalOverlay} backdrop-blur-md`}>
-          <div className={`w-full max-w-sm rounded-3xl p-8 shadow-2xl border flex flex-col items-center text-center ${theme.panel}`}>
+          <div className={`w-full max-w-sm rounded-3xl p-6 sm:p-8 shadow-2xl border flex flex-col items-center text-center ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <div className="w-24 h-24 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse">
               <AlertTriangle size={48} />
             </div>
@@ -651,7 +651,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
 
       {isFormOpen && (
         <div className={theme.modalOverlay}>
-          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
+          <div className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{formMode === 'create' ? t('createFolder') : t('editFolder')}</h2>
             <div className="space-y-4 mb-6">
               <div>
@@ -701,7 +701,7 @@ export default function DatabaseTab({ availableFolders, onRefreshFolders }: Data
 
       {isUploadOpen && (
         <div className={theme.modalOverlay}>
-          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
+          <div className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <div className="flex justify-between items-center mb-4">
               <h2 className={`text-xl font-bold ${theme.text}`}>{t('uploadImage')}</h2>
               <button onClick={() => setIsUploadOpen(false)} className={`p-2 rounded-full ${theme.btnHover}`}>

@@ -412,7 +412,7 @@ export default function DocumentationTab({ availableFolders = [] }: Documentatio
       {/* KONFIRMASI CLEAR LOG */}
       {confirmClear && (
         <div className={theme.overlay}>
-          <div className={`w-full max-w-sm rounded-2xl p-6 border shadow-2xl text-center ${theme.panel}`}>
+          <div className={`w-full max-w-sm rounded-2xl p-5 sm:p-6 border shadow-2xl text-center ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center"><Trash2 size={28} /></div>
             <h3 className={`font-bold text-lg mb-1 ${theme.text}`}>Bersihkan semua log?</h3>
             <p className={`text-xs mb-5 ${theme.textMuted}`}>Seluruh {logs.length} baris audit trail akan dihapus permanen dari database.</p>

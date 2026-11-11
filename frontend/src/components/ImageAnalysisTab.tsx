@@ -642,7 +642,7 @@ export default function ImageAnalysisTab({
 
       {showSaveModal && (
         <div className={theme.modalBg}>
-          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl border ${theme.panel}`}>
+          <div className={`w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl border ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <h2 className={`text-xl font-bold mb-4 ${theme.text}`}>{t('saveAnalysisResults')}</h2>
             <div className="mb-4">
               <label className={`block text-xs font-bold mb-2 ${theme.textMuted}`}>{t('selectDestFolder')}</label>

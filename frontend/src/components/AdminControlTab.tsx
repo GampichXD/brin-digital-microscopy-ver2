@@ -755,7 +755,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
       {/* KONFIRMASI RESTART EDGE */}
       {confirmRestart && (
         <div className={theme.overlay}>
-          <div className={`w-full max-w-sm rounded-2xl p-6 border shadow-2xl text-center ${theme.panel}`}>
+          <div className={`w-full max-w-sm rounded-2xl p-5 sm:p-6 border shadow-2xl text-center ${theme.panel} max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain`}>
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center"><RefreshCcw size={28} /></div>
             <h3 className={`font-bold text-lg mb-1 ${theme.text}`}>Restart layanan Edge?</h3>
             <p className={`text-xs mb-5 ${theme.textMuted}`}>Proses kontrol di Jetson akan dijalankan ulang (os.execv). Live stream & kontrol motor terputus sesaat. Bukan reboot OS.</p>

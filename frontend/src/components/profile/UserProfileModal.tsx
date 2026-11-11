@@ -53,7 +53,7 @@ export default function UserProfileModal({
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className={`w-full max-w-sm rounded-3xl border shadow-2xl animate-in fade-in zoom-in-95 duration-200 overflow-hidden ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+      <div className={`w-full max-w-sm rounded-3xl border shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
         <div className="p-5 border-b border-gray-800/50 bg-black/10 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className={`p-2.5 rounded-xl ${currentUserRole === 'ADMIN' ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-500'}`}>
