@@ -11,6 +11,7 @@ from hypothesis import given, strategies as st
 from app.main import app
 from app.routers import hardware
 from app.services.scan_planner import (
+    CAPTURE_OVERHEAD_S,
     MIN_MOVE_DELAY_S,
     ROW_CHANGE_SETTLE_S,
     compute_delay,
@@ -66,7 +67,15 @@ def test_N02d_delay_selalu_di_atas_komponennya(distance, feed, delay_ms, row_cha
 
 def test_N02e_estimasi_scan_memakai_rumus_yang_sama():
     # 2x2, langkah 1 mm: titik awal + 3 langkah, 1 ganti baris.
-    assert estimate_scan_seconds(2, 2, 1.0, 1.0, 250.0, 100) == pytest.approx(4 * 0.6 + ROW_CHANGE_SETTLE_S)
+    assert estimate_scan_seconds(2, 2, 1.0, 1.0, 250.0, 100, capture_s=0.0) == pytest.approx(
+        4 * 0.6 + ROW_CHANGE_SETTLE_S)
+
+
+def test_N02b_eta_includes_capture_per_tile():
+    """Persamaan (5): tiap tile menambah waktu capture, terukur 0,43 s pada uji t05."""
+    without = estimate_scan_seconds(10, 10, 0.5, 0.5, 250.0, 500, capture_s=0.0)
+    assert estimate_scan_seconds(10, 10, 0.5, 0.5, 250.0, 500) == pytest.approx(without + 100 * CAPTURE_OVERHEAD_S)
+    assert CAPTURE_OVERHEAD_S == pytest.approx(0.43)
 
 
 def test_N03_rate_limit_rest_per_user():

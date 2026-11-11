@@ -138,9 +138,23 @@ export default function ImageGatheringTab({
   const MAX_CNC_Y = 100;
   const isLimitExceeded = totalAreaX_mm > MAX_CNC_X || totalAreaY_mm > MAX_CNC_Y;
 
+  // Sama dengan estimate_scan_seconds di backend/app/services/scan_planner.py (persamaan 3-5):
+  // per tile max(0,5 s; jarak/feed) + jeda kamera + capture 0,43 s, ditambah 1 s tiap pindah baris.
   const delaySec = (parseInt(camDelay) || 500) / 1000;
-  const motorMoveTimeSec = 1.2; 
-  const estimatedTotalSeconds = c * r * (delaySec + motorMoveTimeSec);
+  const FEED_MM_PER_S = 250 / 60;
+  const MIN_MOVE_DELAY_S = 0.5;
+  const ROW_CHANGE_SETTLE_S = 1.0;
+  const CAPTURE_OVERHEAD_S = 0.43;
+  const stepXmm = sx * unitMultiplier;
+  const stepYmm = sy * unitMultiplier;
+  const firstTileTravel = 0;
+  const inRowTravel = Math.max(MIN_MOVE_DELAY_S, stepXmm / FEED_MM_PER_S);
+  const rowChangeTravel = Math.max(MIN_MOVE_DELAY_S, stepYmm / FEED_MM_PER_S) + ROW_CHANGE_SETTLE_S;
+  const estimatedTotalSeconds =
+    Math.max(MIN_MOVE_DELAY_S, firstTileTravel) +
+    r * (c - 1) * inRowTravel +
+    (r - 1) * rowChangeTravel +
+    c * r * (delaySec + CAPTURE_OVERHEAD_S);
   const estMins = Math.floor(estimatedTotalSeconds / 60);
   const estSecs = Math.floor(estimatedTotalSeconds % 60);
 

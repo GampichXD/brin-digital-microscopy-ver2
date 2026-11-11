@@ -10,6 +10,11 @@ MIN_MOVE_DELAY_S = 0.5
 # pertama di baris baru berisiko goyang atau buram.
 ROW_CHANGE_SETTLE_S = 1.0
 
+# Waktu dari perintah CAPTURE_IMAGE sampai citra tile tersimpan di server (potret di Jetson,
+# kirim lewat WebSocket, tulis ke disk). Terukur 0,43 s per tile pada uji ETA t05
+# (11 November 2026, grid 3x3 sampai 10x10, 9 run), persamaan (5).
+CAPTURE_OVERHEAD_S = 0.43
+
 
 def plan_serpentine(rows, cols, x0, y0, dx, dy):
     """Urutan tile serpentine, persamaan (1)-(2). Label grid dibalik: tile di posisi AWAL
@@ -34,12 +39,14 @@ def compute_delay(distance_mm, feed_mm_per_s, delay_ms, row_change=False, row_se
     return max(MIN_MOVE_DELAY_S, travel) + delay_ms / 1000.0 + (row_settle_s if row_change else 0.0)
 
 
-def estimate_scan_seconds(rows, cols, dx, dy, feed_mm_min, delay_ms, row_settle_s=ROW_CHANGE_SETTLE_S):
-    """Total waktu tunggu gerak di sepanjang scan (tanpa waktu capture dan kirim citra)."""
+def estimate_scan_seconds(rows, cols, dx, dy, feed_mm_min, delay_ms, row_settle_s=ROW_CHANGE_SETTLE_S,
+                          capture_s=CAPTURE_OVERHEAD_S):
+    """Perkiraan durasi scan: jumlah jeda gerak tiap tile ditambah waktu capture tiap tile.
+    capture_s=0 memberi waktu tunggu gerak saja (persamaan 3-4 tanpa persamaan 5)."""
     feed = feed_mm_min / 60.0
     total, last_x, last_y = 0.0, 0.0, 0.0
     for tile in plan_serpentine(rows, cols, 0.0, 0.0, dx, dy):
         distance = math.hypot(tile["x"] - last_x, tile["y"] - last_y)
-        total += compute_delay(distance, feed, delay_ms, tile["row_change"], row_settle_s)
+        total += compute_delay(distance, feed, delay_ms, tile["row_change"], row_settle_s) + capture_s
         last_x, last_y = tile["x"], tile["y"]
     return total
