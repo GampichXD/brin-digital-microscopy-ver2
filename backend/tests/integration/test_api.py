@@ -925,3 +925,81 @@ def test_feature_G18_scan_melaporkan_tile_gagal():
         time.sleep(0.1)
     assert status["total"] == 1
     assert "captured" in status and "failed" in status
+
+
+def _poll_analysis_status(output, timeout_s=5.0):
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        status = client.get("/api/analysis/status", params={"output": output}).json()
+        if status.get("done") or status.get("error"):
+            return status
+        time.sleep(0.1)
+    return status
+
+
+def test_feature_L06_cv_result_colony_area_histogram_dan_csv_tersimpan():
+    """L06: CV_RESULT colony-count dari Edge membawa luas koloni + histogram PNG +
+    CSV per koloni; ketiganya harus tersimpan dan muncul di /analysis/status."""
+    import base64 as b64
+    ok, png = cv2.imencode(".png", np.zeros((8, 8, 3), np.uint8))
+    jpg = b64.b64encode(_make_test_image_bytes().getvalue()).decode()
+    area = {"unit": "mm²", "length_unit": "mm", "n": 2, "calibrated": True,
+            "scale": {"um_per_px_x": 7.0, "um_per_px_y": 7.0, "source": "camera tile 7 um/px @ 900x506px"},
+            "total": 0.5, "mean": 0.25, "median": 0.25, "min": 0.2, "max": 0.3,
+            "mean_eq_diameter": 0.56, "hist_counts": [1, 1], "hist_edges": [0.2, 0.25, 0.3]}
+    with client.websocket_connect(EDGE_WS) as ws:
+        assert _wait_until_registered() == "ok"
+        ws.send_json({
+            "event": "CV_RESULT", "status": "SUCCESS", "filename": "yolo_uji_area.jpg",
+            "image_data": f"data:image/jpeg;base64,{jpg}", "colonies": 2, "area": area,
+            "histogram_data": "data:image/png;base64," + b64.b64encode(png.tobytes()).decode(),
+            "histogram_filename": "yolo_uji_area_area_hist.png",
+            "areas_csv": "id,area_mm²\n1,0.2\n2,0.3\n", "areas_csv_filename": "yolo_uji_area_areas.csv",
+        })
+        status = _poll_analysis_status("yolo_uji_area.jpg")
+    assert status["done"] is True
+    assert status["colonies"] == 2
+    assert status["area"]["unit"] == "mm²" and status["area"]["n"] == 2
+    assert status["area"]["histogram_url"] == "/static/uploads/yolo_uji_area_area_hist.png"
+    assert status["area"]["areas_csv_url"] == "/static/uploads/yolo_uji_area_areas.csv"
+    assert client.get(status["area"]["histogram_url"]).content == png.tobytes()
+    assert "1,0.2" in client.get(status["area"]["areas_csv_url"]).text
+
+
+def test_feature_L07_cv_result_nama_export_luas_disaring():
+    """L07: Nama histogram/CSV dari Edge tidak boleh keluar dari static/uploads
+    dan ekstensinya harus sesuai (.png / .csv)."""
+    from app.routers.hardware import _save_area_exports
+    urls = _save_area_exports({
+        "histogram_filename": "../../luar.png", "histogram_data": "data:image/png;base64,AAAA",
+        "areas_csv_filename": "skrip.sh", "areas_csv": "x",
+    })
+    assert urls == {"histogram_url": "/static/uploads/luar.png"}
+    assert os.path.exists("static/uploads/luar.png")
+    assert not os.path.exists("luar.png") and not os.path.exists("static/uploads/skrip.sh")
+
+
+def test_feature_L08_cv_result_morfologi_yolo_membawa_luas():
+    """L08: Kalkulasi Morfologi kini dihitung dari mask YOLO di Edge: CV_RESULT
+    membawa stats (satuan mm²) + luas/histogram; status harus memisahkan
+    keduanya (stats tanpa kunci area, area dengan URL histogram)."""
+    import base64 as b64
+    ok, png = cv2.imencode(".png", np.zeros((8, 8, 3), np.uint8))
+    jpg = b64.b64encode(_make_test_image_bytes().getvalue()).decode()
+    stats = {"method": "YOLO segmentation (besttt_FP16.engine)", "unit": "mm²", "length_unit": "mm",
+             "total_cells": 3, "total_area": 0.6, "avg_area": 0.2, "median_area": 0.2,
+             "avg_perimeter": 1.6, "avg_eq_diameter": 0.5, "avg_circularity": 0.9}
+    area = {"unit": "mm²", "n": 3, "total": 0.6, "mean": 0.2, "median": 0.2, "min": 0.1, "max": 0.3}
+    with client.websocket_connect(EDGE_WS) as ws:
+        assert _wait_until_registered() == "ok"
+        ws.send_json({
+            "event": "CV_RESULT", "status": "SUCCESS", "filename": "edited_morphology_uji.jpg",
+            "image_data": f"data:image/jpeg;base64,{jpg}", "stats": stats, "area": area,
+            "histogram_data": "data:image/png;base64," + b64.b64encode(png.tobytes()).decode(),
+            "histogram_filename": "edited_morphology_uji_area_hist.png",
+        })
+        status = _poll_analysis_status("edited_morphology_uji.jpg")
+    assert status["done"] is True
+    assert status["stats"] == stats
+    assert status["area"]["n"] == 3
+    assert status["area"]["histogram_url"] == "/static/uploads/edited_morphology_uji_area_hist.png"

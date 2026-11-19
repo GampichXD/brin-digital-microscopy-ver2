@@ -47,6 +47,31 @@ if not os.path.exists(UPLOAD_DIR):
 
 DATASET_DIR = "./static/datasets"
 
+
+def _save_area_exports(data: dict) -> dict:
+    """Simpan histogram luas koloni (PNG) dan CSV per-koloni dari CV_RESULT
+    colony-count ke UPLOAD_DIR. Return URL-nya untuk sidecar .json.
+    Nama dari Edge disaring dan ekstensinya dipaksa (.png / .csv)."""
+    urls = {}
+    exports = (("histogram_filename", "histogram_data", ".png", "histogram_url"),
+               ("areas_csv_filename", "areas_csv", ".csv", "areas_csv_url"))
+    for name_key, data_key, ext, url_key in exports:
+        name = os.path.basename(str(data.get(name_key) or ""))
+        payload = data.get(data_key)
+        if not name or not payload or not name.lower().endswith(ext):
+            continue
+        try:
+            if ext == ".png":
+                raw = base64.b64decode(str(payload).split(",", 1)[-1])
+            else:
+                raw = str(payload).encode("utf-8")
+            with open(os.path.join(UPLOAD_DIR, name), "wb") as f:
+                f.write(raw)
+            urls[url_key] = f"/static/uploads/{name}"
+        except Exception as err:
+            print(f"[VPS STORAGE ERROR] Gagal menyimpan {name}: {err}")
+    return urls
+
 # Model tile stitching yang didukung -> backend cfg SP_LG.
 STITCH_MODELS = {"sp_lg_tensorrt", "sift_bfm", "sift_lg", "brute_force"}
 
@@ -996,21 +1021,30 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
                     try:
                         image_bytes = base64.b64decode(base64_str)
                         file_path = os.path.join(UPLOAD_DIR, filename)
-                        with open(file_path, "wb") as f:
-                            f.write(image_bytes)
-                        print(f"[VPS STORAGE SUCCESS] Berhasil menulis hasil AI ke disk: {file_path}", flush=True)
 
                         # Hasil Image Analysis (CV_RESULT): tulis sidecar .json yang
-                        # dibaca analysis.py (colony_count / stats morfologi).
+                        # dibaca analysis.py (colony_count / luas / stats morfologi).
+                        # Ditulis SEBELUM gambar utama: GET /analysis/status
+                        # menganggap selesai begitu gambar utama ada.
                         if event_type == "CV_RESULT":
                             cv_bus.clear(filename)
                             json_path = os.path.splitext(file_path)[0] + ".json"
+                            sidecar = None
                             if data.get("colonies") is not None:
-                                with open(json_path, "w") as jf:
-                                    json.dump({"colony_count": data["colonies"]}, jf)
+                                sidecar = {"colony_count": data["colonies"]}
                             elif isinstance(data.get("stats"), dict):
+                                sidecar = dict(data["stats"])
+                            if sidecar is not None:
+                                # Luas koloni YOLO (colony-count & morfologi): histogram + CSV.
+                                if isinstance(data.get("area"), dict):
+                                    sidecar["area"] = data["area"]
+                                    sidecar.update(_save_area_exports(data))
                                 with open(json_path, "w") as jf:
-                                    json.dump(data["stats"], jf)
+                                    json.dump(sidecar, jf)
+
+                        with open(file_path, "wb") as f:
+                            f.write(image_bytes)
+                        print(f"[VPS STORAGE SUCCESS] Berhasil menulis hasil AI ke disk: {file_path}", flush=True)
 
                         await redis.publish("microscope_analysis_result", message)
                     except Exception as err:

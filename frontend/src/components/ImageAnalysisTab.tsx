@@ -21,6 +21,29 @@ interface ImageAnalysisTabProps {
   onRefreshFolders?: () => void;
 }
 
+// Luas koloni dari mask YOLO (dihitung di Jetson, colony_counting.py).
+interface ColonyArea {
+  unit: string;            // 'mm²' bila terkalibrasi, 'px²' bila tidak
+  length_unit: string;
+  n: number;
+  calibrated: boolean;
+  scale: { um_per_px_x: number; um_per_px_y: number; source: string } | null;
+  total: number;
+  mean: number;
+  median: number;
+  min: number;
+  max: number;
+  mean_eq_diameter: number;
+  histogram_url?: string | null;
+  areas_csv_url?: string | null;
+}
+
+const fmtArea = (v: number | undefined | null) => {
+  if (typeof v !== 'number' || !isFinite(v)) return '-';
+  if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return Number(v.toPrecision(4)).toString();
+};
+
 interface AnalysisState {
   id: number;
   processName: string;
@@ -29,6 +52,7 @@ interface AnalysisState {
   // sudah tergambar di imageSrc oleh Edge — tidak ada marker palsu di overlay.
   colonyCount: number | null;
   stats?: any;
+  area?: ColonyArea | null;
   processedBy?: string;
   imageSrc: string | null;
 }
@@ -364,6 +388,7 @@ export default function ImageAnalysisTab({
         cssFilter: isAI ? 'brightness(1)' : 'brightness(1)',
         colonyCount,
         stats: result.stats || null,
+        area: result.area || null,
         processedBy,
         imageSrc: `${API_BASE_URL}${result.url}?t=${Date.now()}`,
       };
@@ -561,6 +586,43 @@ export default function ImageAnalysisTab({
                 </div>
               )}
 
+              {activeState?.area && activeState.area.n > 0 && (
+                <div className="absolute top-4 right-4 z-20 px-3 py-2.5 bg-gray-900/85 border border-purple-500/70 rounded-xl backdrop-blur-md flex flex-col shadow-2xl w-[min(280px,calc(100%-2rem))] text-white">
+                  <span className="text-xs text-purple-300 font-bold uppercase mb-1.5 border-b border-purple-500/40 pb-1">
+                    {t('colonyAreaTitle')} <span className="normal-case font-normal text-purple-300/80">({activeState.area.unit})</span>
+                  </span>
+                  {([
+                    ['areaTotal', activeState.area.total],
+                    ['areaMean', activeState.area.mean],
+                    ['areaMedian', activeState.area.median],
+                  ] as const).map(([key, val]) => (
+                    <div key={key} className="flex justify-between items-baseline text-sm">
+                      <span className="text-gray-300">{t(key)}</span>
+                      <span className="font-bold font-mono">{fmtArea(val)} {activeState.area!.unit}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-baseline text-sm">
+                    <span className="text-gray-300">{t('areaRange')}</span>
+                    <span className="font-mono text-xs">{fmtArea(activeState.area.min)} – {fmtArea(activeState.area.max)}</span>
+                  </div>
+                  {activeState.area.histogram_url && (
+                    <a href={`${API_BASE_URL}${activeState.area.histogram_url}`} target="_blank" rel="noreferrer" title={t('areaHistogram')} className="mt-2 block rounded-lg overflow-hidden border border-gray-600 bg-white hover:border-purple-400">
+                      <img src={`${API_BASE_URL}${activeState.area.histogram_url}?t=${activeState.id}`} alt={t('areaHistogram')} className="w-full h-auto" />
+                    </a>
+                  )}
+                  {activeState.area.areas_csv_url && (
+                    <a href={`${API_BASE_URL}${activeState.area.areas_csv_url}`} download className="mt-1.5 text-[11px] text-purple-300 hover:text-purple-200 underline">
+                      ⬇ {t('areaDownloadCsv')}
+                    </a>
+                  )}
+                  <span className="text-[9px] text-gray-400 font-mono mt-1.5 leading-tight">
+                    {activeState.area.scale
+                      ? `${activeState.area.scale.um_per_px_x.toFixed(2)} × ${activeState.area.scale.um_per_px_y.toFixed(2)} µm/px · ${activeState.area.scale.source}`
+                      : t('areaUncalibrated')}
+                  </span>
+                </div>
+              )}
+
               {activeState?.stats && (
                 <div className="absolute bottom-6 right-6 px-4 py-3 bg-blue-900/80 border border-blue-500 rounded-xl backdrop-blur-md flex flex-col shadow-2xl min-w-[200px]">
                    <span className="text-xs text-blue-300 font-bold uppercase mb-2 border-b border-blue-500/50 pb-1">{t('morphologyStats')}</span>
@@ -568,14 +630,29 @@ export default function ImageAnalysisTab({
                      <span className="text-sm text-gray-300">{t('totalObjects')}</span>
                      <span className="text-lg font-bold text-white">{activeState.stats?.total_cells ?? activeState.colonyCount ?? 0}</span>
                    </div>
-                   <div className="flex justify-between items-center mb-1">
+                   <div className="flex justify-between items-center mb-1 gap-3">
                      <span className="text-sm text-gray-300">{t('avgArea')}</span>
-                     <span className="text-sm font-bold text-white">{activeState.stats?.avg_area || 0} px²</span>
+                     <span className="text-sm font-bold text-white font-mono">{fmtArea(activeState.stats?.avg_area ?? 0)} {activeState.stats?.unit || 'px²'}</span>
                    </div>
-                   <div className="flex justify-between items-center mb-1">
+                   <div className="flex justify-between items-center mb-1 gap-3">
                      <span className="text-sm text-gray-300">{t('avgPerimeter')}</span>
-                     <span className="text-sm font-bold text-white">{activeState.stats?.avg_perimeter || 0} px</span>
+                     <span className="text-sm font-bold text-white font-mono">{fmtArea(activeState.stats?.avg_perimeter ?? 0)} {activeState.stats?.length_unit || 'px'}</span>
                    </div>
+                   {typeof activeState.stats?.avg_eq_diameter === 'number' && (
+                     <div className="flex justify-between items-center mb-1 gap-3">
+                       <span className="text-sm text-gray-300">{t('avgEqDiameter')}</span>
+                       <span className="text-sm font-bold text-white font-mono">{fmtArea(activeState.stats.avg_eq_diameter)} {activeState.stats?.length_unit || 'px'}</span>
+                     </div>
+                   )}
+                   {typeof activeState.stats?.avg_circularity === 'number' && (
+                     <div className="flex justify-between items-center mb-1 gap-3">
+                       <span className="text-sm text-gray-300">{t('avgCircularity')}</span>
+                       <span className="text-sm font-bold text-white font-mono">{activeState.stats.avg_circularity.toFixed(2)}</span>
+                     </div>
+                   )}
+                   <span className="text-[9px] text-blue-200/70 font-mono mt-1">
+                     {activeState.stats?.method || t('morphologyOtsuFallback')}
+                   </span>
                 </div>
               )}
             </div>

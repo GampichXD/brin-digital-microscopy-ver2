@@ -111,7 +111,7 @@ async def apply_tool(tool_name: str, payload: ToolPayload, db: Session = Depends
     params = dict(payload.params or {})
     # Colony counter: pakai ambang keyakinan dari Admin Control (SystemSetting
     # 'confThreshold', 1..100). Default 25 (= conf 0.25 bawaan Ultralytics).
-    if tool_name == "colony-count" and "conf" not in params:
+    if tool_name in ("colony-count", "morphology") and "conf" not in params:
         row = db.query(models.SystemSetting).filter_by(key="confThreshold").first()
         try:
             pct = float(row.value) if row and row.value else 25.0
@@ -183,6 +183,7 @@ async def analysis_status(output: str = Query(..., description="Nama file hasil 
             "done": True,
             "url": f"/static/uploads/{safe}",
             "colonies": extra.get("colonies"),
+            "area": extra.get("area"),
             "stats": extra.get("stats"),
         }
     return {"done": False}
@@ -197,8 +198,13 @@ def _read_sidecar(tool_name: str, json_path: str) -> dict:
             data = json.load(jf)
     except Exception:
         return extra
+    area_keys = ("area", "histogram_url", "areas_csv_url")
     if tool_name == "colony-count":
         extra["colonies"] = data.get("colony_count", 0)
     elif tool_name == "morphology":
-        extra["stats"] = data
+        extra["stats"] = {k: v for k, v in data.items() if k not in area_keys}
+    if tool_name in ("colony-count", "morphology") and isinstance(data.get("area"), dict):
+        extra["area"] = {**data["area"],
+                         "histogram_url": data.get("histogram_url"),
+                         "areas_csv_url": data.get("areas_csv_url")}
     return extra
