@@ -83,6 +83,14 @@ export default function ImageGatheringTab({
   // tidak ada layar penuh yang mengunci tab lain dan tidak ada tombol batal.
   const [watchOwner, setWatchOwner] = useState<string | null>(null);
   const [watchTotal, setWatchTotal] = useState(0); // jumlah tile scan milik pengguna lain
+  // Scan berjalan serpentine (sama dengan plan_serpentine di backend): baris genap kiri→kanan,
+  // baris ganjil kanan→kiri. Sel tampilan (baris, kolom) <-> urutan scan ke-k.
+  const scanIndexAt = (row: number, col: number, nCols: number) => row * nCols + (row % 2 === 0 ? col : nCols - 1 - col);
+  const cellOfScanIndex = (k: number, nCols: number) => {
+    const row = Math.floor(k / nCols);
+    const col = row % 2 === 0 ? k % nCols : nCols - 1 - (k % nCols);
+    return { row, col };
+  };
   const myUsername = localStorage.getItem('username') || '';
   // Hasil per tile (urutan scan, mulai 0): true = gambar tiba, false = gagal.
   const [tileOk, setTileOk] = useState<Record<number, boolean>>({});
@@ -1393,9 +1401,13 @@ export default function ImageGatheringTab({
             {processKind === 'scan' ? (
               <div className="w-56 h-56 sm:w-64 sm:h-64 bg-black/50 border border-gray-600 rounded-xl p-2 mb-6">
                  <div className="w-full h-full border border-blue-500/50 grid gap-1" style={{ gridTemplateColumns: `repeat(${cols || 1}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows || 1}, minmax(0, 1fr))` }}>
-                  {Array.from({ length: totalImagesConfig || 0 }).map((_, i) => (
-                    <div key={i} className={`rounded-sm transition-all duration-200 ${i < progress ? (tileOk[i] === false ? 'bg-red-500/80 border border-red-500' : 'bg-green-500/80 border border-green-500') : i === progress ? 'bg-yellow-400 border border-white animate-pulse' : 'bg-gray-800'}`}></div>
-                  ))}
+                  {Array.from({ length: totalImagesConfig || 0 }).map((_, cell) => {
+                    // Sel digambar urut baris; warnanya mengikuti urutan scan serpentine.
+                    const i = scanIndexAt(Math.floor(cell / c), cell % c, c);
+                    return (
+                      <div key={cell} className={`rounded-sm transition-all duration-200 ${i < progress ? (tileOk[i] === false ? 'bg-red-500/80 border border-red-500' : 'bg-green-500/80 border border-green-500') : i === progress ? 'bg-yellow-400 border border-white animate-pulse' : 'bg-gray-800'}`}></div>
+                    );
+                  })}
                 </div>
               </div>
             ) : processKind === 'stitch' ? (
@@ -1476,9 +1488,12 @@ export default function ImageGatheringTab({
                 className={`grid gap-2 sm:gap-3 p-2 sm:p-4 bg-gray-800 rounded-xl border-2 border-gray-600 w-full sm:w-fit mx-auto h-fit ${gatherMode === 'MANUAL' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5' : ''}`}
                 style={gatherMode === 'AUTO' ? { gridTemplateColumns: `repeat(${cols}, minmax(clamp(72px, 22vw, 130px), 1fr))` } : {}}
               >
-                {capturedImages.map((img) => (
-                  img.filename ? (
-                    <div key={img.index} className={`aspect-square rounded-lg border flex flex-col items-center justify-center relative group overflow-hidden ${theme.panel} ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+                {capturedImages.map((img) => {
+                  // AUTO: letakkan tile sesuai posisinya di preparat (scan serpentine), bukan urutan ambil.
+                  const pos = gatherMode === 'AUTO' && typeof img.index === 'number' ? cellOfScanIndex(img.index, c) : null;
+                  const place = pos ? { gridRow: pos.row + 1, gridColumn: pos.col + 1 } : undefined;
+                  return img.filename ? (
+                    <div key={img.index} style={place} className={`aspect-square rounded-lg border flex flex-col items-center justify-center relative group overflow-hidden ${theme.panel} ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                       <img src={`${api.defaults.baseURL}/static/uploads/${img.filename}?t=${img.timestamp}`} className="w-full h-full object-cover absolute inset-0 z-0 opacity-80 group-hover:opacity-100 transition-opacity" alt="grid-tile" />
                       <div className="flex flex-col items-center text-center z-10 bg-black/50 w-full p-1 mt-auto">
                          <span className="text-[9px] font-mono font-bold text-white shadow-sm">{img.filename.replace('.jpg','')}</span>
@@ -1487,12 +1502,12 @@ export default function ImageGatheringTab({
                       <button onClick={() => removeCapturedImage(img.index)} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded hover:bg-red-600 active:scale-95 shadow-md"><X size={14}/></button>
                     </div>
                   ) : (
-                    <div key={img.index} className="aspect-square rounded-lg border-2 border-dashed flex flex-col items-center justify-center bg-red-500/5 border-red-500/30 group">
+                    <div key={img.index} style={place} className="aspect-square rounded-lg border-2 border-dashed flex flex-col items-center justify-center bg-red-500/5 border-red-500/30 group">
                       <span className="text-[8px] font-bold text-red-400 mb-2 text-center">{t('empty')}<br/>X:{img.coordX} Y:{img.coordY}</span>
                       <button onClick={() => retakeImage(img.index, img.coordX, img.coordY)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold active:scale-95 shadow-lg"><RefreshCcw size={12} className="mr-1"/> Retake</button>
                     </div>
-                  )
-                ))}
+                  );
+                })}
               </div>
             </div>
 
