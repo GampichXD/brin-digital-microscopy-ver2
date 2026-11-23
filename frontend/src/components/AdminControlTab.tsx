@@ -32,7 +32,8 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
 
   // Konfigurasi hardware
-  const defaults = { feedRate: 100, shutterUs: 8000, gainIso: 400, confThreshold: 25 };
+  // Sama dengan CNC_DEFAULTS / CAMERA_DEFAULTS di backend dan tombol Default di Live Stream.
+  const defaults = { feedRate: 250, shutterUs: 15000, gainIso: 200, confThreshold: 25 };
   const [feedRate, setFeedRate] = useState<number>(defaults.feedRate);
   const [shutterUs, setShutterUs] = useState<number>(defaults.shutterUs);
   const [gainIso, setGainIso] = useState<number>(defaults.gainIso);
@@ -216,7 +217,8 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
   const handleApply = async (section: 'CNC' | 'Camera' | 'AI') => {
     try {
       if (section === 'CNC') {
-        await api.post('/api/hardware/cnc/settings', { feed_rate: feedRate, backlash: 0.1, acceleration: 100, settle_time: 100 });
+        // Hanya feed rate: backlash/akselerasi/waktu tunggu tetap memakai nilai tersimpan.
+        await api.post('/api/hardware/cnc/settings', { feed_rate: feedRate });
       } else if (section === 'Camera') {
         await api.post('/api/hardware/camera/settings', { shutter_speed: shutterUs, iso: gainIso });
       } else if (section === 'AI') {

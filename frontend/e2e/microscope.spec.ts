@@ -541,3 +541,21 @@ test.describe('Kelola Sesi Pemindaian Aktif', () => {
     await expect(page.getByText(/Pemindaian dibatalkan/i)).toBeVisible({ timeout: 15000 });
   });
 });
+
+test.describe('Panduan Pengguna Baru', () => {
+  test('panduan dibuka dari tombol ? dan bisa dijalankan sampai selesai', async ({ page }) => {
+    const username = uniqueUsername('e2e_tour');
+    await registerAndLogin(page, username, 'TestPassword123!');
+    await expect(page.getByText('Kendali Motor')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Buka panduan penggunaan' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Selamat datang di Digital Microscopy')).toBeVisible();
+    // Operator: langkah khusus Admin tidak ikut.
+    const total = Number((await dialog.getByText(/Panduan 1\/\d+/).textContent())!.match(/\/(\d+)/)![1]);
+    for (let i = 1; i < total; i++) await dialog.getByRole('button', { name: /Lanjut/ }).click();
+    await expect(dialog.getByText('Siap dipakai')).toBeVisible();
+    expect(total).toBe(14); // 17 langkah dikurangi 3 langkah khusus Admin
+    await dialog.getByRole('button', { name: 'Selesai' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});

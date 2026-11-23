@@ -474,6 +474,54 @@ def test_feature_G11_scan_grid_start_dan_cancel():
     cancel = client.post("/api/hardware/scan/cancel")
     assert cancel.status_code == 200
 
+def test_feature_G11b_scan_hanya_pemilik_yang_bisa_batal():
+    """G11b: Scan mencatat pemiliknya. Operator lain (bukan Pilot) hanya menonton dan ditolak
+    saat mencoba membatalkan; pemilik tetap bisa membatalkan."""
+    from app.routers import hardware
+    # TestClient tidak menjalankan task scan di latar belakang, jadi scan tes sebelumnya
+    # tetap tercatat "running". Kosongkan dulu supaya scan baru bisa dimulai.
+    hardware._scan_state.update({"running": False, "cancel": False})
+    start = client.post("/api/hardware/scan/grid", json={
+        "columns": 3, "rows": 3, "step_x": 1.0, "step_y": 1.0,
+        "delay_ms": 100, "unit": "mm", "start_x": 0.0, "start_y": 0.0
+    })
+    assert start.status_code == 200, start.text
+    status = client.get("/api/hardware/scan/status").json()
+    assert status["owner"] == "uji_admin"
+    lain = TestClient(app)
+    lain.headers.update(auth(token_for(f"penonton_{uuid.uuid4().hex[:6]}", "OPERATOR")))
+    assert lain.get("/api/hardware/scan/status").json()["owner"] == "uji_admin"
+    assert lain.post("/api/hardware/scan/cancel").status_code == 403
+    assert client.post("/api/hardware/scan/cancel").json()["status"] == "CANCELLING"
+    hardware._scan_state.update({"running": False, "cancel": False})
+
+
+def test_feature_G12b_stitch_mencatat_pemilik():
+    """G12b: Status stitching menyebut siapa yang memulainya, untuk tampilan penonton."""
+    client.post("/api/hardware/stitch", json={"images": [], "tiles": [], "session": "pytest-owner"})
+    assert client.get("/api/hardware/stitch/status").json()["owner"] == "uji_admin"
+
+
+def test_feature_G14_cnc_parsial_tidak_menimpa_nilai_lain():
+    """G14: Mengubah feed rate saja (slider Admin Control) tidak menimpa backlash, akselerasi,
+    dan waktu tunggu yang diatur di Live Stream."""
+    full = {"feed_rate": 300, "backlash": 0.2, "acceleration": 15, "settle_time": 120}
+    assert client.post("/api/hardware/cnc/settings", json=full).status_code == 200
+    r = client.post("/api/hardware/cnc/settings", json={"feed_rate": 400})
+    assert r.status_code == 200
+    assert r.json()["applied"] == {"feed_rate": 400, "backlash": 0.2, "acceleration": 15, "settle_time": 120}
+    cfg = client.get("/api/hardware/config").json()
+    assert float(cfg["backlash"]) == 0.2 and float(cfg["feedRate"]) == 400
+
+
+def test_feature_G15_reset_cnc_kembali_ke_bawaan():
+    """G15: Reset CNC menghapus nilai tersimpan, sehingga pengaturan berikutnya memakai bawaan."""
+    client.post("/api/hardware/cnc/settings", json={"feed_rate": 500, "backlash": 0.3})
+    assert client.post("/api/hardware/config/cnc/default").status_code == 200
+    r = client.post("/api/hardware/cnc/settings", json={})
+    assert r.json()["applied"] == {"feed_rate": 250.0, "backlash": 0.05, "acceleration": 10.0, "settle_time": 500}
+
+
 def test_feature_G12_stitch_start_dan_status():
     """G12: Memulai proses stitching harus merespons STARTED dan status dapat dipantau."""
     start = client.post("/api/hardware/stitch", json={"images": [], "tiles": [], "session": "pytest-session"})

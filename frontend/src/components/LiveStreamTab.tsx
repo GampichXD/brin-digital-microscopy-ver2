@@ -43,7 +43,7 @@ const StreamCanvas = ({ videoSrc, themeClasses, cameraStatus }: { videoSrc: stri
     return (
       <div className="flex flex-col items-center">
         <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-        <p className={`text-sm font-bold ${themeClasses.textMuted}`}>Menghubungkan Aliran Citra Global...</p>
+        <p className={`text-sm font-bold text-center px-4 ${themeClasses.textMuted}`}>Menghubungkan Aliran Citra Global...</p>
       </div>
     );
   }
@@ -115,6 +115,8 @@ export default function LiveStreamTab({
 
   const [shutterSpeed, setShutterSpeed] = useState<string>("15000");
   const [iso, setIso] = useState<string>("200");
+  // Nilai yang benar-benar aktif di kamera, dilaporkan Jetson lewat telemetri.
+  const [activeCam, setActiveCam] = useState<{ shutter_us: number | null; iso: number | null } | null>(null);
   const [targetFps, setTargetFps] = useState<string>("30");
 
   // ── Soft Limit Switch ──
@@ -174,6 +176,8 @@ export default function LiveStreamTab({
       if (data.backlash) setBacklash(data.backlash);
       if (data.acceleration) setAcceleration(data.acceleration);
       if (data.settle_time) setSettleTime(data.settle_time);
+      if (data.shutter_speed) setShutterSpeed(data.shutter_speed);
+      if (data.exposure) setIso(data.exposure);  // backend menyimpan ISO dengan kunci "exposure"
     }).catch(() => {});
   }, []);
 
@@ -182,11 +186,17 @@ export default function LiveStreamTab({
     const ws = wsRef.current;
     if (!ws) return;
     const onMsg = (ev: MessageEvent) => {
+      // Frame video berukuran puluhan KB; jangan di-parse ulang di sini.
+      if (typeof ev.data !== 'string' || ev.data.length > 20000) return;
       try {
         const m = JSON.parse(ev.data);
-        if (m.event === 'TELEMETRY_DATA' && m.at_limit) {
+        if (m.event !== 'TELEMETRY_DATA') return;
+        if (m.at_limit) {
           // Hindari render ulang tab 5 kali per detik kalau statusnya tidak berubah.
           setAtLimit(prev => (JSON.stringify(prev) === JSON.stringify(m.at_limit) ? prev : m.at_limit));
+        }
+        if (m.camera_settings) {
+          setActiveCam(prev => (prev && prev.shutter_us === m.camera_settings.shutter_us && prev.iso === m.camera_settings.iso) ? prev : m.camera_settings);
         }
       } catch { /* ignore */ }
     };
@@ -315,7 +325,7 @@ export default function LiveStreamTab({
       showToast('Parameter CNC berhasil diterapkan ke controller.', 'success');
     } catch (error) {
       console.error('Gagal menerapkan parameter CNC:', error);
-      showToast('Gagal menerapkan parameter CNC.', 'error');
+      showToast(errorDetail(error, 'Gagal menerapkan parameter CNC'), 'error');
     }
   };
 
@@ -369,29 +379,63 @@ export default function LiveStreamTab({
     }
   };
 
-  const handleApplyCameraSettings = async () => {
+  // Batas aman sensor IMX477 pada 30 fps (sama dengan Hardware/Devices/camera.py).
+  const SHUTTER_MIN = 13, SHUTTER_MAX = 33000, ISO_MIN = 100, ISO_MAX = 2200;
+  const CAMERA_DEFAULT = { shutter: 15000, iso: 200 };
+  const CNC_DEFAULT = { feed: 250, backlash: 0.05, acceleration: 10, settle: 500 };
+
+  const errorDetail = (error: any, fallback: string) => {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail;
+    if (status === 409 && typeof detail === 'string') return `${fallback}: ${detail}. Ambil alih kendali (Pilot) dulu.`;
+    if (status === 403) return `${fallback}: khusus Admin.`;
+    if (status === 503) return `${fallback}: hardware bus sedang nonaktif.`;
+    if (typeof detail === 'string') return `${fallback}: ${detail}`;
+    return fallback;
+  };
+
+  const applyCamera = async (shutterRaw: number, isoRaw: number) => {
+    if (!Number.isFinite(shutterRaw) || !Number.isFinite(isoRaw)) {
+      showToast('Isi shutter dan ISO dengan angka.', 'warning');
+      return;
+    }
+    const shutter = Math.round(Math.min(SHUTTER_MAX, Math.max(SHUTTER_MIN, shutterRaw)));
+    const isoVal = Math.round(Math.min(ISO_MAX, Math.max(ISO_MIN, isoRaw)));
+    if (shutter !== shutterRaw || isoVal !== isoRaw) {
+      showToast(`Disesuaikan ke batas sensor: shutter ${shutter} µs, ISO ${isoVal}.`, 'info');
+    }
+    setShutterSpeed(String(shutter));
+    setIso(String(isoVal));
     try {
-      await api.post('/api/hardware/camera/settings', {
-        shutter_speed: parseInt(shutterSpeed), iso: parseInt(iso)
-      });
-      showToast('Konfigurasi Pengaturan Sensor IMX477 Berhasil Diterapkan!', 'success');
+      await api.post('/api/hardware/camera/settings', { shutter_speed: shutter, iso: isoVal });
+      showToast('Pengaturan kamera dikirim. Gambar akan berhenti sebentar (±5 detik) selama kamera dimulai ulang.', 'success');
     } catch (error) {
-      console.error("Gagal menerapkan konfigurasi kamera:", error);
-      showToast('Gagal menerapkan konfigurasi kamera ke Jetson Orin', 'error');
+      console.error('Gagal menerapkan konfigurasi kamera:', error);
+      showToast(errorDetail(error, 'Gagal menerapkan pengaturan kamera'), 'error');
     }
   };
 
-  const handleDefaultParams = () => {
-    setFeedRate("250");
-    setBacklash("0.05");
-    setAcceleration("10");
-    setSettleTime("500");
+  const handleApplyCameraSettings = () => applyCamera(parseFloat(shutterSpeed), parseFloat(iso));
+
+  // Default langsung diterapkan, supaya kamera kembali normal tanpa menekan Terapkan.
+  const handleDefaultCamera = () => applyCamera(CAMERA_DEFAULT.shutter, CAMERA_DEFAULT.iso);
+
+  const handleDefaultParams = async () => {
+    setFeedRate(String(CNC_DEFAULT.feed));
+    setBacklash(String(CNC_DEFAULT.backlash));
+    setAcceleration(String(CNC_DEFAULT.acceleration));
+    setSettleTime(String(CNC_DEFAULT.settle));
+    try {
+      await api.post('/api/hardware/cnc/settings', {
+        feed_rate: CNC_DEFAULT.feed, backlash: CNC_DEFAULT.backlash,
+        acceleration: CNC_DEFAULT.acceleration, settle_time: CNC_DEFAULT.settle,
+      });
+      showToast('Parameter CNC dikembalikan ke bawaan.', 'success');
+    } catch (error) {
+      showToast(errorDetail(error, 'Gagal mengembalikan parameter CNC'), 'error');
+    }
   };
 
-  const handleDefaultCamera = () => {
-    setShutterSpeed("15000");
-    setIso("200");
-  };
 
   const handleGoToCoordinates = async () => {
     if (!isSystemHardwareEnabled || isControlsDisabled) return;
@@ -445,7 +489,7 @@ export default function LiveStreamTab({
     <div className={`h-full flex flex-col lg:flex-row gap-3 lg:gap-4 ${isLockedOut ? 'opacity-80' : ''}`}>
 
       {/* KIRI: VIDEO & HUD LAYER */}
-      <div ref={videoContainerRef} className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-3/5 h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive && !isLockedOut ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
+      <div ref={videoContainerRef} data-tour="live-video" className={`sticky top-0 z-40 lg:relative lg:z-auto w-full lg:w-3/5 h-[300px] sm:h-[450px] lg:h-full rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 overflow-hidden ${cameraActive && !isLockedOut ? 'border-green-500/50 bg-black' : 'border-dashed ' + themeClasses.panel}`}>
         {isLockedOut ? (
           <div className="flex flex-col items-center text-center p-6 bg-slate-900/90 w-full h-full justify-center text-slate-200">
             <AlertOctagon className="w-16 h-16 text-yellow-500 mb-4 animate-pulse" />
@@ -463,29 +507,29 @@ export default function LiveStreamTab({
 
         {/* TOP LEFT HUD: COORDINATES */}
         {cameraActive && showCoordinates && (
-          <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 text-white shadow-lg pointer-events-none z-10 flex gap-4">
+          <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl px-2 py-1.5 sm:p-3 text-white shadow-lg pointer-events-none z-10 flex gap-2 sm:gap-4 max-w-[calc(100%-4.5rem)] sm:max-w-none">
             <div className="flex flex-col items-center">
-              <span className="text-[10px] text-red-400 font-bold mb-0.5 tracking-wider">X (mm)</span>
-              <span className="font-mono font-bold text-sm">{motorPos.x.toFixed(2)}</span>
+              <span className="text-[9px] sm:text-[10px] text-red-400 font-bold mb-0.5 tracking-wider">X (mm)</span>
+              <span className="font-mono font-bold text-xs sm:text-sm tabular-nums">{motorPos.x.toFixed(2)}</span>
             </div>
             <div className="w-px bg-white/20"></div>
             <div className="flex flex-col items-center">
-              <span className="text-[10px] text-green-400 font-bold mb-0.5 tracking-wider">Y (mm)</span>
-              <span className="font-mono font-bold text-sm">{motorPos.y.toFixed(2)}</span>
+              <span className="text-[9px] sm:text-[10px] text-green-400 font-bold mb-0.5 tracking-wider">Y (mm)</span>
+              <span className="font-mono font-bold text-xs sm:text-sm tabular-nums">{motorPos.y.toFixed(2)}</span>
             </div>
             <div className="w-px bg-white/20"></div>
             <div className="flex flex-col items-center">
-              <span className="text-[10px] text-blue-400 font-bold mb-0.5 tracking-wider">Z (stp)</span>
-              <span className="font-mono font-bold text-sm">{motorPos.z}</span>
+              <span className="text-[9px] sm:text-[10px] text-blue-400 font-bold mb-0.5 tracking-wider">Z (stp)</span>
+              <span className="font-mono font-bold text-xs sm:text-sm tabular-nums">{motorPos.z}</span>
             </div>
           </div>
         )}
 
         {/* TOP RIGHT HUD: TOGGLES & FPS */}
-        <div className="absolute top-4 right-4 flex flex-col items-end gap-2 z-10">
+        <div className="absolute top-2 right-2 sm:top-4 sm:right-4 flex flex-col items-end gap-2 z-10">
           {cameraActive && (
             <>
-              <div className="flex gap-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-1 shadow-lg pointer-events-auto">
+              <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-1 shadow-lg pointer-events-auto">
                 <button aria-label="Toggle Coordinates" onClick={() => setShowCoordinates(!showCoordinates)} className={`p-2 rounded-lg transition-colors ${showCoordinates ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`} title="Toggle Coordinates">
                   <Crosshair size={18} />
                 </button>
@@ -497,8 +541,8 @@ export default function LiveStreamTab({
                 </button>
               </div>
               {showFps && (
-                <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl px-3 py-1.5 text-white font-mono font-bold text-sm shadow-lg pointer-events-none">
-                  FPS: {actualFps} <span className="text-xs font-normal text-gray-400">({targetFps} target)</span>
+                <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl px-2 py-1 sm:px-3 sm:py-1.5 text-white font-mono font-bold text-xs sm:text-sm shadow-lg pointer-events-none">
+                  FPS: {actualFps} <span className="hidden sm:inline text-xs font-normal text-gray-400">({targetFps} target)</span>
                 </div>
               )}
             </>
@@ -507,7 +551,7 @@ export default function LiveStreamTab({
 
         {/* BOTTOM LEFT HUD: RECORDING */}
         {cameraActive && (
-          <div className="absolute bottom-6 left-6 z-10 flex gap-3">
+          <div className="absolute bottom-3 left-3 sm:bottom-6 sm:left-6 z-10 flex gap-2 sm:gap-3">
             {!isRecording ? (
               <>
                 {/* FOLDER SELECTION ICON -> EXPANDS TO DROPDOWN */}
@@ -630,7 +674,7 @@ export default function LiveStreamTab({
               nextState ? 'success' : 'info'
             );
           }}
-          className={`absolute bottom-6 right-6 flex items-center justify-start h-[60px] w-[60px] hover:w-[220px] focus:w-[220px] active:w-[220px] px-[18px] rounded-full text-lg font-bold shadow-2xl z-10 overflow-hidden group transition-all duration-300 outline-none ${!isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
+          className={`absolute bottom-3 right-3 sm:bottom-6 sm:right-6 flex items-center justify-start h-12 w-12 sm:h-[60px] sm:w-[60px] hover:w-[220px] focus:w-[220px] active:w-[220px] px-3 sm:px-[18px] rounded-full text-lg font-bold shadow-2xl z-10 overflow-hidden group transition-all duration-300 outline-none ${!isSystemHardwareEnabled ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50' :
               cameraActive ? 'bg-black/60 hover:bg-gray-800 focus:bg-gray-800 active:bg-gray-800 text-white backdrop-blur-md border border-gray-600' : 'bg-green-600 hover:bg-green-700 focus:bg-green-700 active:bg-green-700 text-white'
             }`}
         >
@@ -649,7 +693,7 @@ export default function LiveStreamTab({
 
         {/* ROOM STATE PANEL (Informasi Sesi di Luar Video) */}
         {roomState && (
-          <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
+          <div data-tour="live-room" className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
             <h3 className={`text-sm font-bold uppercase tracking-wider mb-3 ${themeClasses.text}`}>Sesi Aktif</h3>
             <div className="flex flex-col gap-2">
               <div className={`flex justify-between items-center p-2 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
@@ -669,7 +713,7 @@ export default function LiveStreamTab({
         )}
 
         {/* 1. KENDALI MOTOR */}
-        <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel} relative`}>
+        <div data-tour="live-motor" className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel} relative`}>
           {isSpectator && (
             <div className="absolute top-2 right-2 px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-xs font-bold border border-blue-500/30">
               Mode Penonton
@@ -867,7 +911,7 @@ export default function LiveStreamTab({
         </div>
 
         {/* 2. PENGATURAN KAMERA (IMX477) */}
-        <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
+        <div data-tour="live-camera" className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center ${themeClasses.text}`}>
               <Aperture size={16} className="mr-2 text-purple-400" /> {t('cameraParams')}
@@ -900,6 +944,7 @@ export default function LiveStreamTab({
               <input aria-label="Shutter (µs)"
                 type="number"
                 readOnly={globalVirtualKeyboard}
+                min={SHUTTER_MIN} max={SHUTTER_MAX}
                 value={shutterSpeed}
                 onChange={(e) => setShutterSpeed(e.target.value)}
                 onClick={() => triggerKeypad('Shutter (µs)', shutterSpeed, setShutterSpeed)}
@@ -911,17 +956,22 @@ export default function LiveStreamTab({
               <input aria-label="ISO"
                 type="number"
                 readOnly={globalVirtualKeyboard}
+                min={ISO_MIN} max={ISO_MAX}
                 value={iso}
                 onChange={(e) => setIso(e.target.value)}
                 onClick={() => triggerKeypad('ISO', iso, setIso)}
                 className={`w-20 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
               />
             </div>
+            <p className={`text-[10px] leading-snug ${themeClasses.textMuted}`}>
+              Rentang: shutter {SHUTTER_MIN}–{SHUTTER_MAX} µs, ISO {ISO_MIN}–{ISO_MAX}.
+              {activeCam && (activeCam.shutter_us || activeCam.iso) ? ` Aktif di kamera: ${activeCam.shutter_us ?? 'otomatis'} µs, ISO ${activeCam.iso ?? 'otomatis'}.` : ''}
+            </p>
           </div>
         </div>
 
         {/* 3. PARAMETER CNC */}
-        <div className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
+        <div data-tour="live-cnc" className={`p-4 rounded-2xl border shrink-0 ${themeClasses.panel}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-bold uppercase tracking-wider ${themeClasses.text}`}>{t('cncParams')}</h3>
             <div className="flex space-x-2">

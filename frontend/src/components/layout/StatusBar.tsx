@@ -36,7 +36,7 @@ export default function StatusBar({ grblStatus, jetsonRam, jetsonRom }: StatusBa
   };
 
   return (
-    <div className={`px-4 py-2 flex items-center text-[10px] sm:text-[11px] font-bold border-b shrink-0 overflow-x-auto whitespace-nowrap gap-4 sm:justify-between [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${isDarkMode ? 'bg-gray-900/50 border-gray-800 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
+    <div data-tour="statusbar" className={`px-4 py-2 flex items-center text-[10px] sm:text-[11px] font-bold border-b shrink-0 overflow-x-auto whitespace-nowrap gap-4 sm:justify-between [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${isDarkMode ? 'bg-gray-900/50 border-gray-800 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-600'}`}>
       <div className="flex items-center gap-4 sm:gap-6 shrink-0">
         <span className="flex items-center"><Server size={12} className="mr-1.5 text-blue-500" /> Jetson</span>
         <span className={`flex items-center ${isSystemHardwareEnabled ? 'text-yellow-500' : 'text-red-500'}`}>

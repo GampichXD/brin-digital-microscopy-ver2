@@ -9,6 +9,8 @@ import Header from './components/layout/Header';
 import StatusBar from './components/layout/StatusBar';
 import NavigationTabs, { type TabName } from './components/layout/NavigationTabs';
 import UserProfileModal from './components/profile/UserProfileModal';
+import GuidedTour from './components/GuidedTour';
+import { tourStorageKey } from './components/tourStorage';
 
 const LiveStreamTab = lazy(() => import('./components/LiveStreamTab'));
 const DatabaseTab = lazy(() => import('./components/DatabaseTab'));
@@ -123,6 +125,19 @@ export default function App() {
   const [dragRel, setDragRel] = useState({ x: 0, y: 0 });
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  // Panduan muncul sekali untuk tiap pengguna di browser ini; bisa dibuka lagi lewat tombol ?.
+  useEffect(() => {
+    // Browser yang dikendalikan alat uji (Playwright) tidak dibuka otomatis supaya tes E2E
+    // tidak tertutup; panduan tetap bisa dibuka lewat tombol ?.
+    if (!currentUser || navigator.webdriver) return;
+    let seen = false;
+    try { seen = localStorage.getItem(tourStorageKey(currentUser)) === '1'; } catch { /* ignore */ }
+    if (seen) return;
+    const t = window.setTimeout(() => setTourOpen(true), 900);
+    return () => window.clearTimeout(t);
+  }, [currentUser]);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
   const [globalToast, setGlobalToast] = useState<{message: string, type: string, id: number} | null>(null);
@@ -248,6 +263,7 @@ export default function App() {
         currentUserRole={currentUserRole}
         grblStatus={grblStatus}
         setIsProfileOpen={setIsProfileOpen}
+        onOpenTour={() => setTourOpen(true)}
         deferredPrompt={deferredPrompt}
         handleInstallClick={handleInstallClick}
         onLogout={handleLogout}
@@ -376,6 +392,15 @@ export default function App() {
 
       {/* NEW SYSTEM TOAST NOTIFICATION UI */}
       {globalToastNode}
+
+      <GuidedTour
+        open={tourOpen}
+        role={currentUserRole}
+        username={currentUser}
+        availableTabs={availableTabs}
+        setActiveTab={setActiveTab}
+        onClose={() => setTourOpen(false)}
+      />
 
       <UserProfileModal 
         isProfileOpen={isProfileOpen}

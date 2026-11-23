@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { User, Download, Keyboard, ToggleRight, ToggleLeft, Globe, Sun, Moon, LogOut, Menu, X } from 'lucide-react';
+import { User, Download, Keyboard, ToggleRight, ToggleLeft, Globe, Sun, Moon, LogOut, Menu, X, HelpCircle } from 'lucide-react';
 import { useGlobalContext } from '../../context/GlobalContext';
 
 // Import logos (adjust path as necessary relative to App.tsx)
@@ -11,6 +11,7 @@ interface HeaderProps {
   currentUserRole: string;
   grblStatus: string;
   setIsProfileOpen: (val: boolean) => void;
+  onOpenTour: () => void;
   deferredPrompt: any;
   handleInstallClick: () => void;
   onLogout: () => void;
@@ -21,6 +22,7 @@ export default function Header({
   currentUserRole,
   grblStatus,
   setIsProfileOpen,
+  onOpenTour,
   deferredPrompt,
   handleInstallClick,
   onLogout
@@ -52,7 +54,7 @@ export default function Header({
               <div className="w-px h-5 bg-gray-700 mx-0.5"></div>
               <img src={logoUndip} alt="UNDIP Logo" className="h-6 w-auto object-contain" />
             </div>
-            <div className={`flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+            <div data-tour="status" className={`flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
               !isSystemHardwareEnabled 
                 ? 'bg-red-500/10 border border-red-500/20 text-red-500' 
                 : grblStatus === 'OFFLINE'
@@ -75,6 +77,12 @@ export default function Header({
           </div>
 
           <div className="flex items-center space-x-2 shrink-0 md:order-3">
+            <button aria-label="Buka panduan penggunaan" title="Panduan penggunaan"
+              onClick={onOpenTour}
+              className={`p-1.5 rounded-xl border transition-colors ${isDarkMode ? 'bg-gray-950 border-gray-800 text-gray-300 hover:text-white' : 'bg-gray-100 border-gray-300 text-gray-700 hover:text-black'}`}
+            >
+              <HelpCircle size={16} />
+            </button>
             <button aria-label="Profil Akun & Pengaturan" 
               onClick={() => setIsProfileOpen(true)}
               className={`text-[11px] font-bold px-2.5 py-1.5 bg-black/20 rounded-xl border flex items-center gap-1.5 shadow-inner hover:bg-black/40 transition-colors ${currentUserRole === 'ADMIN' ? 'border-red-500/30 text-red-400 hover:border-red-500/50' : 'border-gray-700/60 text-blue-400 hover:border-blue-500/50'}`}

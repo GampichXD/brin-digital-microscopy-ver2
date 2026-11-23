@@ -18,10 +18,12 @@ class HardwareBusTogglePayload(BaseModel):
     enabled: bool
 
 class CncSettingsPayload(BaseModel):
-    feed_rate: float
-    backlash: float
-    acceleration: float
-    settle_time: int
+    # Semua opsional: field yang tidak dikirim memakai nilai tersimpan, supaya mis. slider
+    # feed rate di Admin Control tidak menimpa backlash/akselerasi yang diatur di Live Stream.
+    feed_rate: Optional[float] = None
+    backlash: Optional[float] = None
+    acceleration: Optional[float] = None
+    settle_time: Optional[int] = None
 
 class SoftLimitsPayload(BaseModel):
     enabled: bool = False

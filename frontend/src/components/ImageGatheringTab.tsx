@@ -79,6 +79,11 @@ export default function ImageGatheringTab({
   const [processKind, setProcessKind] = useState<'scan' | 'stitch' | 'manual' | ''>('');
   const [progress, setProgress] = useState(0);
   const [scanCounts, setScanCounts] = useState({ captured: 0, failed: 0 });
+  // Nama pengguna lain yang sedang menjalankan scan/stitching. Diisi = kita hanya menonton:
+  // tidak ada layar penuh yang mengunci tab lain dan tidak ada tombol batal.
+  const [watchOwner, setWatchOwner] = useState<string | null>(null);
+  const [watchTotal, setWatchTotal] = useState(0); // jumlah tile scan milik pengguna lain
+  const myUsername = localStorage.getItem('username') || '';
   // Hasil per tile (urutan scan, mulai 0): true = gambar tiba, false = gagal.
   const [tileOk, setTileOk] = useState<Record<number, boolean>>({});
   const tileOkFromImages = (images: any[]) => {
@@ -202,6 +207,9 @@ export default function ImageGatheringTab({
   // Pulihkan pemantauan scan yang masih jalan setelah halaman di-refresh.
   const resumeScan = (status: any) => {
     const totalGrids = status.total || (c * r) || 1;
+    const owner: string | null = status.owner && status.owner !== myUsername ? status.owner : null;
+    setWatchOwner(owner);
+    setWatchTotal(totalGrids);
     setIsProcessing(true);
     setProcessKind('scan');
     setProgress(Math.min(status.index || 0, totalGrids));
@@ -220,6 +228,12 @@ export default function ImageGatheringTab({
       wsRef.current?.removeEventListener('message', onWs);
       try { localStorage.removeItem('ig_resume'); } catch { /* ignore */ }
       setIsProcessing(false);
+      if (owner) {
+        // Penonton: hasil scan milik pengguna lain, jangan buka jendela review di layar kita.
+        setWatchOwner(null);
+        showToast(kind === 'ok' ? `Pemindaian oleh ${owner} selesai.` : kind === 'cancel' ? `Pemindaian oleh ${owner} dibatalkan.` : `Pemindaian oleh ${owner} gagal.`, 'info');
+        return;
+      }
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ action: cameraActive ? 'START_STREAM' : 'STOP_STREAM' }));
       }
@@ -300,7 +314,11 @@ export default function ImageGatheringTab({
         ]);
         if (cancelled) return;
         if (sc && sc.running) { resumeScan(sc); return; }
-        if (st && st.running) { attachStitchMonitor({ startPct: st.pct, startPhase: st.phase || 'menyambungkan kembali…' }); return; }
+        if (st && st.running) {
+          attachStitchMonitor({ startPct: st.pct, startPhase: st.phase || 'menyambungkan kembali…',
+            owner: st.owner && st.owner !== myUsername ? st.owner : null });
+          return;
+        }
         // Stitching selesai selagi halaman di-refresh -> tampilkan hasilnya sekali.
         if (hint?.kind === 'stitch' && st && (st.done || st.output_exists) && !st.error) {
           setProcessTimes(p => ({ ...p, stitch: 0 }));
@@ -599,8 +617,10 @@ export default function ImageGatheringTab({
   // Pemantau tile stitching — dipakai baik saat memulai (runStitching) maupun
   // saat memulihkan setelah refresh (resumeStitch). Event WS + polling status +
   // "creep" halus + watchdog adaptif (5 menit sunyi total = gagal).
-  const attachStitchMonitor = (opts: { scanTParam?: number; startPct?: number; startPhase?: string }) => {
+  const attachStitchMonitor = (opts: { scanTParam?: number; startPct?: number; startPhase?: string; owner?: string | null }) => {
     const scanTParam = opts.scanTParam ?? 0;
+    const owner = opts.owner || null;
+    setWatchOwner(owner);
     setShowReviewModal(false);
     setShowInputModal(false);
     setIsProcessing(true);
@@ -631,6 +651,11 @@ export default function ImageGatheringTab({
       setProgress(100);
       const stitchT = (Date.now() - stitchStart) / 1000;
       if (detail === '__ABORT__') return;
+      if (owner) {
+        setWatchOwner(null);
+        showToast(ok ? `Tile stitching oleh ${owner} selesai.` : `Tile stitching oleh ${owner} gagal.`, 'info');
+        return;
+      }
       if (ok) {
         setProcessTimes(prev => ({ scan: scanTParam || prev.scan, stitch: stitchT, total: (scanTParam || prev.scan) + stitchT }));
         setShowStitchModal(true);
@@ -1047,7 +1072,7 @@ export default function ImageGatheringTab({
 
       {/* PANEL KANAN */}
       <div className="w-full lg:w-[45%] lg:h-full overflow-y-visible lg:overflow-y-auto pr-1 flex flex-col gap-3" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        <div className={`flex rounded-xl border p-1 shrink-0 ${theme.panel}`}>
+        <div data-tour="ig-modes" className={`flex rounded-xl border p-1 shrink-0 ${theme.panel}`}>
           <button onClick={() => setGatherMode('AUTO')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors ${gatherMode === 'AUTO' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('autoGather')}</button>
           <button onClick={() => setGatherMode('MANUAL')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors ${gatherMode === 'MANUAL' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}>{t('manualGather')}</button>
           <button onClick={() => setGatherMode('INPUT')} className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1 ${gatherMode === 'INPUT' ? 'bg-blue-600 text-white shadow' : theme.textMuted}`}><Boxes size={13}/> INPUT IMAGES</button>
@@ -1205,7 +1230,7 @@ export default function ImageGatheringTab({
                 
                 <button 
                   onClick={handleStartAuto} 
-                  disabled={isLimitExceeded}
+                  disabled={isLimitExceeded || !!watchOwner}
                   className={`py-4 rounded-2xl font-bold flex items-center justify-center transition-all ${isLimitExceeded ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)] active:scale-95'}`}
                 >
                   <Play size={20} className="mr-2" /> CAPTURE {totalImagesConfig || 0} GAMBAR
@@ -1345,7 +1370,24 @@ export default function ImageGatheringTab({
           )}
       </div>
 
-      {isProcessing && (
+      {isProcessing && watchOwner && (
+        <div className="fixed left-3 right-3 sm:left-auto sm:right-6 bottom-24 lg:bottom-6 sm:w-80 z-40 rounded-2xl border border-blue-500/40 bg-gray-900/95 text-white shadow-2xl p-4 backdrop-blur-md" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <Clock size={16} className="text-blue-400 shrink-0" />
+            <span className="min-w-0 break-words">{processKind === 'stitch' ? 'Tile stitching' : 'Auto gather'} sedang dijalankan oleh <span className="text-blue-300 break-all">{watchOwner}</span></span>
+          </div>
+          <div className="mt-3 h-2 w-full rounded-full bg-gray-700 overflow-hidden">
+            <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${processKind === 'scan' ? Math.round((progress / (watchTotal || 1)) * 100) : Math.round(progress)}%` }}></div>
+          </div>
+          <div className="mt-2 flex flex-wrap justify-between gap-x-3 text-xs font-mono text-gray-300">
+            <span>{processKind === 'scan' ? `${progress}/${watchTotal} tile` : `${Math.round(progress)}%`}</span>
+            {processKind === 'scan' && <span><span className="text-green-400">{scanCounts.captured} berhasil</span> · <span className={scanCounts.failed > 0 ? 'text-red-400' : ''}>{scanCounts.failed} gagal</span></span>}
+          </div>
+          <p className="mt-2 text-[11px] text-gray-400">Anda hanya menonton. Tab lain tetap bisa dibuka.</p>
+        </div>
+      )}
+
+      {isProcessing && !watchOwner && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 60 }}>
           <div className="flex flex-col items-center text-center text-white w-full max-w-lg">
             {processKind === 'scan' ? (

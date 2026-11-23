@@ -248,7 +248,14 @@ async def reset_config_default(section: str, db: Session = Depends(get_db)):
     for k in keys_to_delete:
         db.query(models.SystemSetting).filter_by(key=k).delete()
     db.commit()
-    
+
+    # Kirim nilai bawaan ke Jetson juga; sebelumnya hanya database yang dikosongkan sehingga
+    # kamera/GRBL tetap memakai nilai lama.
+    if section.lower() == 'cnc':
+        await _push_cnc(dict(CNC_DEFAULTS))
+    elif section.lower() == 'camera':
+        await publish_hardware_command({"action": "APPLY_CAMERA_SETTINGS", **CAMERA_DEFAULTS})
+
     return {"message": f"Config {section} reset to default"}
 
 @router.post("/room/admin_action", dependencies=[Depends(require_admin)])
@@ -376,24 +383,38 @@ async def calibrate_flatfield(mode: str = Query(..., pattern="^(flat|dark)$")):
     return {"status": "SUCCESS", "action": "CALIBRATE_FLATFIELD", "mode": mode}
 
 
+# Nilai bawaan tunggal untuk web (Live Stream dan Admin Control) dan Jetson.
+CNC_DEFAULTS = {"feed_rate": 250.0, "backlash": 0.05, "acceleration": 10.0, "settle_time": 500}
+CAMERA_DEFAULTS = {"shutter_speed": 15000, "iso": 200}
+_CNC_KEYS = {"feed_rate": "feedRate", "backlash": "backlash", "acceleration": "acceleration", "settle_time": "settle_time"}
+
+
+def _current_cnc(db: Session) -> dict:
+    cur = {}
+    for field, key in _CNC_KEYS.items():
+        row = db.query(models.SystemSetting).filter_by(key=key).first()
+        try:
+            cur[field] = (int if field == "settle_time" else float)(float(row.value)) if row and row.value else CNC_DEFAULTS[field]
+        except (TypeError, ValueError):
+            cur[field] = CNC_DEFAULTS[field]
+    return cur
+
+
+async def _push_cnc(values: dict) -> None:
+    await publish_hardware_command({"action": "APPLY_CNC_SETTINGS", **values})
+
+
 @router.post("/cnc/settings", dependencies=[Depends(require_admin)])
 async def apply_cnc_settings(payload: CncSettingsPayload, db: Session = Depends(get_db)):
     if not hardware_bus_enabled:
         raise HTTPException(status_code=503, detail="Hardware bus sedang nonaktif.")
-
-    save_setting(db, "feedRate", str(payload.feed_rate))
-    save_setting(db, "backlash", str(payload.backlash))
-    save_setting(db, "acceleration", str(payload.acceleration))
-    save_setting(db, "settle_time", str(payload.settle_time))
-
-    await publish_hardware_command({
-        "action": "APPLY_CNC_SETTINGS",
-        "feed_rate": payload.feed_rate,
-        "backlash": payload.backlash,
-        "acceleration": payload.acceleration,
-        "settle_time": payload.settle_time,
-    })
-    return {"status": "SUCCESS", "message": "Pengaturan CNC diterima dan disimpan."}
+    values = _current_cnc(db)
+    for field, v in payload.dict(exclude_none=True).items():
+        values[field] = v
+    for field, key in _CNC_KEYS.items():
+        save_setting(db, key, str(values[field]))
+    await _push_cnc(values)
+    return {"status": "SUCCESS", "message": "Pengaturan CNC diterima dan disimpan.", "applied": values}
 
 
 @router.post("/cnc/soft-limits", dependencies=[Depends(require_admin)])
@@ -423,22 +444,22 @@ async def apply_soft_limits(payload: SoftLimitsPayload, db: Session = Depends(ge
 _scan_state = {
     "running": False, "index": 0, "total": 0,
     "images": [], "error": None, "started_at": None, "cancel": False,
-    "session": None,
+    "session": None, "owner": None,
 }
 _scan_task = None  # simpan referensi agar task tidak di-GC di tengah jalan
 
 # ── State tile stitching (dipakai untuk resume setelah refresh & polling) ──
 # Diperbarui dari /stitch (mulai) dan dari event WebSocket Edge (progres/selesai/gagal).
 _stitch_state = {
-    "running": False, "pct": 0, "phase": "", "model": None, "session": None,
+    "running": False, "pct": 0, "phase": "", "model": None, "session": None, "owner": None,
     "error": None, "done": False, "started_at": None, "updated_at": None,
 }
 
 
-def _stitch_reset(model=None, session=None):
+def _stitch_reset(model=None, session=None, owner=None):
     _stitch_state.update({
         "running": True, "pct": 3, "phase": "Menyiapkan tile", "model": model,
-        "session": session, "error": None, "done": False,
+        "session": session, "owner": owner, "error": None, "done": False,
         "started_at": time.time(), "updated_at": time.time(),
     })
 
@@ -639,6 +660,8 @@ async def scan_grid(payload: GridScanPayload, db: Session = Depends(get_db), use
 
     # Jalankan sebagai background task -> HTTP balas < 1 detik.
     global _scan_task
+    # Pemilik scan: pengguna lain yang membuka tab hanya menonton dan tidak bisa membatalkan.
+    _scan_state["owner"] = user.username
     _scan_task = asyncio.create_task(_run_grid_scan(payload, origin_x, origin_y, session_id, feed_rate, row_settle))
 
     return {"status": "STARTED", "total": total_tiles, "images": planned, "session": session_id}
@@ -657,17 +680,26 @@ async def scan_status():
         "images": _scan_state["images"],
         "cancelled": _scan_state["cancel"],
         "session": _scan_state["session"],
+        "owner": _scan_state.get("owner"),
     }
 
 
-@router.post("/scan/cancel", dependencies=[Depends(get_current_user)])
-async def scan_cancel():
+@router.post("/scan/cancel")
+async def scan_cancel(user: models.User = Depends(get_current_user)):
     """Batalkan grid scan yang sedang berjalan. Loop akan berhenti di tile
-    berikutnya lalu mengirim event SCAN_CANCELLED."""
+    berikutnya lalu mengirim event SCAN_CANCELLED. Hanya pemilik scan, Pilot
+    saat ini, atau Admin yang boleh membatalkan."""
     if not _scan_state["running"]:
         return {"status": "IDLE", "message": "Tidak ada scan yang berjalan."}
+    is_admin = (user.role or "").upper() == "ADMIN"
+    pilot = room_manager.pilot
+    is_pilot = pilot is not None and pilot["username"] == user.username
+    if not (is_admin or is_pilot or _scan_state.get("owner") == user.username):
+        raise HTTPException(status_code=403,
+                            detail="Scan ini dijalankan pengguna lain. Hanya pemilik scan, Pilot, atau Admin yang bisa membatalkan.")
     _scan_state["cancel"] = True
     return {"status": "CANCELLING"}
+
 
 @router.delete("/scan/session/{session_id}")
 async def delete_scan_session(session_id: str, user: models.User = Depends(get_current_user)):
@@ -752,8 +784,8 @@ async def retake_grid_image(payload: RetakePayload, user: models.User = Depends(
 STITCH_OUTPUT = "stitched_ta_output.jpg"
 
 
-@router.post("/stitch", dependencies=[Depends(get_current_user)])
-async def stitch_images(payload: StitchPayload):
+@router.post("/stitch")
+async def stitch_images(payload: StitchPayload, user: models.User = Depends(get_current_user)):
     """Mulai tile stitching di Edge. ASINKRON: balas cepat, hasil dilaporkan
     lewat WebSocket (event STITCH_COMPLETE / STITCH_FAILED) — sama seperti grid
     scan, supaya tidak kena batas waktu proxy untuk mosaik besar."""
@@ -781,7 +813,7 @@ async def stitch_images(payload: StitchPayload):
             if fn and not t.get("url"):
                 t["url"] = f"/static/uploads/{fn}"
 
-    _stitch_reset(model, payload.session)
+    _stitch_reset(model, payload.session, owner=user.username)
 
     redis = await get_redis_client(REDIS_URL)
     try:

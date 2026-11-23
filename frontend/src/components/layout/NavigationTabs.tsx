@@ -32,6 +32,8 @@ export default function NavigationTabs({ availableTabs, activeTab, setActiveTab 
         {availableTabs.map((tab) => (
           <button 
             key={tab} 
+            data-tour={`tab-${tab}`}
+            aria-label={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2.5 ${
               activeTab === tab 
@@ -52,6 +54,8 @@ export default function NavigationTabs({ availableTabs, activeTab, setActiveTab 
         {availableTabs.map((tab) => (
           <button 
             key={tab} 
+            data-tour={`tab-${tab}`}
+            aria-label={tab}
             onClick={() => setActiveTab(tab)}
             className="flex-1 flex justify-center items-center py-2.5"
           >
