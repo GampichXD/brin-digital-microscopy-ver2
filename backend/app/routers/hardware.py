@@ -1168,6 +1168,10 @@ async def hardware_websocket_endpoint(websocket: WebSocket, device_token: str = 
 
 # Koneksi yang tidak mengirim pesan apa pun (termasuk HEARTBEAT) selama ini dianggap hantu.
 GHOST_TIMEOUT_S = 90
+# Koneksi lama milik pengguna yang sama dianggap sudah mati kalau tidak mengirim apa pun
+# selama ini saat pengguna menyambung ulang (browser mengirim HEARTBEAT tiap 20 detik).
+# Kasus umum: layar HP mati, sistem membekukan halaman, lalu halaman menyambung ulang.
+STALE_RECONNECT_S = 30
 # Pilot tanpa interaksi selama ini diturunkan, hanya kalau ada orang lain yang menunggu.
 PILOT_IDLE_S = 600
 MAX_SPECTATORS = 2
@@ -1256,7 +1260,24 @@ class RoomManager:
 
     async def connect(self, websocket: WebSocket, username: str, role: str):
         # websocket.accept() sudah dilakukan di client_websocket_endpoint.
+        stale_ws = []
         async with self.lock:
+            # Lepas koneksi lama pengguna ini yang sudah tidak mengirim heartbeat; kursinya
+            # (termasuk Pilot) diwarisi koneksi baru, dan tidak ikut dihitung batas 3 perangkat.
+            now = time.time()
+            inherit_pilot = False
+            for u in ([self.pilot] if self.pilot else []) + list(self.spectators) + list(self.queue):
+                if u["username"] != username or now - u["last_seen"] <= STALE_RECONNECT_S:
+                    continue
+                stale_ws.append(u["ws"])
+                if u is self.pilot:
+                    self.pilot = None
+                    inherit_pilot = True
+                elif u in self.spectators:
+                    self.spectators.remove(u)
+                else:
+                    self.queue.remove(u)
+
             if self.get_user_connection_count(username) >= 3:
                 try:
                     await websocket.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": "MAX_DEVICES_REACHED"}))
@@ -1271,7 +1292,7 @@ class RoomManager:
             self._reset_timers(user_data)
             assigned_role = ""
             
-            if self.pilot is None:
+            if self.pilot is None or inherit_pilot:
                 self.pilot = user_data
                 assigned_role = "PILOT"
             elif len(self.spectators) < MAX_SPECTATORS:
@@ -1280,7 +1301,13 @@ class RoomManager:
             else:
                 self.queue.append(user_data)
                 assigned_role = "QUEUED"
-        
+
+        for old in stale_ws:
+            try:
+                await asyncio.wait_for(old.close(code=1000), 2.0)
+            except Exception:
+                pass
+
         try:
             await websocket.send_text(json.dumps({"event": "ROLE_ASSIGNED", "role": assigned_role}))
         except Exception:

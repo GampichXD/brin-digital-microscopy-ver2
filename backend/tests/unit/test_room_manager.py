@@ -192,3 +192,46 @@ def test_R13_make_queue_admin_tidak_langsung_dipromosikan_lagi():
         assert room.pilot is None or room.pilot["ws"] is not s[0]
         assert room.get_role(s[0]) == "QUEUED"
     run(go())
+
+
+def test_R14_sambung_ulang_setelah_hp_tidur_mewarisi_kursi_pilot():
+    """HP tidur: koneksi lama tidak lagi mengirim heartbeat. Saat halaman menyambung ulang,
+    koneksi lama dilepas dan kursi Pilot pindah ke koneksi baru, bukan turun jadi Spectator."""
+    async def go():
+        room, s = await _room(2)               # u0 Pilot, u1 Spectator
+        _age(room.pilot, seen=60)               # u0 diam 60 s (layar HP mati)
+        baru = FakeWS("u0")
+        await room.connect(baru, "u0", "OPERATOR")
+        assert room.pilot["ws"] is baru
+        assert baru.roles()[-1]["role"] == "PILOT"
+        assert s[0].closed == 1000              # koneksi lama ditutup
+        assert room.get_role(s[1]) == "SPECTATOR"
+        await room.disconnect(s[0])             # handler lama selesai belakangan: tidak mengganggu
+        assert room.pilot["ws"] is baru
+    run(go())
+
+
+def test_R15_perangkat_lain_yang_masih_hidup_tidak_dilepas():
+    """Akun yang sama di dua perangkat aktif: perangkat kedua tidak menendang yang pertama."""
+    async def go():
+        room = RoomManager()
+        hp, laptop = FakeWS("sama"), FakeWS("sama")
+        await room.connect(hp, "sama", "OPERATOR")
+        await room.connect(laptop, "sama", "OPERATOR")
+        assert hp.closed is None
+        assert room.get_role(hp) == "PILOT" and room.get_role(laptop) == "SPECTATOR"
+    run(go())
+
+
+def test_R16_sambung_ulang_berulang_tidak_kena_batas_3_perangkat():
+    async def go():
+        room = RoomManager()
+        lama = FakeWS("sama")
+        await room.connect(lama, "sama", "OPERATOR")
+        for _ in range(5):
+            for u in ([room.pilot] if room.pilot else []) + room.spectators + room.queue:
+                _age(u, seen=60)
+            baru = FakeWS("sama")
+            assert await room.connect(baru, "sama", "OPERATOR") is not None
+            assert baru.roles()[-1]["role"] == "PILOT"
+    run(go())
