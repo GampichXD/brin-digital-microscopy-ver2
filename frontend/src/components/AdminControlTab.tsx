@@ -465,12 +465,12 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
             </div>
             <div className="space-y-4 text-xs font-bold">
               <div>
-                <div className="flex justify-between mb-1"><label className="text-[10px] text-gray-500">Shutter / Exposure</label><span className="text-pink-500">{shutterUs} µs</span></div>
-                <input aria-label="Shutter (µs)" type="range" min={100} max={33000} step={100} value={shutterUs} onChange={(e) => setShutterUs(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+                <div className="flex justify-between mb-1"><label className="text-[10px] text-gray-500">Shutter / Exposure</label><span className="text-pink-500">µs</span></div>
+                <input aria-label="Shutter (µs)" type="number" value={shutterUs || ''} onChange={(e) => setShutterUs(parseInt(e.target.value) || 0)} className={`w-full h-9 px-3 text-right rounded-lg border font-mono font-bold outline-none ${isDarkMode ? 'bg-black border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
               </div>
               <div>
-                <div className="flex justify-between mb-1"><label className="text-[10px] text-gray-500">Gain (ISO)</label><span className="text-pink-500">{gainIso}</span></div>
-                <input aria-label="Gain (ISO)" type="range" min={100} max={2200} step={50} value={gainIso} onChange={(e) => setGainIso(parseInt(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+                <div className="flex justify-between mb-1"><label className="text-[10px] text-gray-500">Gain (ISO)</label></div>
+                <input aria-label="Gain (ISO)" type="number" value={gainIso || ''} onChange={(e) => setGainIso(parseInt(e.target.value) || 0)} className={`w-full h-9 px-3 text-right rounded-lg border font-mono font-bold outline-none ${isDarkMode ? 'bg-black border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
               </div>
               <p className="text-[9px] text-gray-500 font-medium">Menerapkan = pipeline GStreamer di Jetson di-restart ±1 dtk (aelock aktif).</p>
             </div>
