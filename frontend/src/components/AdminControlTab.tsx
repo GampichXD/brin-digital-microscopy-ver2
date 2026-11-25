@@ -32,8 +32,8 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
 
   // Konfigurasi hardware
-  // Sama dengan CNC_DEFAULTS / CAMERA_DEFAULTS di backend dan tombol Default di Live Stream.
-  const defaults = { feedRate: 250, shutterUs: 15000, gainIso: 200, confThreshold: 25 };
+  // Sama dengan CNC_DEFAULTS di backend. Default kamera = eksposur otomatis; angka kamera di sini hanya posisi awal slider.
+  const defaults = { feedRate: 250, shutterUs: 8000, gainIso: 400, confThreshold: 25 };
   const [feedRate, setFeedRate] = useState<number>(defaults.feedRate);
   const [shutterUs, setShutterUs] = useState<number>(defaults.shutterUs);
   const [gainIso, setGainIso] = useState<number>(defaults.gainIso);
@@ -234,7 +234,7 @@ export default function AdminControlTab({ roomState, lastEchoGCode }: AdminContr
       if (section === 'Camera') { setShutterUs(defaults.shutterUs); setGainIso(defaults.gainIso); }
       if (section === 'AI') setConfThreshold(defaults.confThreshold);
       await fetchSystemSettings();
-      showToast(`${section} dikembalikan ke default.`, 'success');
+      showToast(section === 'Camera' ? 'Kamera dikembalikan ke eksposur otomatis.' : `${section} dikembalikan ke default.`, 'success');
     } catch { showToast(`Gagal reset ${section}.`, 'error'); }
   };
 

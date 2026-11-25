@@ -379,9 +379,6 @@ export default function LiveStreamTab({
     }
   };
 
-  // Batas aman sensor IMX477 pada 30 fps (sama dengan Hardware/Devices/camera.py).
-  const SHUTTER_MIN = 13, SHUTTER_MAX = 33000, ISO_MIN = 100, ISO_MAX = 2200;
-  const CAMERA_DEFAULT = { shutter: 15000, iso: 200 };
   const CNC_DEFAULT = { feed: 250, backlash: 0.05, acceleration: 10, settle: 500 };
 
   const errorDetail = (error: any, fallback: string) => {
@@ -399,11 +396,8 @@ export default function LiveStreamTab({
       showToast('Isi shutter dan ISO dengan angka.', 'warning');
       return;
     }
-    const shutter = Math.round(Math.min(SHUTTER_MAX, Math.max(SHUTTER_MIN, shutterRaw)));
-    const isoVal = Math.round(Math.min(ISO_MAX, Math.max(ISO_MIN, isoRaw)));
-    if (shutter !== shutterRaw || isoVal !== isoRaw) {
-      showToast(`Disesuaikan ke batas sensor: shutter ${shutter} µs, ISO ${isoVal}.`, 'info');
-    }
+    const shutter = Math.round(shutterRaw);
+    const isoVal = Math.round(isoRaw);
     setShutterSpeed(String(shutter));
     setIso(String(isoVal));
     try {
@@ -417,8 +411,15 @@ export default function LiveStreamTab({
 
   const handleApplyCameraSettings = () => applyCamera(parseFloat(shutterSpeed), parseFloat(iso));
 
-  // Default langsung diterapkan, supaya kamera kembali normal tanpa menekan Terapkan.
-  const handleDefaultCamera = () => applyCamera(CAMERA_DEFAULT.shutter, CAMERA_DEFAULT.iso);
+  // Khusus Admin: kembali ke eksposur otomatis, keadaan kamera saat main.py baru dinyalakan.
+  const handleDefaultCamera = async () => {
+    try {
+      await api.post('/api/hardware/config/camera/default');
+      showToast('Kamera dikembalikan ke eksposur otomatis. Gambar berhenti sebentar (±5 detik).', 'success');
+    } catch (error) {
+      showToast(errorDetail(error, 'Gagal mengembalikan kamera'), 'error');
+    }
+  };
 
   const handleDefaultParams = async () => {
     setFeedRate(String(CNC_DEFAULT.feed));
@@ -917,7 +918,7 @@ export default function LiveStreamTab({
               <Aperture size={16} className="mr-2 text-purple-400" /> {t('cameraParams')}
             </h3>
             <div className="flex space-x-2">
-              <button onClick={handleDefaultCamera} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t('default')}</button>
+              {currentUserRole === 'ADMIN' && <button onClick={handleDefaultCamera} className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-colors">{t('default')}</button>}
               <button onClick={handleApplyCameraSettings} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center text-[10px] font-bold shadow-sm active:scale-95 transition-colors"><Save size={14} className="mr-1" /> {t('apply')}</button>
             </div>
           </div>
@@ -944,7 +945,6 @@ export default function LiveStreamTab({
               <input aria-label="Shutter (µs)"
                 type="number"
                 readOnly={globalVirtualKeyboard}
-                min={SHUTTER_MIN} max={SHUTTER_MAX}
                 value={shutterSpeed}
                 onChange={(e) => setShutterSpeed(e.target.value)}
                 onClick={() => triggerKeypad('Shutter (µs)', shutterSpeed, setShutterSpeed)}
@@ -956,17 +956,17 @@ export default function LiveStreamTab({
               <input aria-label="ISO"
                 type="number"
                 readOnly={globalVirtualKeyboard}
-                min={ISO_MIN} max={ISO_MAX}
                 value={iso}
                 onChange={(e) => setIso(e.target.value)}
                 onClick={() => triggerKeypad('ISO', iso, setIso)}
                 className={`w-20 h-8 px-2 text-right rounded-lg border font-mono font-bold outline-none ${themeClasses.input}`}
               />
             </div>
-            <p className={`text-[10px] leading-snug ${themeClasses.textMuted}`}>
-              Rentang: shutter {SHUTTER_MIN}–{SHUTTER_MAX} µs, ISO {ISO_MIN}–{ISO_MAX}.
-              {activeCam && (activeCam.shutter_us || activeCam.iso) ? ` Aktif di kamera: ${activeCam.shutter_us ?? 'otomatis'} µs, ISO ${activeCam.iso ?? 'otomatis'}.` : ''}
-            </p>
+            {activeCam && (
+              <p className={`text-[10px] leading-snug ${themeClasses.textMuted}`}>
+                Aktif di kamera: shutter {activeCam.shutter_us ? `${activeCam.shutter_us} µs` : 'otomatis'}, ISO {activeCam.iso ?? 'otomatis'}.
+              </p>
+            )}
           </div>
         </div>
 

@@ -254,7 +254,7 @@ async def reset_config_default(section: str, db: Session = Depends(get_db)):
     if section.lower() == 'cnc':
         await _push_cnc(dict(CNC_DEFAULTS))
     elif section.lower() == 'camera':
-        await publish_hardware_command({"action": "APPLY_CAMERA_SETTINGS", **CAMERA_DEFAULTS})
+        await publish_hardware_command({"action": "APPLY_CAMERA_SETTINGS", "reset": True})
 
     return {"message": f"Config {section} reset to default"}
 
@@ -385,7 +385,6 @@ async def calibrate_flatfield(mode: str = Query(..., pattern="^(flat|dark)$")):
 
 # Nilai bawaan tunggal untuk web (Live Stream dan Admin Control) dan Jetson.
 CNC_DEFAULTS = {"feed_rate": 250.0, "backlash": 0.05, "acceleration": 10.0, "settle_time": 500}
-CAMERA_DEFAULTS = {"shutter_speed": 15000, "iso": 200}
 _CNC_KEYS = {"feed_rate": "feedRate", "backlash": "backlash", "acceleration": "acceleration", "settle_time": "settle_time"}
 
 

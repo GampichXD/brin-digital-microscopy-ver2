@@ -51,7 +51,7 @@ const STEPS: Step[] = [
     tab: 'Live Stream',
     target: { sel: '[data-tour="live-camera"]' },
     title: 'Pengaturan kamera',
-    body: 'Shutter 13–33.000 µs dan ISO 100–2.200. Setelah Terapkan, gambar berhenti sekitar 5 detik selama kamera dinyalakan ulang. Tombol Default langsung mengembalikan pengaturan bawaan.',
+    body: 'Atur shutter dan ISO lalu tekan Terapkan. Gambar berhenti sekitar 5 detik selama kamera dinyalakan ulang.',
   },
   {
     tab: 'Live Stream',
